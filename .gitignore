@@ -1,0 +1,17 @@
+# Compiled binary / build output
+/extractor
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Go
+vendor/
+
+# IDE
+.idea/
+*.iml
+
+# OS
+.DS_Store
