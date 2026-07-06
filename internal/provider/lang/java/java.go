@@ -1,40 +1,126 @@
 // Package java is the shared Java LANGUAGE layer of the provider seam. It owns
-// Java parsing and the language-generic node type; framework providers (Spring
-// today, Micronaut next) declare rules over it and never parse Java themselves.
-// A DTO is a DTO regardless of framework, so this layer is reused as-is by every
-// Java framework provider.
+// Java parsing (tree-sitter) and the language-generic node type; framework
+// providers (Spring today, Micronaut next) declare rules over it and never parse
+// Java themselves. A DTO is a DTO regardless of framework, so this layer is
+// reused as-is by every Java framework provider.
 package java
 
-import "github.com/farhadamjady/service-discovery/internal/provider"
+import (
+	"context"
 
-// Parser parses Java sources. It will produce a tree-sitter AST
-// (smacker/go-tree-sitter + Java grammar, cgo); until that lands it carries the
-// raw source so the pipeline runs end to end.
+	sitter "github.com/smacker/go-tree-sitter"
+	tsjava "github.com/smacker/go-tree-sitter/java"
+
+	"github.com/farhadamjady/service-discovery/internal/provider"
+)
+
+// Parser parses Java sources into a tree-sitter AST. A parser is not safe for
+// concurrent use, so Parse constructs a fresh one per file; parsing is not yet a
+// hot path, and this keeps future parallel collection trivially safe.
 type Parser struct{}
 
 // NewParser returns the shared Java parser.
 func NewParser() *Parser { return &Parser{} }
 
 func (*Parser) Parse(path string, src []byte) (provider.ParsedFile, error) {
-	return &File{path: path, Src: src}, nil
+	p := sitter.NewParser()
+	p.SetLanguage(tsjava.GetLanguage())
+	tree, err := p.ParseCtx(context.Background(), nil, src)
+	if err != nil {
+		return nil, err
+	}
+	return &File{path: path, src: src, tree: tree}, nil
 }
 
 // File is the concrete ParsedFile for KindJava. Detector handlers and indexers
-// type-assert provider.ParsedFile to *java.File. It gains the tree-sitter tree
-// when the real parser lands.
+// type-assert provider.ParsedFile to *java.File, then walk from Root.
 type File struct {
 	path string
-	Src  []byte
-	// Tree *sitter.Tree — added with the tree-sitter parser
+	src  []byte
+	tree *sitter.Tree
 }
 
 func (f *File) Path() string            { return f.path }
 func (f *File) Kind() provider.FileKind { return provider.KindJava }
 
-// Node is the concrete ASTNode for Java: handlers type-assert
-// provider.ASTNode to java.Node. It will wrap a *sitter.Node plus its owning
-// File (tree-sitter nodes need the source to yield text); declared now so
-// handler signatures are stable across the seam.
+// Src is the original source; node text is sliced out of it by byte offset.
+func (f *File) Src() []byte { return f.src }
+
+// Root is the top of the parse tree (a "program" node).
+func (f *File) Root() Node { return Node{inner: f.tree.RootNode(), file: f} }
+
+// Close releases the tree-sitter tree's C-allocated memory. Safe to call once
+// detection and the schema pass no longer need the file.
+func (f *File) Close() {
+	if f.tree != nil {
+		f.tree.Close()
+	}
+}
+
+// Node is the concrete ASTNode for Java: handlers type-assert provider.ASTNode
+// to java.Node. It is a value wrapping a tree-sitter node plus its owning File
+// (node text is a slice of the file source). The zero Node is invalid; guard
+// with Valid.
 type Node struct {
-	// inner *sitter.Node; file *File — added with the tree-sitter parser
+	inner *sitter.Node
+	file  *File
+}
+
+// Valid reports whether n refers to a real node (accessors on an invalid node
+// return zero values, never panic).
+func (n Node) Valid() bool { return n.inner != nil }
+
+// Type is the tree-sitter grammar node type, e.g. "class_declaration",
+// "method_declaration", "annotation", "string_literal".
+func (n Node) Type() string {
+	if n.inner == nil {
+		return ""
+	}
+	return n.inner.Type()
+}
+
+// Named reports whether this is a named node (not an anonymous token like "{").
+func (n Node) Named() bool { return n.inner != nil && n.inner.IsNamed() }
+
+// Text is the source text this node spans.
+func (n Node) Text() string {
+	if n.inner == nil {
+		return ""
+	}
+	return n.inner.Content(n.file.src)
+}
+
+// NamedChildCount / NamedChild iterate the named children (skipping punctuation).
+func (n Node) NamedChildCount() int {
+	if n.inner == nil {
+		return 0
+	}
+	return int(n.inner.NamedChildCount())
+}
+
+func (n Node) NamedChild(i int) Node {
+	if n.inner == nil {
+		return Node{}
+	}
+	return Node{inner: n.inner.NamedChild(i), file: n.file}
+}
+
+// ChildByFieldName returns the child under a grammar field (e.g. "name",
+// "body", "type"), or an invalid Node if absent.
+func (n Node) ChildByFieldName(field string) Node {
+	if n.inner == nil {
+		return Node{}
+	}
+	return Node{inner: n.inner.ChildByFieldName(field), file: n.file}
+}
+
+// Walk calls fn for n and every descendant, pre-order. Returning false from fn
+// prunes that node's subtree. Traversal order is deterministic (child index).
+func (n Node) Walk(fn func(Node) bool) {
+	if n.inner == nil || !fn(n) {
+		return
+	}
+	for i := 0; i < n.NamedChildCount(); i++ {
+		n.NamedChild(i).Walk(fn)
+	}
 }
