@@ -7,7 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/farhadamjady/service-discovery/internal/exitcode"
 )
+
+// testKey satisfies the presence-only auth gate so pipeline tests can run
+// without real validation (auth is a stub until PR 23).
+const testKey = "test-key"
 
 // springRepo lays out a minimal Spring Boot service the detector recognizes.
 func springRepo(t *testing.T) string {
@@ -27,7 +33,7 @@ func springRepo(t *testing.T) string {
 func TestRunEmptyGraph(t *testing.T) {
 	root := springRepo(t)
 
-	svc, err := Run(context.Background(), Options{Root: root})
+	svc, err := Run(context.Background(), Options{Root: root, APIKey: testKey})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -52,7 +58,7 @@ func TestRunEmptyGraph(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc2, err := Run(context.Background(), Options{Root: root})
+	svc2, err := Run(context.Background(), Options{Root: root, APIKey: testKey})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,13 +76,32 @@ func TestRunEmptyGraph(t *testing.T) {
 }
 
 // TestRunFailsLoudOnNoProvider pins the fail-loud detection contract: a repo no
-// provider recognizes is a hard error, not a silent empty graph.
+// provider recognizes is a hard error (exit 2), not a silent empty graph.
 func TestRunFailsLoudOnNoProvider(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "main.go", "package main")
 
-	if _, err := Run(context.Background(), Options{Root: root}); err == nil {
+	_, err := Run(context.Background(), Options{Root: root, APIKey: testKey})
+	if err == nil {
 		t.Fatal("expected detection error for a non-Spring repo, got nil")
+	}
+	if code := exitcode.Of(err); code != int(exitcode.Detect) {
+		t.Errorf("exit code = %d, want %d (detect)", code, exitcode.Detect)
+	}
+}
+
+// TestRunRequiresKey pins the fail-closed auth gate: no key means nothing runs.
+// The error must carry exit 10 AND fire before detection (a Spring repo with no
+// key still fails with the auth code, not by scanning).
+func TestRunRequiresKey(t *testing.T) {
+	root := springRepo(t)
+
+	_, err := Run(context.Background(), Options{Root: root}) // no APIKey
+	if err == nil {
+		t.Fatal("expected missing-key error, got nil")
+	}
+	if code := exitcode.Of(err); code != int(exitcode.AuthMissingKey) {
+		t.Errorf("exit code = %d, want %d (missing key)", code, exitcode.AuthMissingKey)
 	}
 }
 

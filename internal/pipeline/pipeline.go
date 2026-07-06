@@ -16,11 +16,13 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/farhadamjady/service-discovery/internal/auth"
 	"github.com/farhadamjady/service-discovery/internal/detect"
 	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/provider"
 	"github.com/farhadamjady/service-discovery/internal/registry"
 	"github.com/farhadamjady/service-discovery/internal/scan"
+	"github.com/farhadamjady/service-discovery/internal/submit"
 )
 
 // Options carries everything a run needs. APIKey/SubmitURL/DryRun are consumed
@@ -94,7 +96,7 @@ func Run(ctx context.Context, opt Options) (*model.Service, error) {
 	// marshal-phase ordering: deterministic identity + byte-stable output.
 	model.Sort(svc)
 
-	if err := submit(ctx, opt, svc); err != nil {
+	if err := submitGraph(ctx, opt, svc); err != nil {
 		return nil, err
 	}
 	return svc, nil
@@ -111,10 +113,13 @@ func Marshal(svc *model.Service) ([]byte, error) {
 	return append(b, '\n'), nil
 }
 
-// authGate validates the API key before anything is scanned (fail-closed).
-// The real phone-home validation lands with internal/auth; until the CLI wires
-// it, the pipeline does not enforce a key.
-func authGate(ctx context.Context, opt Options) error { return nil }
+// authGate validates the API key before anything is scanned (fail-closed): no
+// valid key means nothing runs. auth.Validate is a presence-only stub for now;
+// the phone-home validation lands in PR 23.
+func authGate(ctx context.Context, opt Options) error {
+	_, err := auth.Validate(ctx, opt.APIKey)
+	return err
+}
 
 // collect walks the repo per FileSpec and buckets files by kind. Globs within a
 // group may overlap, so paths are deduped; each bucket is sorted so every later
@@ -188,7 +193,16 @@ func detectEdges(p provider.Provider, parsed map[string]provider.ParsedFile, idx
 // edges exist. Lands with the schema ladder.
 func schemaPass(idx *provider.Index, svc *model.Service) error { return nil }
 
-// submit POSTs the full graph to the ingest API with the key, where the backend
-// re-validates it (the robust gate). Lands with internal/submit; DryRun always
-// skips it.
-func submit(ctx context.Context, opt Options, svc *model.Service) error { return nil }
+// submitGraph POSTs the full graph to the ingest API with the key, where the
+// backend re-validates it (the robust gate). Skipped when --dry-run is set or no
+// submit URL is configured. submit.Submit is a stub until PR 24.
+func submitGraph(ctx context.Context, opt Options, svc *model.Service) error {
+	if opt.DryRun || opt.SubmitURL == "" {
+		return nil
+	}
+	body, err := Marshal(svc)
+	if err != nil {
+		return err
+	}
+	return submit.Submit(ctx, opt.SubmitURL, opt.APIKey, body)
+}

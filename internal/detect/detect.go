@@ -5,9 +5,9 @@
 package detect
 
 import (
-	"fmt"
 	"sort"
 
+	"github.com/farhadamjady/service-discovery/internal/exitcode"
 	"github.com/farhadamjady/service-discovery/internal/provider"
 )
 
@@ -37,13 +37,14 @@ func Detect(root string, fs provider.FileTree, providers []provider.Provider) (p
 	}
 
 	if len(cands) == 0 {
-		return nil, ModuleInfo{}, fmt.Errorf("detect: no language provider matched repo at %q", root)
+		return nil, ModuleInfo{}, exitcode.Errorf(exitcode.Detect,
+			"detect: no framework provider matched repo at %q", root)
 	}
 
 	sort.SliceStable(cands, func(i, j int) bool { return cands[i].score > cands[j].score })
 
 	if len(cands) >= 2 && cands[0].score == cands[1].score {
-		return nil, ModuleInfo{}, fmt.Errorf(
+		return nil, ModuleInfo{}, exitcode.Errorf(exitcode.Detect,
 			"detect: ambiguous stack at %q — %q and %q both matched with score %d",
 			root, cands[0].p.Name(), cands[1].p.Name(), cands[0].score)
 	}
