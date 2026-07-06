@@ -7,13 +7,12 @@ import (
 
 // restDetector extracts REST endpoints from @RestController classes.
 //
-// TODO(rest): compose the endpoint path from the class-level @RequestMapping and
-// the method-level @GetMapping/@PostMapping/etc. Keep the HTTP verb, preserve
-// path variables (/users/{id}), and never emit a method path in isolation.
+// Rules (to come): one query capturing the class-level @RequestMapping and the
+// method-level @GetMapping/@PostMapping/etc TOGETHER, so the handler composes
+// the full path (class + method), keeps the HTTP verb, preserves path variables
+// (/users/{id}), and never emits a method path in isolation.
 type restDetector struct{}
 
-func (restDetector) Name() string { return "spring.rest" }
-
-func (restDetector) Detect(ctx *provider.ScanContext, svc *model.Service) error {
-	return nil
-}
+func (restDetector) Name() string             { return "spring.rest" }
+func (restDetector) Protocol() model.Protocol { return model.ProtoREST }
+func (restDetector) Rules() []provider.Rule   { return nil }

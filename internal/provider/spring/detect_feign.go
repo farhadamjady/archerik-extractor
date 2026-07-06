@@ -7,13 +7,12 @@ import (
 
 // feignDetector extracts outbound HTTP dependencies from @FeignClient interfaces.
 //
-// TODO(feign): emit the raw logical name (name="payment-service") as TargetName —
-// NOT a service_id. Resolve url="${payment.service.url}" through ctx.Config; if it
-// resolves, set URL + Confidence=Likely/Confirmed, else Resolved=false + Uncertain.
+// Rules (to come): emit the raw logical name (name="payment-service") as
+// TargetName — NOT a service_id. Resolve url="${payment.service.url}" through
+// Index.Config; if it resolves, set URL + Confidence per the mapping table,
+// else Resolved=false + Uncertain.
 type feignDetector struct{}
 
-func (feignDetector) Name() string { return "spring.feign" }
-
-func (feignDetector) Detect(ctx *provider.ScanContext, svc *model.Service) error {
-	return nil
-}
+func (feignDetector) Name() string             { return "spring.feign" }
+func (feignDetector) Protocol() model.Protocol { return model.ProtoREST }
+func (feignDetector) Rules() []provider.Rule   { return nil }

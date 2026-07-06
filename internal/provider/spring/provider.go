@@ -1,13 +1,15 @@
-// Package spring is the Spring Boot (Java) provider — the only provider in the
-// MVP. It implements provider.Provider and provider.ConfigBuilder. Everything
-// Spring-specific (annotation detectors, application.yml resolution, tree-sitter
-// Java parsing) lives under this package, behind the provider seam.
+// Package spring is the Spring Boot framework provider — the only provider in
+// the MVP (Micronaut planned next). It owns Spring's detection markers, the
+// annotation query rules, and Spring config idioms, and delegates Java parsing
+// to the shared language layer (provider/lang/java), per the framework-over-
+// language seam.
 package spring
 
 import (
 	"bytes"
 
 	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/service-discovery/internal/provider/lang/java"
 )
 
 // Provider detects and extracts from Spring Boot services.
@@ -44,18 +46,27 @@ func (*Provider) Match(root string, fs provider.FileTree) (bool, int) {
 	return score > 0, score
 }
 
-// FileSpec lists what to read: Java sources, Spring config (all profiles),
-// OpenAPI specs, and Kafka schema files. Test, generated, and build output are
-// excluded so they don't inflate the graph with false edges.
+// FileSpec groups what to read by kind: Java sources, Spring config (all
+// profiles), and Kafka schema files. KindDeployConfig globs (Helm values*.yaml
+// + templates, K8s manifests, .env) land with the DeployConfig indexer.
+// Test, generated, and build output are excluded so they don't inflate the
+// graph with false edges.
 func (*Provider) FileSpec() provider.FileSpec {
 	return provider.FileSpec{
-		Include: []string{
-			"**/*.java",
-			"**/application*.yml",
-			"**/application*.yaml",
-			"**/application*.properties",
-			"**/openapi*.yaml", "**/openapi*.yml", "**/openapi*.json",
-			"**/*.avsc", "**/*.proto",
+		Groups: []provider.FileGroup{
+			{Kind: provider.KindJava, Include: []string{
+				"**/*.java",
+			}},
+			{Kind: provider.KindSpringConfig, Include: []string{
+				"**/application*.yml",
+				"**/application*.yaml",
+				"**/application*.properties",
+			}},
+			{Kind: provider.KindKafkaSchema, Include: []string{
+				"**/*.avsc",
+				"**/*.proto",
+				"**/*.schema.json",
+			}},
 		},
 		Exclude: []string{
 			"**/src/test/**",
@@ -66,10 +77,25 @@ func (*Provider) FileSpec() provider.FileSpec {
 	}
 }
 
-func (*Provider) Parser() provider.Parser { return treeSitterParser{} }
+// Parsers routes each collected kind. Java goes to the shared language layer;
+// config and schema files are carried raw — their real parsing belongs to the
+// ConfigResolver indexer and the Kafka contract parsers respectively.
+func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
+	return map[provider.FileKind]provider.Parser{
+		provider.KindJava:         java.NewParser(),
+		provider.KindSpringConfig: rawParser{kind: provider.KindSpringConfig},
+		provider.KindKafkaSchema:  rawParser{kind: provider.KindKafkaSchema},
+	}
+}
 
-// Detectors run in dependency order (build-order step 3): Feign -> RestTemplate
-// -> WebClient -> Kafka -> DB, with REST endpoints first.
+// Indexers build the shared cross-file Index. They land one at a time:
+// ConfigResolver (Spring application.*), DeployConfig (Helm/K8s/.env),
+// SymbolIndex (constants), TypeIndex (DTOs), SchemaSources (contract files).
+func (*Provider) Indexers() []provider.Indexer { return nil }
+
+// Detectors, one concern each, in build order: REST endpoints first, then the
+// HTTP clients, then Kafka. DB detection is deferred post-MVP and OpenAPI is
+// cut, so neither appears here.
 func (*Provider) Detectors() []provider.Detector {
 	return []provider.Detector{
 		restDetector{},
@@ -77,6 +103,5 @@ func (*Provider) Detectors() []provider.Detector {
 		restTemplateDetector{},
 		webClientDetector{},
 		kafkaDetector{},
-		dbDetector{},
 	}
 }

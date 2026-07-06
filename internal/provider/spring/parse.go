@@ -2,22 +2,25 @@ package spring
 
 import "github.com/farhadamjady/service-discovery/internal/provider"
 
-// treeSitterParser will parse Java into a tree-sitter AST that the detectors
-// query for annotations, class/method nesting, and DTO types.
-//
-// TODO(parse): wire github.com/smacker/go-tree-sitter + the Java grammar (cgo).
-// Until then this is a stub that carries raw source so the pipeline compiles and
-// runs end to end.
-type treeSitterParser struct{}
+// rawParser carries raw bytes for kinds whose real parsing lives elsewhere:
+// SpringConfig files are parsed by the ConfigResolver indexer, KafkaSchema
+// files by the contract parsers of the Kafka schema pass. Keeping them raw
+// here preserves the one-parser-per-kind routing without duplicating parsing.
+type rawParser struct{ kind provider.FileKind }
 
-func (treeSitterParser) Parse(path string, src []byte) (provider.ParsedFile, error) {
-	return &JavaFile{Path: path, Source: src}, nil
+func (p rawParser) Parse(path string, src []byte) (provider.ParsedFile, error) {
+	return &rawFile{path: path, kind: p.kind, src: src}, nil
 }
 
-// JavaFile is the provider's concrete ParsedFile. Detectors type-assert
-// provider.ParsedFile to *JavaFile. It will gain the tree-sitter root node.
-type JavaFile struct {
-	Path   string
-	Source []byte
-	// Tree *sitter.Tree // TODO(parse)
+// rawFile is the concrete ParsedFile for raw-carried kinds.
+type rawFile struct {
+	path string
+	kind provider.FileKind
+	src  []byte
 }
+
+func (f *rawFile) Path() string            { return f.path }
+func (f *rawFile) Kind() provider.FileKind { return f.kind }
+
+// Src exposes the raw bytes to this provider's indexers.
+func (f *rawFile) Src() []byte { return f.src }
