@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/farhadamjady/super-discovery/internal/provider"
+	"github.com/farhadamjady/service-discovery/internal/provider"
 )
 
 // ModuleInfo records what detection concluded about the repo.

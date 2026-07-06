@@ -7,7 +7,7 @@
 // internal/registry.Default(). Nothing in model, detect, scan, or pipeline changes.
 package provider
 
-import "github.com/farhadamjady/super-discovery/internal/model"
+import "github.com/farhadamjady/service-discovery/internal/model"
 
 // Provider bundles everything a single language/framework contributes.
 type Provider interface {

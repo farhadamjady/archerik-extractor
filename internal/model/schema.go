@@ -10,9 +10,15 @@ package model
 //   - Optional<String>    -> {Type: "String", Nullable: true}
 //   - Page<Invoice>       -> unwrapped to the inner type
 type Schema struct {
-	Name      string   `json:"name,omitempty"`
-	Type      string   `json:"type"` // "string","object","array","map", or a DTO name
-	Nullable  bool     `json:"nullable,omitempty"`
+	Name string `json:"name,omitempty"`
+	Type string `json:"type"` // "string","object","array","map", or a DTO name
+
+	// Nullable: may the VALUE be null. Requiredness (Required): must the field be
+	// PRESENT. Two orthogonal axes. Required is emitted ALWAYS (no omitempty) — a
+	// zero value would erase the "unknown" vs "optional" distinction the backend needs.
+	Nullable bool         `json:"nullable,omitempty"`
+	Required Requiredness `json:"required"`
+
 	Items     string   `json:"items,omitempty"`      // element type for arrays
 	KeyType   string   `json:"key_type,omitempty"`   // for maps
 	ValueType string   `json:"value_type,omitempty"` // for maps

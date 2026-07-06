@@ -1,8 +1,8 @@
 package spring
 
 import (
-	"github.com/farhadamjady/super-discovery/internal/model"
-	"github.com/farhadamjady/super-discovery/internal/provider"
+	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/service-discovery/internal/provider"
 )
 
 // restDetector extracts REST endpoints from @RestController classes.

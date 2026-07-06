@@ -1,6 +1,6 @@
 package spring
 
-import "github.com/farhadamjady/super-discovery/internal/provider"
+import "github.com/farhadamjady/service-discovery/internal/provider"
 
 // BuildConfig parses Spring configuration (application.yml/.yaml/.properties and
 // profile variants) into a placeholder resolver. Detectors resolve ${...} through

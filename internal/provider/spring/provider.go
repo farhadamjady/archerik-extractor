@@ -7,7 +7,7 @@ package spring
 import (
 	"bytes"
 
-	"github.com/farhadamjady/super-discovery/internal/provider"
+	"github.com/farhadamjady/service-discovery/internal/provider"
 )
 
 // Provider detects and extracts from Spring Boot services.

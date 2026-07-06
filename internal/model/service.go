@@ -43,6 +43,7 @@ type Endpoint struct {
 	Path       string          `json:"path"`
 	Request    *Schema         `json:"request,omitempty"`
 	Response   *Schema         `json:"response,omitempty"`
+	Protocol   Protocol        `json:"protocol"` // rest for REST endpoints
 	Detection  DetectionMethod `json:"detection"`
 	Confidence Confidence      `json:"confidence"`
 }
@@ -53,10 +54,16 @@ type Dependency struct {
 	// It is NOT a service_id — the backend maps name -> service_id. Don't guess.
 	TargetName string          `json:"target_name"`
 	URL        string          `json:"url,omitempty"` // resolved when possible
+	Protocol   Protocol        `json:"protocol"`      // rest for HTTP clients
 	Detection  DetectionMethod `json:"detection"`
 	Confidence Confidence      `json:"confidence"`
 	// Resolved is false when the target could not be resolved (unknown/external).
 	Resolved bool `json:"resolved"`
+	// Conditional marks one of several candidate targets from a single call site
+	// (e.g. a ternary URL or divergent env overlays). CandidateGroup ties the
+	// alternatives together so the backend knows they are one-of-N, not all taken.
+	Conditional    bool   `json:"conditional,omitempty"`
+	CandidateGroup string `json:"candidate_group,omitempty"`
 }
 
 // KafkaEdge is a produced or consumed topic. Direction is implied by which slice
@@ -65,8 +72,14 @@ type KafkaEdge struct {
 	Topic      string          `json:"topic"`
 	Resolved   bool            `json:"resolved"`
 	Schema     *Schema         `json:"schema,omitempty"`
+	Protocol   Protocol        `json:"protocol"` // kafka
 	Detection  DetectionMethod `json:"detection"`
 	Confidence Confidence      `json:"confidence"`
+	// Conditional/CandidateGroup: as on Dependency — one of several candidate
+	// topics from a single call site (e.g. a topic resolved through divergent
+	// env overlays).
+	Conditional    bool   `json:"conditional,omitempty"`
+	CandidateGroup string `json:"candidate_group,omitempty"`
 }
 
 // Database is a datastore this service uses (JPA entities/repositories, JDBC).

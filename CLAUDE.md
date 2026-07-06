@@ -11,8 +11,13 @@ requires a per-user **API key** and network — see "Access & licensing" below.
 ## Scope
 - Languages/frameworks: **Spring Boot (Java), Kafka.** Nothing else. (Micronaut planned next framework.)
 - gRPC: later milestone, not now.
-- Cut from MVP: **DB detection (JPA/JDBC), OpenAPI/Swagger ingestion**, K8s parsing, LLM for
-  ambiguous cases, version history, schema versioning.
+- **Externalized deployment config IS in scope** as a placeholder-resolution SOURCE (static,
+  best-effort): Helm (`values*.yaml` + chart-template `env:` blocks), rendered K8s manifests
+  (ConfigMap/Deployment env), and `.env`-style files. Big-company Spring services read URLs/topics
+  from here, not from `application.yml` — see "Coverage rules".
+- Cut from MVP: **DB detection (JPA/JDBC), OpenAPI/Swagger ingestion**, full K8s workload/topology
+  parsing, **running `helm`/`kustomize`** (we trace statically, never render), Spring Cloud Config
+  Server + secret managers (runtime sources), LLM for ambiguous cases, version history, schema versioning.
 
 ## Access & licensing
 The tool is **not free** — gated by a per-user **API key**.
@@ -72,8 +77,14 @@ The challenge is NOT finding annotations. It's that targets are rarely hardcoded
 
 1. **Config indirection** — biggest source of misses. URLs/topics are usually placeholders:
    `@FeignClient(url="${payment.service.url}")`, `@KafkaListener(topics="${orders.topic}")`.
-   Parse `application.yml` / `application.properties` (and profile variants), resolve placeholders
-   BEFORE emitting an edge. Can't resolve → emit as unknown/external, confidence = uncertain.
+   Resolve through a **LAYERED** config source BEFORE emitting an edge:
+   (a) Spring `application.yml`/`.properties` (+ active profiles);
+   (b) **externalized deployment config** — Helm `values*.yaml` traced through chart-template
+   `env:` blocks (`{{ .Values.x }}` → env-var name → Spring property), rendered K8s
+   ConfigMap/Deployment env, and `.env` files;
+   unified by **relaxed binding** (`payment.service.url` ≡ `PAYMENT_SERVICE_URL`). A value found
+   only in the deploy layer caps at `likely`; divergent env overlays (staging vs prod) → one edge
+   per candidate. Can't resolve (runtime/secret/CI-injected) → unknown/external, confidence = uncertain.
 
 2. **REST path composition** — endpoint path = class-level `@RequestMapping` + method-level
    `@GetMapping`/`@PostMapping`/etc. Concatenate both. Keep the HTTP verb. Preserve path

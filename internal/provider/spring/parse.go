@@ -1,6 +1,6 @@
 package spring
 
-import "github.com/farhadamjady/super-discovery/internal/provider"
+import "github.com/farhadamjady/service-discovery/internal/provider"
 
 // treeSitterParser will parse Java into a tree-sitter AST that the detectors
 // query for annotations, class/method nesting, and DTO types.

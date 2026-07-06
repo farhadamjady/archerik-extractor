@@ -86,7 +86,11 @@ matches OR a score tie (ambiguous) — a hard CI failure beats silent misdetecti
 
 ## 7. Index phase (cross-file, built now)
 Shared `Index{ Config, Types, Symbols, Schemas }`, built by Indexers before detectors run:
-- `ConfigResolver` — merged application.yml/.properties (+ profiles), `${...}` resolution.
+- `ConfigResolver` — **LAYERED**: (1) Spring application.yml/.properties (+ active profiles);
+  (2) **DeployConfig layer** — Helm `values*.yaml` traced through chart-template `env:` blocks,
+  rendered K8s ConfigMap/Deployment env, `.env` files; unified by relaxed binding
+  (`a.b.c` ≡ `A_B_C`). `${...}` resolution across both layers; deploy-layer hits cap at `likely`;
+  divergent overlays → multiple candidates. See §8.5.
 - `TypeIndex` — Java DTOs (fields, getters, ctor params, superclass, annotations, imports).
 - `SymbolIndex` — constants (`OrderTopics.ORDERS -> "orders"`).
 - `SchemaSources` — Kafka schema files (Avro/Proto/JSON-Schema).
@@ -96,8 +100,10 @@ non-Java parsing; Java query handlers just look values up.
 ## 8. Value / target resolution (URLs, topics, later gRPC/WS)
 Shared, **protocol-agnostic** resolver. Detectors hand it an AST expression node and
 get a `ValueSet` back. Recovers **in-code** dynamic targets (hardcoded, concatenated,
-conditional) — complements config resolution. Does NOT solve externalized config
-(deploy-time env / Spring Cloud Config / K8s stays unknowable).
+conditional) — complements config resolution. Externalized deployment config (Helm
+values, rendered K8s env, `.env`) IS resolved via the DeployConfig layer (§8.5); the
+residual ceiling is runtime-only sources (Spring Cloud Config Server, secret managers,
+values injected in CI and never committed) → those stay `uncertain`.
 
 - **ValueSet lattice:** `Exact{values[]}` | `Template{segments: literals + HOLES}`
   (e.g. `http://{?}/users/{id}`) | `Unknown`; per-value confidence.
@@ -114,6 +120,42 @@ conditional) — complements config resolution. Does NOT solve externalized conf
   analysis; memoize; cycle guard; deterministic ordering.
 - Code: neutral `ValueSet`+interface in `internal/resolve`; Java evaluator in
   `provider/lang/java`, consumes the Index.
+
+## 8.5 Externalized / deployment config resolution (Helm, K8s, `.env`)
+Enterprise Spring services rarely hardcode URLs/topics in `application.yml`; the real
+values live in **deployment config** injected as env vars. This is a first-class
+resolution SOURCE, not a deferred edge case.
+
+**Resolution chain:** Spring placeholder `${PAYMENT_SERVICE_URL}` → env-var name →
+Helm `.Values` path (or K8s ConfigMap key) → literal in `values*.yaml`.
+
+**Sources parsed (new `KindDeployConfig`):**
+- Helm: `values.yaml` + overlays `values-<env>.yaml`; chart `templates/**/*.yaml`
+  Deployment `env:` blocks (map env-var name → `{{ .Values.x }}`); `Chart.yaml` identifies charts.
+- Rendered / plain K8s manifests: ConfigMap `data:`, Deployment `env:` / `envFrom:` (valid YAML).
+- `.env` / `*.env` files.
+
+**Two parse modes (Helm templates are NOT valid YAML):**
+- Rendered K8s / `.env` / `values.yaml` → real YAML / dotenv parse.
+- Helm **templates** → tolerant text scan for `env:` `name:` / `value: {{ .Values.a.b }}`
+  pairs, then resolve `.Values.a.b` against merged `values.yaml`(+overlay). We do **NOT** run
+  `helm template` (non-deterministic, needs chart deps / network). `_helpers.tpl` named
+  templates, `include` / `tpl`, Kustomize patches → best-effort; unresolved → `uncertain`.
+
+**Relaxed binding:** normalize keys so `payment.service.url` ≡ `PAYMENT_SERVICE_URL` ≡
+`payment-service-url` ≡ `paymentServiceUrl` unify across layers.
+
+**Overlay selection (mirrors profiles, D3):** `--environment` / `--values` selects overlays;
+default = base `values.yaml`. Divergent overlays for one key → **one edge per candidate**
+(`conditional` + `candidate_group`), capped `likely`.
+
+**Confidence:** deploy-layer resolution caps at `likely` (extra indirection + overlay
+assumption); a value consistent across `application.yml` and the deploy layer may stay
+`confirmed`. Unresolvable (runtime / secret / CI-only) → `uncertain`, edge still emitted.
+
+**Bounding / determinism:** same guards as §8 — depth cap on `.Values` chains, cycle guard,
+fixed overlay-merge order, deterministic candidate ordering. Topics (Kafka) resolve through
+this layer too, not just HTTP URLs.
 
 ## 9. Protocol (first-class)
 `protocol` is its own edge field, **orthogonal to `detection`**. Feign/RestTemplate/
@@ -199,10 +241,12 @@ kafka edge = topic + direction; schema tied to owner; marshal sorts deterministi
 ## 15. Scope (MVP)
 **In:** Spring Boot (Java) + Kafka. REST endpoints (@RestController), HTTP clients
 (Feign/RestTemplate/WebClient), Kafka producers/consumers, config placeholder resolution,
+**externalized deployment-config resolution (Helm values + K8s/`.env`, static best-effort, §8.5)**,
 code-derived schemas, value resolution, protocol tagging.
 **Cut/deferred:** DB detection (JPA/JDBC) · OpenAPI/Swagger ingestion · Kafka Schema
-Registry access · gRPC · WebSocket · K8s · LLM · version history · schema versioning ·
-inter-procedural value analysis · interaction-style modeling.
+Registry access · gRPC · WebSocket · full K8s workload/topology parsing · running
+`helm`/`kustomize` (we trace statically) · Spring Cloud Config Server + secret managers (runtime) ·
+LLM · version history · schema versioning · inter-procedural value analysis · interaction-style modeling.
 **Planned next:** Micronaut framework.
 
 ## 16. Build order
@@ -212,7 +256,11 @@ inter-procedural value analysis · interaction-style modeling.
 2. **Pipeline shell** — phases wired + `registry` + `cmd/extractor/main.go` emitting
    valid empty JSON end-to-end; auth-gate + submit stubs.
 3. **tree-sitter Java parser + QueryEngine** — one query running against a real file.
-4. **Config indexer + ConfigResolver** — placeholder resolution.
+4. **Config indexer + ConfigResolver** — Spring application.yml/.properties + active profiles;
+   chained placeholder resolution (cap 10).
+4b. **DeployConfig indexer (§8.5)** — Helm `values*.yaml` + chart-template `env:` trace, K8s
+    ConfigMap/Deployment env, `.env`; relaxed-binding bridge; overlay candidates. Extends the
+    same layered ConfigResolver.
 5. **Value resolver** (`internal/resolve` + Java evaluator).
 6. **Detectors, one at a time:** REST → Feign → RestTemplate → WebClient → Kafka.
 7. **TypeIndex/SymbolIndex + schema pass** (REST ladder + Kafka files-first).
@@ -227,8 +275,9 @@ inter-procedural value analysis · interaction-style modeling.
 
 ## 18. Coverage expectations (priors, not measured)
 Idiomatic Spring MVC: ~85–95% of edges/endpoints found, ~75–85% confidently resolved.
-Platform-heavy (WebFlux functional routing, Spring Cloud Stream, externalized config):
-can drop to ~50–65%. The resolution ceiling is mostly externalized config, not parsing.
+Platform-heavy (WebFlux functional routing, Spring Cloud Stream): ~50–65%. Externalized
+config that lives in Helm / K8s / `.env` is now **recovered** (§8.5), moving the ceiling up;
+the residual ceiling is runtime-only config (Config Server, secrets, CI-injected values).
 Highest-leverage later additions: meta-annotation resolution, Spring Cloud Stream,
 WebFlux functional routing. Recommended: build a small labeled benchmark (PetClinic +
 Spring Cloud/Kafka samples) to turn priors into measured precision/recall.
@@ -249,6 +298,7 @@ Spring Cloud/Kafka samples) to turn priors into measured precision/recall.
 | Schema Registry | Deferred |
 | DB detection | Deferred |
 | Value resolution | Intra-procedural; one edge per candidate |
+| Externalized config | Helm/K8s/`.env` resolved statically, best-effort (§8.5); runtime/secrets deferred |
 | Protocol | First-class field, orthogonal to detection; style deferred |
 | Access | Paid; per-user API key; phone-home fail-closed; no free local-only |
 | Incremental | Full scan + delta at backend; deterministic identity |

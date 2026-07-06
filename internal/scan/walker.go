@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/farhadamjady/super-discovery/internal/provider"
+	"github.com/farhadamjady/service-discovery/internal/provider"
 )
 
 // osFileTree implements provider.FileTree over the local filesystem.
