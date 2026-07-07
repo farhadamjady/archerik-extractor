@@ -58,43 +58,68 @@ func findAnnotation(modifiers java.Node, name string) java.Node {
 	return java.Node{}
 }
 
-// annotationStringArg extracts a string value from an annotation: the positional
-// string argument, or the named value under one of keys (e.g. "value", "path").
-// Returns (value, literal, ok):
+// annotationStringValues extracts the string value(s) of an annotation argument:
+// the positional string, a positional string array ({"/a","/b"}), or the named
+// value under one of keys (e.g. "value", "path"), single or array. Returns
+// (values, literal, ok):
 //   - ok=false: no such argument at all (a marker annotation, or key absent).
-//   - literal=false: an argument exists but is not a plain string literal
-//     (constant, concatenation, ${placeholder}) — the caller downgrades
-//     confidence and, later, hands the expression to the value resolver.
-func annotationStringArg(ann java.Node, keys ...string) (value string, literal, ok bool) {
+//   - literal=false: an argument exists but is not a string literal (constant,
+//     concatenation, ${placeholder}) — returned as a single raw element; the
+//     caller downgrades confidence and later hands it to the value resolver.
+//
+// Array support is what lets one @GetMapping({"/a","/b"}) expand into two
+// endpoints rather than silently dropping the second path.
+func annotationStringValues(ann java.Node, keys ...string) (values []string, literal, ok bool) {
 	args := ann.ChildByFieldName("arguments")
 	if !args.Valid() {
-		return "", true, false // marker annotation — no arguments
+		return nil, true, false // marker annotation — no arguments
 	}
 	for _, c := range namedChildren(args) {
 		switch c.Type() {
 		case "string_literal":
-			return unquote(c.Text()), true, true
+			return []string{unquote(c.Text())}, true, true
 		case "array_initializer", "element_value_array_initializer":
-			// {"/a","/b"} — MVP takes the first literal; multi-path arrays
-			// producing several endpoints are a later refinement. (Annotation
-			// array values are element_value_array_initializer, not array_initializer.)
-			if first := childByType(c, "string_literal"); first.Valid() {
-				return unquote(first.Text()), true, true
+			// Annotation array values are element_value_array_initializer, not
+			// array_initializer.
+			if vs := stringLiterals(c); len(vs) > 0 {
+				return vs, true, true
 			}
 		case "element_value_pair":
 			if contains(keys, c.ChildByFieldName("key").Text()) {
-				v := c.ChildByFieldName("value")
-				if v.Type() == "string_literal" {
-					return unquote(v.Text()), true, true
-				}
-				return v.Text(), false, true
+				return elementValues(c.ChildByFieldName("value"))
 			}
 		default:
 			// Positional non-literal (identifier, field_access, concatenation).
-			return c.Text(), false, true
+			return []string{c.Text()}, false, true
 		}
 	}
-	return "", true, false
+	return nil, true, false
+}
+
+// elementValues resolves the value node of a named annotation argument.
+func elementValues(v java.Node) (values []string, literal, ok bool) {
+	switch v.Type() {
+	case "string_literal":
+		return []string{unquote(v.Text())}, true, true
+	case "array_initializer", "element_value_array_initializer":
+		if vs := stringLiterals(v); len(vs) > 0 {
+			return vs, true, true
+		}
+		return nil, true, false
+	default:
+		return []string{v.Text()}, false, true
+	}
+}
+
+// stringLiterals collects the unquoted string literals directly under an array.
+func stringLiterals(arr java.Node) []string {
+	var out []string
+	for _, e := range namedChildren(arr) {
+		if e.Type() == "string_literal" {
+			out = append(out, unquote(e.Text()))
+		}
+	}
+	return out
 }
 
 // unquote strips surrounding double quotes from a Java string literal's text.

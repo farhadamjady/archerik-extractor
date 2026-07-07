@@ -47,32 +47,38 @@ func (restDetector) onController(mc *provider.MatchContext) {
 	if !ok || !class.Valid() {
 		return
 	}
-	base := classBasePath(class)
+	bases := classBasePaths(class)
 	body := class.ChildByFieldName("body")
 	for _, m := range namedChildren(body) {
 		if m.Type() == "method_declaration" {
-			appendMethodEndpoints(mc.Out, m, base)
+			appendMethodEndpoints(mc.Out, m, bases)
 		}
 	}
 }
 
-// classBasePath is the path prefix from a class-level @RequestMapping, or "".
-func classBasePath(class java.Node) string {
+// classBasePaths is the path prefix(es) from a class-level @RequestMapping, or
+// [""] when absent. Usually one, but a class may declare a base-path array.
+func classBasePaths(class java.Node) []string {
 	mods := childByType(class, "modifiers")
 	if !mods.Valid() {
-		return ""
+		return []string{""}
 	}
 	ann := findAnnotation(mods, "RequestMapping")
 	if !ann.Valid() {
-		return ""
+		return []string{""}
 	}
-	p, _, _ := annotationStringArg(ann, "value", "path")
-	return p
+	paths, _, ok := annotationStringValues(ann, "value", "path")
+	if !ok || len(paths) == 0 {
+		return []string{""}
+	}
+	return paths
 }
 
-// appendMethodEndpoints emits the endpoints for a single handler method: the
-// first mapping annotation it carries, composed with the class base path.
-func appendMethodEndpoints(out *model.Service, method java.Node, base string) {
+// appendMethodEndpoints emits the endpoints for a single handler method: its
+// first mapping annotation, expanded across the cartesian product of class base
+// paths, method paths, and verbs — so @GetMapping({"/a","/b"}) and method-array
+// @RequestMapping each yield every combination Spring would register.
+func appendMethodEndpoints(out *model.Service, method java.Node, bases []string) {
 	mods := childByType(method, "modifiers")
 	if !mods.Valid() {
 		return
@@ -89,20 +95,27 @@ func appendMethodEndpoints(out *model.Service, method java.Node, base string) {
 			continue
 		}
 
-		sub, literal, _ := annotationStringArg(ann, "value", "path")
-		path := joinPath(base, sub)
+		subs, literal, ok := annotationStringValues(ann, "value", "path")
+		if !ok || len(subs) == 0 {
+			subs = []string{""} // no path on the method — maps to the base path
+		}
 		conf := model.Confirmed
 		if !literal {
 			conf = model.Uncertain // computed/placeholder path — resolver comes later
 		}
-		for _, v := range verbs {
-			out.Endpoints = append(out.Endpoints, model.Endpoint{
-				Method:     v,
-				Path:       path,
-				Protocol:   model.ProtoREST,
-				Detection:  model.DetectAnnotation,
-				Confidence: conf,
-			})
+		for _, base := range bases {
+			for _, sub := range subs {
+				path := joinPath(base, sub)
+				for _, v := range verbs {
+					out.Endpoints = append(out.Endpoints, model.Endpoint{
+						Method:     v,
+						Path:       path,
+						Protocol:   model.ProtoREST,
+						Detection:  model.DetectAnnotation,
+						Confidence: conf,
+					})
+				}
+			}
 		}
 		return // one mapping annotation per handler method
 	}

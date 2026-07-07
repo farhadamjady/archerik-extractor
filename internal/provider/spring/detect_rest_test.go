@@ -83,6 +83,27 @@ func TestRESTEndpoints(t *testing.T) {
 			want: []string{"GET /multi", "POST /multi"},
 		},
 		{
+			name: "method path array -> one endpoint per path",
+			src: `@RestController class C {
+					@GetMapping({"/users", "/people"}) String list() { return null; }
+				}`,
+			want: []string{"GET /people", "GET /users"},
+		},
+		{
+			name: "class base array x method path",
+			src: `@RestController @RequestMapping({"/api", "/legacy"}) class C {
+					@GetMapping("/x") String x() { return null; }
+				}`,
+			want: []string{"GET /api/x", "GET /legacy/x"},
+		},
+		{
+			name: "path array x verb array -> full product",
+			src: `@RestController class C {
+					@RequestMapping(path = {"/a", "/b"}, method = {RequestMethod.GET, RequestMethod.POST}) void h() {}
+				}`,
+			want: []string{"GET /a", "GET /b", "POST /a", "POST /b"},
+		},
+		{
 			name: "non-handler methods ignored",
 			src: `@RestController class C {
 					@GetMapping("/a") String a() { return null; }
