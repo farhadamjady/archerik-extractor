@@ -81,7 +81,7 @@ func Run(ctx context.Context, opt Options) (*model.Service, error) {
 		return nil, err
 	}
 
-	idx, err := index(root, tree, p, parsed)
+	idx, err := index(root, tree, p, parsed, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -171,9 +171,15 @@ func parse(p provider.Provider, tree provider.FileTree, spec provider.FileSpec, 
 
 // index builds the shared cross-file Index by running the provider's indexers
 // in order. Indexers own all cross-file/non-Java parsing (DESIGN §7).
-func index(root string, tree provider.FileTree, p provider.Provider, parsed map[string]provider.ParsedFile) (*provider.Index, error) {
+func index(root string, tree provider.FileTree, p provider.Provider, parsed map[string]provider.ParsedFile, opt Options) (*provider.Index, error) {
 	idx := &provider.Index{}
-	ic := &provider.IndexContext{Root: root, Files: tree, Parsed: parsed}
+	ic := &provider.IndexContext{
+		Root:        root,
+		Files:       tree,
+		Parsed:      parsed,
+		Profiles:    opt.Profiles,
+		Environment: opt.Environment,
+	}
 	for _, ix := range p.Indexers() {
 		if err := ix.Index(ic, idx); err != nil {
 			return nil, fmt.Errorf("pipeline: indexer %q: %w", ix.Name(), err)

@@ -89,9 +89,13 @@ func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 }
 
 // Indexers build the shared cross-file Index. They land one at a time:
-// ConfigResolver (Spring application.*), DeployConfig (Helm/K8s/.env),
-// SymbolIndex (constants), TypeIndex (DTOs), SchemaSources (contract files).
-func (*Provider) Indexers() []provider.Indexer { return nil }
+// ConfigResolver (Spring application.*) now; DeployConfig (Helm/K8s/.env),
+// SymbolIndex (constants), TypeIndex (DTOs), SchemaSources (contract files) next.
+func (*Provider) Indexers() []provider.Indexer {
+	return []provider.Indexer{
+		configIndexer{},
+	}
+}
 
 // Detectors, one concern each, in build order: REST endpoints first, then the
 // HTTP clients, then Kafka. DB detection is deferred post-MVP and OpenAPI is

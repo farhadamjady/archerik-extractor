@@ -96,11 +96,15 @@ type Index struct {
 	Schemas SchemaSources
 }
 
-// IndexContext is what Indexers read from: the file tree and the parsed buckets.
+// IndexContext is what Indexers read from: the file tree, the parsed buckets,
+// and the run's scan options that indexers need (active Spring profiles and the
+// deploy overlay), threaded from the CLI so indexers stay constructor-free.
 type IndexContext struct {
-	Root   string
-	Files  FileTree
-	Parsed map[string]ParsedFile // keyed by repo-relative path
+	Root        string
+	Files       FileTree
+	Parsed      map[string]ParsedFile // keyed by repo-relative path
+	Profiles    []string              // active Spring profiles (D3); overrides spring.profiles.active
+	Environment string                // deploy overlay selection (E3)
 }
 
 // Indexer populates one member of the shared Index.
