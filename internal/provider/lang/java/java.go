@@ -7,6 +7,9 @@ package java
 
 import (
 	"context"
+	"fmt"
+	"strings"
+	"sync"
 
 	sitter "github.com/smacker/go-tree-sitter"
 	tsjava "github.com/smacker/go-tree-sitter/java"
@@ -123,4 +126,62 @@ func (n Node) Walk(fn func(Node) bool) {
 	for i := 0; i < n.NamedChildCount(); i++ {
 		n.NamedChild(i).Walk(fn)
 	}
+}
+
+// RunQuery implements provider.QueryRunner: it compiles patterns into one
+// multi-pattern query (cached), runs it over this file in a single traversal,
+// and dispatches each match to onMatch with its pattern index and named
+// captures. Match order follows node position, so it is deterministic.
+func (f *File) RunQuery(patterns []string, onMatch func(int, map[string]provider.ASTNode)) error {
+	q, err := compiledQuery(patterns)
+	if err != nil {
+		return err
+	}
+	// Guard the 1:1 patternIndex<->rule mapping: a single rule query that
+	// smuggled in two top-level patterns would silently misroute matches.
+	if int(q.PatternCount()) != len(patterns) {
+		return fmt.Errorf("java: expected %d query patterns (one per rule), got %d — a Rule.Query must be exactly one pattern",
+			len(patterns), q.PatternCount())
+	}
+
+	qc := sitter.NewQueryCursor()
+	defer qc.Close()
+	qc.Exec(q, f.tree.RootNode())
+	for {
+		m, ok := qc.NextMatch()
+		if !ok {
+			break
+		}
+		m = qc.FilterPredicates(m, f.src) // apply #eq?/#match? predicates
+		caps := make(map[string]provider.ASTNode, len(m.Captures))
+		for _, c := range m.Captures {
+			caps[q.CaptureNameForId(c.Index)] = Node{inner: c.Node, file: f}
+		}
+		onMatch(int(m.PatternIndex), caps)
+	}
+	return nil
+}
+
+// Compiled tree-sitter queries are immutable and reusable across files and
+// cursors, so they are cached by their combined pattern text (compile once, per
+// DESIGN §6). The cache is process-lifetime — a single scan uses one detector
+// set, so it holds one entry.
+var (
+	queryCacheMu sync.Mutex
+	queryCache   = map[string]*sitter.Query{}
+)
+
+func compiledQuery(patterns []string) (*sitter.Query, error) {
+	key := strings.Join(patterns, "\x00")
+	queryCacheMu.Lock()
+	defer queryCacheMu.Unlock()
+	if q, ok := queryCache[key]; ok {
+		return q, nil
+	}
+	q, err := sitter.NewQuery([]byte(strings.Join(patterns, "\n")), tsjava.GetLanguage())
+	if err != nil {
+		return nil, err
+	}
+	queryCache[key] = q
+	return q, nil
 }

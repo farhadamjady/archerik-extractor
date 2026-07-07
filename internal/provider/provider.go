@@ -183,6 +183,20 @@ type MatchContext struct {
 // layer's concrete node type (lang/java.Node), mirroring ParsedFile.
 type ASTNode interface{}
 
+// QueryRunner is a LANGUAGE capability implemented by parsed files whose grammar
+// supports tree-sitter queries. It runs a set of query patterns over the file in
+// a SINGLE traversal, invoking onMatch per match with the index of the pattern
+// that produced it and that match's named captures. The query engine
+// (internal/query) uses this so it never names a specific grammar; parsed files
+// of non-queryable kinds (config, schema) simply don't implement it.
+//
+// Each element of patterns MUST be exactly one top-level query pattern, so
+// patternIndex maps 1:1 back to the rule that supplied it — use multiple Rules
+// for multiple patterns.
+type QueryRunner interface {
+	RunQuery(patterns []string, onMatch func(patternIndex int, captures map[string]ASTNode)) error
+}
+
 // Resolver is the shared protocol-agnostic value/target resolver (DESIGN §8):
 // handlers hand it an ASTNode expression and get the possible string values
 // back. Its concrete interface lands with internal/resolve; placeholder here so

@@ -20,6 +20,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/detect"
 	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/service-discovery/internal/query"
 	"github.com/farhadamjady/service-discovery/internal/registry"
 	"github.com/farhadamjady/service-discovery/internal/scan"
 	"github.com/farhadamjady/service-discovery/internal/submit"
@@ -181,12 +182,29 @@ func index(root string, tree provider.FileTree, p provider.Provider, parsed map[
 	return idx, nil
 }
 
-// detectEdges dispatches every detector's rules over the parsed Java files via
-// the query engine — one traversal per file. The engine lands with the
-// tree-sitter parser; detectors declare no rules until then, so this phase is
-// a structured no-op that already fixes the iteration seam.
+// detectEdges dispatches every detector's rules over the parsed files via the
+// query engine — one traversal per file, files visited in sorted order for
+// deterministic dispatch. Detectors declare no rules until PR 7+, so this is a
+// no-op today, but the iteration and the engine are now live. The value
+// resolver is threaded once it exists (PR 13); nil until then.
 func detectEdges(p provider.Provider, parsed map[string]provider.ParsedFile, idx *provider.Index, svc *model.Service) error {
+	eng := query.New()
+	dets := p.Detectors()
+	for _, path := range sortedKeys(parsed) {
+		if err := eng.Run(parsed[path], dets, idx, nil, svc); err != nil {
+			return fmt.Errorf("pipeline: detect %s: %w", path, err)
+		}
+	}
 	return nil
+}
+
+func sortedKeys(m map[string]provider.ParsedFile) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // schemaPass attaches request/response and topic schemas after endpoints and
