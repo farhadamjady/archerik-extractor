@@ -90,6 +90,8 @@ func Run(ctx context.Context, opt Options) (*model.Service, error) {
 		return nil, err
 	}
 
+	collectConfigDeps(idx, svc)
+
 	if err := schemaPass(idx, svc); err != nil {
 		return nil, err
 	}
@@ -211,6 +213,22 @@ func sortedKeys(m map[string]provider.ParsedFile) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// collectConfigDeps surfaces the config keys touched during detection as
+// config_dependencies (transparency). The resolver reports them via an optional
+// interface; empty results leave the initialized [] untouched.
+func collectConfigDeps(idx *provider.Index, svc *model.Service) {
+	if idx.Config == nil {
+		return
+	}
+	if r, ok := idx.Config.(interface {
+		Dependencies() []model.ConfigDep
+	}); ok {
+		if deps := r.Dependencies(); len(deps) > 0 {
+			svc.ConfigDependencies = deps
+		}
+	}
 }
 
 // schemaPass attaches request/response and topic schemas after endpoints and

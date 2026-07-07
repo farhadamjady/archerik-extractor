@@ -26,9 +26,11 @@ func buildStore(t *testing.T, profiles []string, files map[string]string) provid
 	return idx.Config
 }
 
+// mustResolve resolves a bare key by wrapping it as a ${key} placeholder — the
+// form detectors actually pass to the resolver.
 func mustResolve(t *testing.T, c provider.ConfigResolver, key string) string {
 	t.Helper()
-	v, _, ok := c.Resolve(key)
+	v, _, ok := c.Resolve("${" + key + "}")
 	if !ok {
 		t.Fatalf("key %q did not resolve", key)
 	}
@@ -124,7 +126,7 @@ func TestCandidatesProvenance(t *testing.T) {
 		"application.yml":      "x: base\n",
 		"application-prod.yml": "x: prod\n",
 	})
-	cands := c.Candidates("x")
+	cands := c.Candidates("${x}")
 	if len(cands) != 1 {
 		t.Fatalf("got %d candidates, want 1", len(cands))
 	}
@@ -136,10 +138,10 @@ func TestCandidatesProvenance(t *testing.T) {
 
 func TestUnresolvedKey(t *testing.T) {
 	c := buildStore(t, nil, map[string]string{"application.yml": "a: 1\n"})
-	if _, _, ok := c.Resolve("missing"); ok {
+	if _, _, ok := c.Resolve("${missing}"); ok {
 		t.Error("missing key should not resolve")
 	}
-	if c.Candidates("missing") != nil {
+	if c.Candidates("${missing}") != nil {
 		t.Error("missing key should have no candidates")
 	}
 }
