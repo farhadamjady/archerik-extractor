@@ -104,6 +104,7 @@ func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 func (*Provider) Indexers() []provider.Indexer {
 	return []provider.Indexer{
 		configIndexer{},
+		deployIndexer{},
 	}
 }
 

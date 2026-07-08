@@ -8,9 +8,13 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/farhadamjady/service-discovery/internal/deployconfig"
 	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/provider"
 )
+
+// maxDeployCandidates caps overlay fan-out per key (bounding, T4.5.8).
+const maxDeployCandidates = 8
 
 // maxPlaceholderDepth bounds recursive ${a}->${b} chains (D4). Real chains are
 // 1-3 deep; 10 is a safety ceiling, not a target. Deeper → unresolved.
@@ -61,8 +65,20 @@ type springConfig struct {
 	values   map[string]configVal // base + active profiles (authoritative)
 	fallback map[string]configVal // non-active profiles (lower precedence)
 
+	// Deploy layer (Helm/K8s/.env), attached by the deploy indexer. Consulted
+	// AFTER Spring config, matched by relaxed-bound key (§8.5). env is the
+	// selected overlay (--environment); "" surfaces divergent overlays as candidates.
+	deploy *deployconfig.Layer
+	env    string
+
 	mu         sync.Mutex
 	referenced map[string]model.ConfigDep // keys queried during resolution
+}
+
+// setDeploy attaches the deployment-config layer and selected environment.
+func (c *springConfig) setDeploy(l *deployconfig.Layer, env string) {
+	c.deploy = l
+	c.env = env
 }
 
 func (c *springConfig) lookup(key string) (configVal, bool) {
@@ -84,16 +100,123 @@ func (c *springConfig) Resolve(expr string) (string, model.Confidence, bool) {
 	return out, model.Likely, true
 }
 
-// Candidates returns the single resolved value with provenance (the source file
-// and profile when expr is a lone ${key}). Divergent candidates from env
-// overlays arrive with the deploy layer in PR 11.
+// Candidates resolves expr to one or more values. A lone ${key} whose value
+// diverges across env overlays (staging vs prod, no --environment selected)
+// yields one candidate per distinct value — the detector emits one edge each.
+// Spring config wins and is single-valued; mixed expressions collapse to the
+// single best resolution.
 func (c *springConfig) Candidates(expr string) []provider.ResolvedValue {
+	if key, def, hasDef, ok := singlePlaceholder(expr); ok {
+		if v, okc := c.lookup(key); okc {
+			ev, _ := c.expand(v.value, 0, nil)
+			return []provider.ResolvedValue{{Value: ev, Conf: model.Likely, Source: v.source, Origin: v.profile}}
+		}
+		if cands := c.deployCandidates(key); len(cands) > 0 {
+			return cands
+		}
+		if hasDef {
+			ev, _ := c.expand(def, 0, nil)
+			return []provider.ResolvedValue{{Value: ev, Conf: model.Likely, Source: "default"}}
+		}
+		return nil
+	}
 	v, conf, ok := c.Resolve(expr)
 	if !ok {
 		return nil
 	}
 	src, origin := c.provenance(expr)
 	return []provider.ResolvedValue{{Value: v, Conf: conf, Source: src, Origin: origin}}
+}
+
+// deployLookup returns the single best deploy-layer value for a key (relaxed
+// binding). With an environment selected, the matching overlay wins; else the
+// base value, else the deterministically-first binding.
+func (c *springConfig) deployLookup(key string) (string, bool) {
+	if c.deploy == nil {
+		return "", false
+	}
+	bs := c.deploy.Get(deployconfig.NormalizeKey(key))
+	if len(bs) == 0 {
+		return "", false
+	}
+	return c.pickBinding(bs), true
+}
+
+func (c *springConfig) pickBinding(bs []deployconfig.Binding) string {
+	sorted := sortBindings(bs)
+	if c.env != "" {
+		for _, b := range sorted {
+			if b.Overlay == c.env {
+				return b.Value
+			}
+		}
+	}
+	for _, b := range sorted {
+		if b.Overlay == "" {
+			return b.Value
+		}
+	}
+	return sorted[0].Value
+}
+
+// deployCandidates returns the deploy-layer candidates for a key. With an
+// environment selected it collapses to one; otherwise distinct overlay values
+// become separate candidates (capped, deterministic).
+func (c *springConfig) deployCandidates(key string) []provider.ResolvedValue {
+	if c.deploy == nil {
+		return nil
+	}
+	bs := c.deploy.Get(deployconfig.NormalizeKey(key))
+	if len(bs) == 0 {
+		return nil
+	}
+	if c.env != "" {
+		v := c.pickBinding(bs)
+		c.record(key, v, true)
+		return []provider.ResolvedValue{{Value: v, Conf: model.Likely, Source: "deploy", Origin: c.env}}
+	}
+	var out []provider.ResolvedValue
+	seen := map[string]bool{}
+	for _, b := range sortBindings(bs) {
+		ev, _ := c.expand(b.Value, 0, nil)
+		if seen[ev] {
+			continue
+		}
+		seen[ev] = true
+		out = append(out, provider.ResolvedValue{Value: ev, Conf: model.Likely, Source: b.Source, Origin: b.Overlay})
+		if len(out) >= maxDeployCandidates {
+			break
+		}
+	}
+	if len(out) > 0 {
+		c.record(key, out[0].Value, true)
+	}
+	return out
+}
+
+// sortBindings orders by (overlay, value) for deterministic selection/output.
+func sortBindings(bs []deployconfig.Binding) []deployconfig.Binding {
+	out := append([]deployconfig.Binding(nil), bs...)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Overlay != out[j].Overlay {
+			return out[i].Overlay < out[j].Overlay
+		}
+		return out[i].Value < out[j].Value
+	})
+	return out
+}
+
+// singlePlaceholder reports whether expr is exactly one ${key} / ${key:default}
+// with no surrounding literal, returning the key and default.
+func singlePlaceholder(expr string) (key, def string, hasDef, ok bool) {
+	if strings.HasPrefix(expr, "${") && strings.HasSuffix(expr, "}") {
+		inner := expr[2 : len(expr)-1]
+		if !strings.ContainsAny(inner, "${}") {
+			k, d, hd := cutDefault(inner)
+			return k, d, hd, k != ""
+		}
+	}
+	return "", "", false, false
 }
 
 // Dependencies returns the config keys touched during resolution, sorted by key,
@@ -128,6 +251,12 @@ func (c *springConfig) expand(s string, depth int, seen map[string]bool) (string
 		}
 		if v, ok := c.lookup(key); ok {
 			ev, ok2 := c.expand(v.value, depth+1, with(seen, key))
+			resolved = resolved && ok2
+			c.record(key, ev, ok2)
+			return ev
+		}
+		if dv, ok := c.deployLookup(key); ok {
+			ev, ok2 := c.expand(dv, depth+1, with(seen, key))
 			resolved = resolved && ok2
 			c.record(key, ev, ok2)
 			return ev
