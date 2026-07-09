@@ -8,6 +8,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/provider"
 	"github.com/farhadamjady/service-discovery/internal/provider/lang/java"
 	"github.com/farhadamjady/service-discovery/internal/resolve"
+	"github.com/farhadamjady/service-discovery/internal/schema"
 )
 
 // kafkaDetector extracts Kafka edges: producers from KafkaTemplate.send call
@@ -46,7 +47,8 @@ func (kafkaDetector) onProducer(mc *provider.MatchContext) {
 		return
 	}
 	call, _ := mc.Captures["call"].(java.Node)
-	if !kafkaTemplateReceiver(call, receiverName(call)) {
+	valueType, ok := kafkaTemplateValueType(call, receiverName(call))
+	if !ok {
 		return
 	}
 	args, _ := mc.Captures["args"].(java.Node)
@@ -55,16 +57,47 @@ func (kafkaDetector) onProducer(mc *provider.MatchContext) {
 		return
 	}
 	group := fmt.Sprintf("%s:%d:kafka-p", mc.File.Path(), topic.StartByte())
-	emitKafkaTopic(mc, resolveNode(mc, topic), true, group)
+	emitKafkaTopic(mc, resolveNode(mc, topic), true, group, kafkaSchema(mc, valueType))
 }
 
-// onConsumer emits a consumed-topic edge per topic on a @KafkaListener.
+// onConsumer emits a consumed-topic edge per topic on a @KafkaListener, with the
+// message payload's schema attached.
 func (kafkaDetector) onConsumer(mc *provider.MatchContext) {
 	ann, _ := mc.Captures["ann"].(java.Node)
+	sch := kafkaSchema(mc, consumerPayloadType(ann))
 	for _, node := range annotationValueNodes(ann, "topics") {
 		group := fmt.Sprintf("%s:%d:kafka-c", mc.File.Path(), node.StartByte())
-		emitKafkaTopic(mc, resolveTopicNode(mc, node), false, group)
+		emitKafkaTopic(mc, resolveTopicNode(mc, node), false, group, sch)
 	}
+}
+
+// kafkaSchema resolves a payload type's schema files-first (safe-fail: nil keeps
+// the edge, drops only the schema).
+func kafkaSchema(mc *provider.MatchContext, payloadType string) *model.Schema {
+	if payloadType == "" {
+		return nil
+	}
+	return schema.ResolveKafka(payloadType, mc.Index.Schemas, mc.Index.Types)
+}
+
+// consumerPayloadType is the @KafkaListener method's payload parameter type
+// (the first parameter that is not a @Header), or "".
+func consumerPayloadType(ann java.Node) string {
+	m := enclosingOfTypes(ann, "method_declaration")
+	if !m.Valid() {
+		return ""
+	}
+	params := childByType(m, "formal_parameters")
+	for _, p := range namedChildren(params) {
+		if p.Type() != "formal_parameter" {
+			continue
+		}
+		if mods := childByType(p, "modifiers"); mods.Valid() && findAnnotation(mods, "Header").Valid() {
+			continue
+		}
+		return p.ChildByFieldName("type").Text()
+	}
+	return ""
 }
 
 // resolveTopicNode resolves a @KafkaListener topic value. A string literal with
@@ -99,8 +132,8 @@ func resolvedValuesToVS(cands []provider.ResolvedValue) resolve.ValueSet {
 // emitKafkaTopic appends a topic edge to the producer or consumer slice. Like
 // emitValueSet but for KafkaEdge; the edge is emitted for every kind, including
 // Unknown (topic unresolved but the producer/consumer is real).
-func emitKafkaTopic(mc *provider.MatchContext, vs resolve.ValueSet, producer bool, group string) {
-	edge := model.KafkaEdge{Protocol: model.ProtoKafka, Detection: model.DetectKafka}
+func emitKafkaTopic(mc *provider.MatchContext, vs resolve.ValueSet, producer bool, group string, sch *model.Schema) {
+	edge := model.KafkaEdge{Protocol: model.ProtoKafka, Detection: model.DetectKafka, Schema: sch}
 	add := func(e model.KafkaEdge) {
 		if producer {
 			mc.Out.KafkaProducers = append(mc.Out.KafkaProducers, e)
@@ -140,19 +173,21 @@ func receiverName(call java.Node) string {
 	return obj.Text()
 }
 
-// kafkaTemplateReceiver reports whether `name` is declared as a KafkaTemplate in
+// kafkaTemplateValueType reports whether `name` is declared as a KafkaTemplate in
 // the enclosing method (parameter) or class (field) — a lightweight receiver-type
-// check so a generic send() on some other object isn't mistaken for a producer.
-func kafkaTemplateReceiver(call java.Node, name string) bool {
+// check so a generic send() on some other object isn't mistaken for a producer —
+// and returns the message value type V from KafkaTemplate<K, V>.
+func kafkaTemplateValueType(call java.Node, name string) (valueType string, ok bool) {
 	if name == "" {
-		return false
+		return "", false
 	}
 	if m := enclosingOfTypes(call, "method_declaration", "constructor_declaration"); m.Valid() {
 		if params := childByType(m, "formal_parameters"); params.Valid() {
 			for _, p := range namedChildren(params) {
-				if p.Type() == "formal_parameter" && p.ChildByFieldName("name").Text() == name &&
-					isKafkaTemplateType(p.ChildByFieldName("type")) {
-					return true
+				if p.Type() == "formal_parameter" && p.ChildByFieldName("name").Text() == name {
+					if v, ok := kafkaValueOf(p.ChildByFieldName("type")); ok {
+						return v, true
+					}
 				}
 			}
 		}
@@ -160,22 +195,56 @@ func kafkaTemplateReceiver(call java.Node, name string) bool {
 	if cls := enclosingOfTypes(call, "class_declaration"); cls.Valid() {
 		body := cls.ChildByFieldName("body")
 		for _, fd := range namedChildren(body) {
-			if fd.Type() != "field_declaration" || !isKafkaTemplateType(fd.ChildByFieldName("type")) {
+			if fd.Type() != "field_declaration" {
+				continue
+			}
+			v, isKT := kafkaValueOf(fd.ChildByFieldName("type"))
+			if !isKT {
 				continue
 			}
 			for _, d := range namedChildren(fd) {
 				if d.Type() == "variable_declarator" && d.ChildByFieldName("name").Text() == name {
-					return true
+					return v, true
 				}
 			}
 		}
 	}
-	return false
+	return "", false
 }
 
-func isKafkaTemplateType(t java.Node) bool {
+// kafkaValueOf reports whether a type is a KafkaTemplate and returns its value
+// type parameter V (second of <K, V>).
+func kafkaValueOf(t java.Node) (valueType string, ok bool) {
 	txt := t.Text()
-	return strings.HasPrefix(txt, "KafkaTemplate") || strings.HasPrefix(txt, "ReplyingKafkaTemplate")
+	if !strings.HasPrefix(txt, "KafkaTemplate") && !strings.HasPrefix(txt, "ReplyingKafkaTemplate") {
+		return "", false
+	}
+	return secondTypeArg(txt), true
+}
+
+// secondTypeArg returns the second top-level generic argument of a type string.
+func secondTypeArg(typeText string) string {
+	i := strings.IndexByte(typeText, '<')
+	j := strings.LastIndex(typeText, ">")
+	if i < 0 || j <= i {
+		return ""
+	}
+	args, depth, start := []string{}, 0, i+1
+	inner := typeText[:j]
+	for k := i + 1; k <= len(inner); k++ {
+		if k == len(inner) || (inner[k] == ',' && depth == 0) {
+			args = append(args, strings.TrimSpace(inner[start:k]))
+			start = k + 1
+		} else if inner[k] == '<' {
+			depth++
+		} else if inner[k] == '>' {
+			depth--
+		}
+	}
+	if len(args) >= 2 {
+		return args[1]
+	}
+	return ""
 }
 
 func enclosingOfTypes(n java.Node, types ...string) java.Node {
