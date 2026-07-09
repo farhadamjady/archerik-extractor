@@ -10,7 +10,10 @@
 // changes.
 package provider
 
-import "github.com/farhadamjady/service-discovery/internal/model"
+import (
+	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/service-discovery/internal/resolve"
+)
 
 // FileKind routes a collected file to its parser. The scanner buckets files by
 // kind (per FileSpec), and the pipeline feeds each bucket to Parsers()[kind].
@@ -202,7 +205,9 @@ type QueryRunner interface {
 }
 
 // Resolver is the shared protocol-agnostic value/target resolver (DESIGN §8):
-// handlers hand it an ASTNode expression and get the possible string values
-// back. Its concrete interface lands with internal/resolve; placeholder here so
-// MatchContext has its final shape.
-type Resolver interface{}
+// handlers hand it an ASTNode expression and get back the possible string values
+// as a lattice ValueSet. The Java implementation lands in provider/lang/java
+// (PR 14-15); MatchContext.Resolver is nil until then.
+type Resolver interface {
+	Resolve(node ASTNode) resolve.ValueSet
+}

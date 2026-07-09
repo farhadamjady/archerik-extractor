@@ -105,6 +105,7 @@ func (*Provider) Indexers() []provider.Indexer {
 	return []provider.Indexer{
 		configIndexer{},
 		deployIndexer{},
+		symbolIndexer{},
 	}
 }
 
