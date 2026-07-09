@@ -30,7 +30,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		profiles    = fs.String("profiles", "", "comma-separated active Spring profiles")
 		environment = fs.String("environment", "", "deploy overlay to resolve (e.g. staging)")
 		out         = fs.String("out", "-", "output path for the service JSON, or - for stdout")
-		submitURL   = fs.String("submit-url", "", "ingest API URL; empty skips submit")
+		apiURL      = fs.String("api-url", "", "backend base URL for key validation + submit; empty runs local/dev")
 		dryRun      = fs.Bool("dry-run", false, "produce JSON but do not submit")
 	)
 	if err := fs.Parse(args); err != nil {
@@ -55,7 +55,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		ConfigFile:  *configFile,
 		Profiles:    splitCSV(*profiles),
 		Environment: *environment,
-		SubmitURL:   *submitURL,
+		APIURL:      *apiURL,
 		DryRun:      *dryRun,
 	})
 	if err != nil {

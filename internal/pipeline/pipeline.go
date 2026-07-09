@@ -26,17 +26,17 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/submit"
 )
 
-// Options carries everything a run needs. APIKey/SubmitURL/DryRun are consumed
-// by the auth and submit phases; ConfigFile/Profiles/Environment by the config
-// and deploy-config indexers, as those phases land.
+// Options carries everything a run needs. APIKey/APIURL/DryRun are consumed by
+// the auth and submit phases; ConfigFile/Profiles/Environment by the config and
+// deploy-config indexers.
 type Options struct {
 	Root        string
 	APIKey      string
 	ConfigFile  string
 	Profiles    []string // active Spring profiles (D3)
 	Environment string   // deploy overlay selection, e.g. "staging" (E3)
-	SubmitURL   string
-	DryRun      bool // skip submit
+	APIURL      string   // backend base URL (auth validate + submit); empty = local/dev
+	DryRun      bool     // skip submit
 
 	// Providers overrides the registry — for tests. Nil means registry.Default().
 	Providers []provider.Provider
@@ -120,7 +120,7 @@ func Marshal(svc *model.Service) ([]byte, error) {
 // valid key means nothing runs. auth.Validate is a presence-only stub for now;
 // the phone-home validation lands in PR 23.
 func authGate(ctx context.Context, opt Options) error {
-	_, err := auth.Validate(ctx, opt.APIKey)
+	_, err := auth.Validate(ctx, opt.APIKey, opt.APIURL)
 	return err
 }
 
@@ -239,12 +239,12 @@ func schemaPass(idx *provider.Index, svc *model.Service) error { return nil }
 // backend re-validates it (the robust gate). Skipped when --dry-run is set or no
 // submit URL is configured. submit.Submit is a stub until PR 24.
 func submitGraph(ctx context.Context, opt Options, svc *model.Service) error {
-	if opt.DryRun || opt.SubmitURL == "" {
+	if opt.DryRun || opt.APIURL == "" {
 		return nil
 	}
 	body, err := Marshal(svc)
 	if err != nil {
 		return err
 	}
-	return submit.Submit(ctx, opt.SubmitURL, opt.APIKey, body)
+	return submit.Submit(ctx, opt.APIURL, opt.APIKey, body)
 }
