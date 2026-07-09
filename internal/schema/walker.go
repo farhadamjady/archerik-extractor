@@ -1,51 +1,54 @@
 package schema
 
 import (
-	"sort"
 	"strings"
 
 	"github.com/farhadamjady/service-discovery/internal/model"
 )
 
-// defaultDepth is how deep nested DTOs expand. PR 20 goes one level (a top-level
-// object expands to its fields as leaves); PR 21 raises it to 2 with truncation.
-const defaultDepth = 1
+// defaultDepth is how many levels of nested DTOs expand before truncation
+// (config knob, §9). Two levels; deeper fields become {object, truncated}.
+const defaultDepth = 2
 
 // Walker resolves a Java type expression to a model.Schema: it unwraps
-// containers, resolves the type against the TypeSource, and unions the fields of
-// a DTO. It is language-neutral — it works on type-name strings and TypeDefs.
+// containers, resolves the type against the TypeSource, unions a DTO's fields
+// (own + inherited), and attaches nullability and tri-state requiredness. It is
+// language-neutral — it works on type-name strings and TypeDefs.
 //
 // Data-flow recovery of opaque returns (ResponseEntity<?>, raw Object) is
 // deferred (D1): those resolve to an uncertain object rather than being chased.
 type Walker struct {
-	types TypeSource
+	types    TypeSource
+	maxDepth int
 }
 
 // NewWalker builds a walker over a type source (nil is tolerated — everything
 // then resolves as unresolved/uncertain).
-func NewWalker(types TypeSource) *Walker { return &Walker{types: types} }
+func NewWalker(types TypeSource) *Walker { return &Walker{types: types, maxDepth: defaultDepth} }
 
 // Type resolves a type expression (e.g. "ResponseEntity<List<User>>") to a
 // schema, or nil for an empty expression. A void body yields a {type:"void"}
-// schema the caller drops.
+// schema the caller drops. Requiredness is filled in everywhere (default unknown).
 func (w *Walker) Type(typeExpr string) *model.Schema {
 	if strings.TrimSpace(typeExpr) == "" {
 		return nil
 	}
-	return w.walk(parseTypeExpr(typeExpr), defaultDepth)
+	s := w.walk(parseTypeExpr(typeExpr), w.maxDepth, map[string]bool{})
+	fillRequired(s)
+	return s
 }
 
-func (w *Walker) walk(te typeExpr, depth int) *model.Schema {
+// walk resolves one type expression. seen holds the DTO names on the current
+// nesting path (cycle guard); depth is the remaining nesting budget.
+func (w *Walker) walk(te typeExpr, depth int, seen map[string]bool) *model.Schema {
 	if te.Array {
-		inner := te
-		inner.Array = false
-		return &model.Schema{Type: "array", Items: te.itemName(), Confidence: model.Confirmed}
+		return &model.Schema{Type: "array", Items: te.Name, Confidence: model.Confirmed}
 	}
 	switch {
 	case te.Name == "void" || te.Name == "Void":
 		return &model.Schema{Type: "void", Confidence: model.Confirmed}
 	case singleWrapper[te.Name] && len(te.Args) == 1:
-		return w.walk(te.Args[0], depth) // unwrap ResponseEntity/Mono/Optional/Page/...
+		return w.walk(te.Args[0], depth, seen) // unwrap ResponseEntity/Mono/Optional/Page/...
 	case arrayWrapper[te.Name] && len(te.Args) == 1:
 		return &model.Schema{Type: "array", Items: te.Args[0].Name, Confidence: model.Confirmed}
 	case mapWrapper[te.Name] && len(te.Args) == 2:
@@ -59,64 +62,109 @@ func (w *Walker) walk(te typeExpr, depth int) *model.Schema {
 	}
 	if w.types != nil {
 		if td, ok := w.types.Lookup(te.Name); ok {
-			if depth <= 0 {
-				return &model.Schema{Type: td.Name, Confidence: model.Confirmed} // leaf; expanded deeper in PR 21
+			// Truncate on depth exhaustion or a cycle (A -> B -> A).
+			if depth <= 0 || seen[td.Name] {
+				return &model.Schema{Type: td.Name, Truncated: true, Confidence: model.Confirmed}
 			}
-			return w.object(td, depth)
+			return w.object(td, depth, seen)
 		}
 	}
 	// External/unknown type: known by name, structure unresolved.
 	return &model.Schema{Type: te.Name, Confidence: model.Uncertain}
 }
 
-func (w *Walker) object(td *TypeDef, depth int) *model.Schema {
+func (w *Walker) object(td *TypeDef, depth int, seen map[string]bool) *model.Schema {
 	s := &model.Schema{Type: td.Name, Confidence: model.Confirmed}
-	for _, fw := range unionFields(td) {
-		fs := w.walk(parseTypeExpr(fw.field.Type), depth-1)
-		fs.Name = fw.wire
+	next := clone(seen)
+	next[td.Name] = true
+
+	for _, mf := range unionFields(w.allFields(td, map[string]bool{}, map[string]bool{})) {
+		te := parseTypeExpr(mf.typ)
+		fs := w.walk(te, depth-1, next)
+		fs.Name = mf.wire
+		fs.Nullable = nullability(mf.annotations, te)
+		fs.Required = requiredness(mf.annotations, mf.sources, te)
 		s.Nested = append(s.Nested, *fs)
 	}
 	return s
 }
 
-// fieldWithWire pairs a field with its resolved wire name.
-type fieldWithWire struct {
-	field FieldDef
-	wire  string
+// allFields collects a type's own fields plus those inherited up the extends
+// chain, stopping at Object/external/cycle. A property redeclared in a subclass
+// shadows the superclass's version entirely (so a field+getter within one class
+// still merge, but an inherited field of the same name is dropped). `shadowed`
+// holds property names claimed by more-derived classes.
+func (w *Walker) allFields(td *TypeDef, visited, shadowed map[string]bool) []FieldDef {
+	if td == nil || visited[td.Name] {
+		return nil
+	}
+	visited[td.Name] = true
+
+	var fields []FieldDef
+	for _, f := range td.Fields {
+		if !shadowed[f.Name] {
+			fields = append(fields, f)
+		}
+	}
+	if td.Super != "" && w.types != nil {
+		if sup, ok := w.types.Lookup(td.Super); ok {
+			next := clone(shadowed)
+			for _, f := range td.Fields {
+				next[f.Name] = true
+			}
+			fields = append(fields, w.allFields(sup, visited, next)...)
+		}
+	}
+	return fields
 }
 
-// unionFields dedupes a type's field candidates by wire name, preferring more
-// authoritative sources (record components, declared fields) over getters, and
-// dropping @JsonIgnore fields. This union is the ladder's dirty-tolerance step.
-func unionFields(td *TypeDef) []fieldWithWire {
-	ordered := append([]FieldDef(nil), td.Fields...)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		if ordered[i].Name != ordered[j].Name {
-			return ordered[i].Name < ordered[j].Name
-		}
-		return srcRank(ordered[i].Source) < srcRank(ordered[j].Source)
-	})
+// mergedField groups a property's candidates (field, getter, ctor param, record
+// component, inherited) so nullability/requiredness see ALL their signals, not
+// just the authoritative source's.
+type mergedField struct {
+	wire        string
+	typ         string
+	annotations []Annotation
+	sources     map[FieldSource]bool
+}
 
-	seen := map[string]bool{}
-	var out []fieldWithWire
-	for _, f := range ordered {
-		if f.HasAnnotation("JsonIgnore") {
+// unionFields groups field candidates by property name (so a field and its
+// getter/ctor param merge), drops @JsonIgnore, and resolves each group to one
+// merged field with the authoritative type and the union of signals.
+func unionFields(fields []FieldDef) []mergedField {
+	var order []string
+	groups := map[string][]FieldDef{}
+	for _, f := range fields {
+		if _, ok := groups[f.Name]; !ok {
+			order = append(order, f.Name)
+		}
+		groups[f.Name] = append(groups[f.Name], f)
+	}
+
+	var out []mergedField
+	for _, name := range order {
+		cands := groups[name]
+		var anns []Annotation
+		srcs := map[FieldSource]bool{}
+		best := cands[0]
+		for _, c := range cands {
+			anns = append(anns, c.Annotations...)
+			srcs[c.Source] = true
+			if srcRank(c.Source) < srcRank(best.Source) {
+				best = c
+			}
+		}
+		if hasAnn(anns, "JsonIgnore") {
 			continue
 		}
-		wire := wireName(f)
-		if seen[wire] {
-			continue
-		}
-		seen[wire] = true
-		out = append(out, fieldWithWire{f, wire})
+		out = append(out, mergedField{wire: wireNameFrom(anns, name), typ: best.Type, annotations: anns, sources: srcs})
 	}
 	return out
 }
 
-// wireName applies Jackson's @JsonProperty rename. @JsonNaming (snake_case) is
-// added in PR 21.
-func wireName(f FieldDef) string {
-	if a, ok := f.Annotation("JsonProperty"); ok {
+// wireNameFrom applies Jackson's @JsonProperty rename over merged annotations.
+func wireNameFrom(anns []Annotation, javaName string) string {
+	if a, ok := annOf(anns, "JsonProperty"); ok {
 		if a.Arg != "" {
 			return a.Arg
 		}
@@ -124,7 +172,89 @@ func wireName(f FieldDef) string {
 			return v
 		}
 	}
-	return f.Name
+	return javaName
+}
+
+// nullability: may the field's value be null (§11).
+func nullability(anns []Annotation, te typeExpr) bool {
+	switch {
+	case hasAnn(anns, "NotNull") || hasAnn(anns, "NonNull"):
+		return false
+	case hasAnn(anns, "Nullable"):
+		return true
+	case te.Name == "Optional":
+		return true
+	default:
+		return false // primitives and unsignaled fields: not marked nullable
+	}
+}
+
+// requiredness: must the field be present (§11), tri-state, default unknown.
+// Explicit annotations win, then Optional<T>, then type/source heuristics.
+func requiredness(anns []Annotation, srcs map[FieldSource]bool, te typeExpr) model.Requiredness {
+	switch {
+	case hasAnn(anns, "NotNull") || hasAnn(anns, "NotBlank") || hasAnn(anns, "NotEmpty"):
+		return model.ReqRequired
+	case jsonPropertyRequired(anns, "true"):
+		return model.ReqRequired
+	case hasAnn(anns, "Nullable"):
+		return model.ReqOptional
+	case jsonPropertyRequired(anns, "false"):
+		return model.ReqOptional
+	case te.Name == "Optional":
+		return model.ReqOptional
+	case isPrimitive(te.Name):
+		return model.ReqRequired
+	case srcs[SourceRecordComponent] || srcs[SourceCtorParam]:
+		return model.ReqRequired
+	default:
+		return model.ReqUnknown
+	}
+}
+
+func jsonPropertyRequired(anns []Annotation, want string) bool {
+	a, ok := annOf(anns, "JsonProperty")
+	return ok && a.Named["required"] == want
+}
+
+// fillRequired defaults every schema's Required to unknown (it is always emitted,
+// so leaves and roots that aren't fields still carry a value).
+func fillRequired(s *model.Schema) {
+	if s == nil {
+		return
+	}
+	if s.Required == "" {
+		s.Required = model.ReqUnknown
+	}
+	for i := range s.Nested {
+		fillRequired(&s.Nested[i])
+	}
+}
+
+func hasAnn(anns []Annotation, name string) bool {
+	for _, a := range anns {
+		if a.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func annOf(anns []Annotation, name string) (Annotation, bool) {
+	for _, a := range anns {
+		if a.Name == name {
+			return a, true
+		}
+	}
+	return Annotation{}, false
+}
+
+func clone(m map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(m)+1)
+	for k := range m {
+		out[k] = true
+	}
+	return out
 }
 
 func srcRank(s FieldSource) int {
@@ -140,6 +270,10 @@ func srcRank(s FieldSource) int {
 	}
 }
 
+var primitives = set("int", "long", "short", "byte", "char", "boolean", "double", "float")
+
+func isPrimitive(name string) bool { return primitives[name] }
+
 // --- type expression parsing ---
 
 type typeExpr struct {
@@ -147,8 +281,6 @@ type typeExpr struct {
 	Args  []typeExpr
 	Array bool
 }
-
-func (t typeExpr) itemName() string { return t.Name }
 
 func parseTypeExpr(s string) typeExpr {
 	s = strings.TrimSpace(s)

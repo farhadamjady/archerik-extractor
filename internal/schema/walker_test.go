@@ -92,17 +92,16 @@ func TestWalkMap(t *testing.T) {
 	}
 }
 
-func TestWalkNestedIsLeafAtDepth1(t *testing.T) {
-	// Address is a DTO field of User; at the default depth it is a leaf (named
-	// but not expanded) — recursion is PR 21.
+func TestWalkNestedExpandsToDepth2(t *testing.T) {
+	// Address is a DTO field of User; at depth 2 it expands one more level.
 	types := fakeTypes{
 		"User":    {Name: "User", Fields: []FieldDef{field("address", "Address")}},
 		"Address": {Name: "Address", Fields: []FieldDef{field("city", "String")}},
 	}
 	s := NewWalker(types).Type("User")
 	addr := nestedByName(s)["address"]
-	if addr.Type != "Address" || len(addr.Nested) != 0 {
-		t.Errorf("address = %+v, want leaf Address (no nested at depth 1)", addr)
+	if addr.Type != "Address" || len(addr.Nested) != 1 || addr.Nested[0].Name != "city" {
+		t.Errorf("address = %+v, want expanded Address with city", addr)
 	}
 }
 
