@@ -143,6 +143,33 @@ func annotationNamedValue(ann java.Node, key string) (value string, literal, ok 
 	return "", true, false
 }
 
+// annotationValueNodes returns the value node(s) of a named annotation argument,
+// unwrapping an array ({"a","b"}) into its elements. Used where the value may be
+// a constant/expression (resolved via the evaluator), not just a string literal —
+// e.g. @KafkaListener(topics = ...).
+func annotationValueNodes(ann java.Node, keys ...string) []java.Node {
+	args := ann.ChildByFieldName("arguments")
+	if !args.Valid() {
+		return nil
+	}
+	for _, c := range namedChildren(args) {
+		if c.Type() == "element_value_pair" && contains(keys, c.ChildByFieldName("key").Text()) {
+			return unwrapArrayNodes(c.ChildByFieldName("value"))
+		}
+	}
+	return nil
+}
+
+func unwrapArrayNodes(v java.Node) []java.Node {
+	if v.Type() == "array_initializer" || v.Type() == "element_value_array_initializer" {
+		return namedChildren(v)
+	}
+	if v.Valid() {
+		return []java.Node{v}
+	}
+	return nil
+}
+
 // unquote strips surrounding double quotes from a Java string literal's text.
 func unquote(s string) string {
 	s = strings.TrimSpace(s)
