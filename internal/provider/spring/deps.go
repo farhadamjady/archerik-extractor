@@ -22,10 +22,21 @@ import (
 //     was made but the endpoint couldn't be pinned) — unresolved deps are still
 //     emitted (CLAUDE.md).
 func emitTargets(mc *provider.MatchContext, expr java.Node, detection model.DetectionMethod, protocol model.Protocol) {
-	vs := resolve.NewUnknown()
-	if mc.Resolver != nil {
-		vs = mc.Resolver.Resolve(expr)
+	group := fmt.Sprintf("%s:%d:%s", mc.File.Path(), expr.StartByte(), detection)
+	emitValueSet(mc, resolveNode(mc, expr), detection, protocol, group)
+}
+
+// resolveNode evaluates an expression node, tolerating a nil resolver.
+func resolveNode(mc *provider.MatchContext, n java.Node) resolve.ValueSet {
+	if mc.Resolver == nil {
+		return resolve.NewUnknown()
 	}
+	return mc.Resolver.Resolve(n)
+}
+
+// emitValueSet appends the edges for an already-resolved target ValueSet. group
+// ties multi-value candidates from one call site together.
+func emitValueSet(mc *provider.MatchContext, vs resolve.ValueSet, detection model.DetectionMethod, protocol model.Protocol, group string) {
 	base := model.Dependency{Protocol: protocol, Detection: detection}
 
 	switch vs.Kind {
@@ -36,7 +47,6 @@ func emitTargets(mc *provider.MatchContext, expr java.Node, detection model.Dete
 			mc.Out.OutboundDependencies = append(mc.Out.OutboundDependencies, base)
 			return
 		}
-		group := fmt.Sprintf("%s:%d:%s", mc.File.Path(), expr.StartByte(), detection)
 		for _, v := range vs.Values {
 			d := base
 			d.TargetName, d.URL, d.Resolved = v.S, v.S, true
@@ -53,6 +63,26 @@ func emitTargets(mc *provider.MatchContext, expr java.Node, detection model.Dete
 		base.Resolved, base.Confidence = false, model.Uncertain
 		mc.Out.OutboundDependencies = append(mc.Out.OutboundDependencies, base)
 	}
+}
+
+// looksLikeURL reports whether a value set contains an absolute URL (has a
+// scheme), used to tell a full-URL uri from a bare path.
+func looksLikeURL(vs resolve.ValueSet) bool {
+	switch vs.Kind {
+	case resolve.Exact:
+		for _, v := range vs.Values {
+			if strings.Contains(v.S, "://") {
+				return true
+			}
+		}
+	case resolve.Template:
+		for _, s := range vs.Segments {
+			if !s.Hole && strings.Contains(s.Literal, "://") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // templateString renders a template with {?} for each hole,
