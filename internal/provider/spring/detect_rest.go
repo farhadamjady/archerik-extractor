@@ -6,6 +6,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/provider"
 	"github.com/farhadamjady/service-discovery/internal/provider/lang/java"
+	"github.com/farhadamjady/service-discovery/internal/schema"
 )
 
 // restDetector extracts REST endpoints from @RestController classes. The query
@@ -48,12 +49,42 @@ func (restDetector) onController(mc *provider.MatchContext) {
 		return
 	}
 	bases := classBasePaths(class)
+	walker := schema.NewWalker(mc.Index.Types)
 	body := class.ChildByFieldName("body")
 	for _, m := range namedChildren(body) {
 		if m.Type() == "method_declaration" {
-			appendMethodEndpoints(mc.Out, m, bases)
+			req, resp := methodSchemas(walker, m)
+			appendMethodEndpoints(mc.Out, m, bases, req, resp)
 		}
 	}
+}
+
+// methodSchemas resolves a handler method's request (the @RequestBody parameter,
+// ignoring @Valid) and response (the return type) schemas. A void body yields nil.
+func methodSchemas(w *schema.Walker, method java.Node) (req, resp *model.Schema) {
+	if ret := method.ChildByFieldName("type"); ret.Valid() {
+		resp = bodyOrNil(w.Type(ret.Text()))
+	}
+	if params := childByType(method, "formal_parameters"); params.Valid() {
+		for _, p := range namedChildren(params) {
+			if p.Type() != "formal_parameter" {
+				continue
+			}
+			if mods := childByType(p, "modifiers"); mods.Valid() && findAnnotation(mods, "RequestBody").Valid() {
+				req = bodyOrNil(w.Type(p.ChildByFieldName("type").Text()))
+				break
+			}
+		}
+	}
+	return req, resp
+}
+
+// bodyOrNil drops a void schema (no request/response body).
+func bodyOrNil(s *model.Schema) *model.Schema {
+	if s == nil || s.Type == "void" {
+		return nil
+	}
+	return s
 }
 
 // classBasePaths is the path prefix(es) from a class-level @RequestMapping, or
@@ -78,7 +109,7 @@ func classBasePaths(class java.Node) []string {
 // first mapping annotation, expanded across the cartesian product of class base
 // paths, method paths, and verbs — so @GetMapping({"/a","/b"}) and method-array
 // @RequestMapping each yield every combination Spring would register.
-func appendMethodEndpoints(out *model.Service, method java.Node, bases []string) {
+func appendMethodEndpoints(out *model.Service, method java.Node, bases []string, req, resp *model.Schema) {
 	mods := childByType(method, "modifiers")
 	if !mods.Valid() {
 		return
@@ -110,6 +141,8 @@ func appendMethodEndpoints(out *model.Service, method java.Node, bases []string)
 					out.Endpoints = append(out.Endpoints, model.Endpoint{
 						Method:     v,
 						Path:       path,
+						Request:    req,
+						Response:   resp,
 						Protocol:   model.ProtoREST,
 						Detection:  model.DetectAnnotation,
 						Confidence: conf,
