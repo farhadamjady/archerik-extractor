@@ -15,3 +15,6 @@ vendor/
 
 # OS
 .DS_Store
+
+# Internal planning docs — kept locally, not published
+/docs/
