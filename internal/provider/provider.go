@@ -13,6 +13,7 @@ package provider
 import (
 	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/resolve"
+	"github.com/farhadamjady/service-discovery/internal/schema"
 )
 
 // FileKind routes a collected file to its parser. The scanner buckets files by
@@ -99,7 +100,7 @@ type ParsedFile interface {
 // instead of parsing anything themselves.
 type Index struct {
 	Config  ConfigResolver
-	Types   TypeIndex
+	Types   schema.TypeSource
 	Symbols SymbolIndex
 	Schemas SchemaSources
 }
@@ -142,11 +143,6 @@ type ResolvedValue struct {
 	Source string // e.g. "application.yml", "values-staging.yaml", "configmap/foo", ".env"
 	Origin string // profile or overlay name — drives the `likely` confidence cap
 }
-
-// TypeIndex indexes repo DTOs (fields, getters, ctor params, superclass,
-// annotations, imports). Its query surface lands with the TypeIndex indexer
-// (schema pass); until then it is a placeholder so Index has its final shape.
-type TypeIndex interface{}
 
 // SymbolIndex resolves compile-time constants to their literal values,
 // e.g. "OrderTopics.ORDERS" -> "orders".
