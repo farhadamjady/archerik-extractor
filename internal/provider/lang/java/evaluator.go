@@ -15,8 +15,9 @@ const maxEvalDepth = 20
 // Evaluator implements provider.Resolver for Java: it walks a target expression
 // (a URL/topic argument) and returns the possible string values as a ValueSet.
 // It resolves literals, string concatenation, constants (SymbolIndex),
-// @Value-injected fields (ConfigResolver), and String.format; method params,
-// local variables (until PR 15), and opaque calls become holes.
+// @Value-injected fields (ConfigResolver), String.format, conditionals
+// (ternary/switch -> union), and local variables (reaching definitions). Method
+// params, loop-assigned variables, and opaque calls become holes.
 type Evaluator struct {
 	symbols provider.SymbolIndex
 	config  provider.ConfigResolver
@@ -38,16 +39,18 @@ func (e *Evaluator) Resolve(node provider.ASTNode) resolve.ValueSet {
 	if !ok || !n.Valid() {
 		return resolve.NewUnknown()
 	}
-	c := &evalCtx{e: e, memo: map[uint32]resolve.ValueSet{}}
+	c := &evalCtx{e: e, memo: map[uint32]resolve.ValueSet{}, vars: map[string]bool{}}
 	return c.eval(n, 0)
 }
 
 // evalCtx holds per-Resolve state. memo is keyed by node start byte (unique
-// within one file), so a value revisited via variable-following (PR 15) is
-// computed once.
+// within one file) so a value revisited via variable-following is computed once;
+// vars is the set of local variables currently being resolved (cycle guard for
+// a = b; b = a).
 type evalCtx struct {
 	e    *Evaluator
 	memo map[uint32]resolve.ValueSet
+	vars map[string]bool
 }
 
 func (c *evalCtx) eval(n Node, depth int) resolve.ValueSet {
@@ -71,8 +74,15 @@ func (c *evalCtx) evalNode(n Node, depth int) resolve.ValueSet {
 		return c.eval(n.NamedChild(0), depth+1)
 	case "binary_expression":
 		return c.evalBinary(n, depth)
+	case "ternary_expression":
+		return resolve.Union(
+			c.eval(n.ChildByFieldName("consequence"), depth+1),
+			c.eval(n.ChildByFieldName("alternative"), depth+1),
+		)
+	case "switch_expression":
+		return c.evalSwitch(n, depth)
 	case "identifier":
-		return c.evalName(n, n.Text())
+		return c.evalName(n, n.Text(), depth)
 	case "field_access":
 		return c.evalFieldAccess(n)
 	case "method_invocation":
@@ -80,6 +90,30 @@ func (c *evalCtx) evalNode(n Node, depth int) resolve.ValueSet {
 	default:
 		return resolve.NewUnknown()
 	}
+}
+
+// evalSwitch unions the value of each arrow rule (case X -> expr) of a switch
+// expression. Block-bodied rules and colon/yield switches are not analyzed.
+func (c *evalCtx) evalSwitch(n Node, depth int) resolve.ValueSet {
+	result := resolve.NewUnknown()
+	n.Walk(func(m Node) bool {
+		if m.Type() != "switch_rule" {
+			return true
+		}
+		kids := namedChildrenOf(m)
+		if len(kids) > 0 {
+			v := kids[len(kids)-1] // last child = the rule's value
+			// Arrow rules wrap the value in an expression_statement.
+			if v.Type() == "expression_statement" && v.NamedChildCount() > 0 {
+				v = v.NamedChild(0)
+			}
+			if v.Type() != "block" {
+				result = resolve.Union(result, c.eval(v, depth+1))
+			}
+		}
+		return false
+	})
+	return result
 }
 
 // evalBinary handles string concatenation (a + b); other operators are opaque.
@@ -92,9 +126,13 @@ func (c *evalCtx) evalBinary(n Node, depth int) resolve.ValueSet {
 	return resolve.Concat(left, right)
 }
 
-// evalName resolves a bare reference: a @Value field in the enclosing class, or
-// an unambiguous constant. Anything else (local var, param) is unknown for now.
-func (c *evalCtx) evalName(n Node, name string) resolve.ValueSet {
+// evalName resolves a bare reference. A local variable takes precedence (Java
+// scoping shadows fields); otherwise a @Value field, then an unambiguous
+// constant. A method parameter (no local definition) stays unknown.
+func (c *evalCtx) evalName(n Node, name string, depth int) resolve.ValueSet {
+	if defs := c.reachingDefs(n, name); len(defs) > 0 {
+		return c.evalDefs(name, defs, depth)
+	}
 	if ph, ok := c.valueFieldPlaceholder(n, name); ok {
 		return c.resolveConfig(ph)
 	}
@@ -102,6 +140,76 @@ func (c *evalCtx) evalName(n Node, name string) resolve.ValueSet {
 		return v
 	}
 	return resolve.NewUnknown()
+}
+
+// reachingDefs returns the value expressions assigned to a local variable that
+// (a) are in the same method, (b) textually precede the use — a safe
+// over-approximation of reaching definitions — and (c) are NOT inside a loop
+// (loop iterations aren't analyzed). An empty result means param / no local def.
+func (c *evalCtx) reachingDefs(use Node, name string) []Node {
+	method := enclosingMethod(use)
+	if !method.Valid() {
+		return nil
+	}
+	before := use.StartByte()
+	var defs []Node
+	method.Walk(func(m Node) bool {
+		if isLoop(m.Type()) {
+			return false // don't descend into loop bodies
+		}
+		switch m.Type() {
+		case "local_variable_declaration":
+			for _, d := range namedChildrenOf(m) {
+				if d.Type() == "variable_declarator" && d.ChildByFieldName("name").Text() == name {
+					if v := d.ChildByFieldName("value"); v.Valid() && v.StartByte() < before {
+						defs = append(defs, v)
+					}
+				}
+			}
+		case "assignment_expression":
+			if m.ChildByFieldName("left").Text() == name {
+				if v := m.ChildByFieldName("right"); v.Valid() && v.StartByte() < before {
+					defs = append(defs, v)
+				}
+			}
+		}
+		return true
+	})
+	return defs
+}
+
+// evalDefs unions the values of a variable's definitions, guarding against a
+// self-referential cycle (a = b; b = a).
+func (c *evalCtx) evalDefs(name string, defs []Node, depth int) resolve.ValueSet {
+	if c.vars[name] {
+		return resolve.NewUnknown() // cycle
+	}
+	c.vars[name] = true
+	defer delete(c.vars, name)
+
+	result := resolve.NewUnknown()
+	for _, d := range defs {
+		result = resolve.Union(result, c.eval(d, depth+1))
+	}
+	return result
+}
+
+func enclosingMethod(n Node) Node {
+	for p := n.Parent(); p.Valid(); p = p.Parent() {
+		switch p.Type() {
+		case "method_declaration", "constructor_declaration", "lambda_expression":
+			return p
+		}
+	}
+	return Node{}
+}
+
+func isLoop(typ string) bool {
+	switch typ {
+	case "for_statement", "enhanced_for_statement", "while_statement", "do_statement":
+		return true
+	}
+	return false
 }
 
 // evalFieldAccess handles X.Y: this.field routes to a @Value field / constant;
