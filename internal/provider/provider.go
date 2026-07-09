@@ -102,7 +102,7 @@ type Index struct {
 	Config  ConfigResolver
 	Types   schema.TypeSource
 	Symbols SymbolIndex
-	Schemas SchemaSources
+	Schemas schema.SchemaSources
 }
 
 // IndexContext is what Indexers read from: the file tree, the parsed buckets,
@@ -149,11 +149,6 @@ type ResolvedValue struct {
 type SymbolIndex interface {
 	Constant(qualified string) (value string, ok bool)
 }
-
-// SchemaSources indexes Kafka contract files (.avsc/.proto/JSON Schema) found
-// in the repo. Its query surface lands with the Kafka schema pass; placeholder
-// until then, like TypeIndex.
-type SchemaSources interface{}
 
 // Detector declares the tree-sitter query rules for ONE concern (REST, Feign,
 // RestTemplate, WebClient, Kafka) carrying ONE protocol. The query engine runs

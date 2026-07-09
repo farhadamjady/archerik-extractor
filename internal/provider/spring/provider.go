@@ -107,6 +107,7 @@ func (*Provider) Indexers() []provider.Indexer {
 		deployIndexer{},
 		symbolIndexer{},
 		typeIndexer{},
+		schemaSourceIndexer{},
 	}
 }
 
