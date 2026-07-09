@@ -19,14 +19,14 @@ func store(t *testing.T, kv map[string]string) provider.ConfigResolver {
 	return buildStore(t, nil, map[string]string{"application.properties": b})
 }
 
-func resolve(t *testing.T, c provider.ConfigResolver, expr string) (string, model.Confidence, bool) {
+func resolveExpr(t *testing.T, c provider.ConfigResolver, expr string) (string, model.Confidence, bool) {
 	t.Helper()
 	return c.Resolve(expr)
 }
 
 func TestResolveChain(t *testing.T) {
 	c := store(t, map[string]string{"a": "${b}", "b": "${c}", "c": "final"})
-	v, conf, ok := resolve(t, c, "${a}")
+	v, conf, ok := resolveExpr(t, c, "${a}")
 	if !ok || v != "final" {
 		t.Fatalf("resolve ${a} = (%q, ok=%v), want final", v, ok)
 	}
@@ -37,7 +37,7 @@ func TestResolveChain(t *testing.T) {
 
 func TestResolveMixedLiteralAndPlaceholders(t *testing.T) {
 	c := store(t, map[string]string{"host": "svc", "port": "8080"})
-	v, _, ok := resolve(t, c, "http://${host}:${port}/api")
+	v, _, ok := resolveExpr(t, c, "http://${host}:${port}/api")
 	if !ok || v != "http://svc:8080/api" {
 		t.Errorf("resolve = (%q, ok=%v), want http://svc:8080/api", v, ok)
 	}
@@ -47,22 +47,22 @@ func TestResolveDefault(t *testing.T) {
 	c := store(t, map[string]string{"present": "yes"})
 
 	// missing key falls back to the default
-	if v, conf, ok := resolve(t, c, "${missing:fallback}"); !ok || v != "fallback" || conf != model.Likely {
+	if v, conf, ok := resolveExpr(t, c, "${missing:fallback}"); !ok || v != "fallback" || conf != model.Likely {
 		t.Errorf("default = (%q, %s, ok=%v), want (fallback, likely, true)", v, conf, ok)
 	}
 	// present key ignores the default
-	if v, _, ok := resolve(t, c, "${present:fallback}"); !ok || v != "yes" {
+	if v, _, ok := resolveExpr(t, c, "${present:fallback}"); !ok || v != "yes" {
 		t.Errorf("present-with-default = (%q, ok=%v), want yes", v, ok)
 	}
 	// default may contain colons (first ':' splits)
-	if v, _, ok := resolve(t, c, "${db.url:jdbc:postgresql://h/db}"); !ok || v != "jdbc:postgresql://h/db" {
+	if v, _, ok := resolveExpr(t, c, "${db.url:jdbc:postgresql://h/db}"); !ok || v != "jdbc:postgresql://h/db" {
 		t.Errorf("colon default = (%q, ok=%v), want jdbc:postgresql://h/db", v, ok)
 	}
 }
 
 func TestResolveUnresolved(t *testing.T) {
 	c := store(t, map[string]string{"a": "1"})
-	v, conf, ok := resolve(t, c, "${nope}")
+	v, conf, ok := resolveExpr(t, c, "${nope}")
 	if ok {
 		t.Fatal("unknown placeholder should not resolve")
 	}
@@ -76,7 +76,7 @@ func TestResolveUnresolved(t *testing.T) {
 
 func TestResolveCycleNoHang(t *testing.T) {
 	c := store(t, map[string]string{"a": "${b}", "b": "${a}"})
-	if _, _, ok := resolve(t, c, "${a}"); ok {
+	if _, _, ok := resolveExpr(t, c, "${a}"); ok {
 		t.Error("a<->b cycle must not resolve (and must not hang)")
 	}
 }
@@ -89,7 +89,7 @@ func TestResolveDepthCap(t *testing.T) {
 	}
 	kv[fmt.Sprintf("k%d", maxPlaceholderDepth+2)] = "bottom"
 	c := store(t, kv)
-	if _, _, ok := resolve(t, c, "${k0}"); ok {
+	if _, _, ok := resolveExpr(t, c, "${k0}"); ok {
 		t.Error("chain deeper than the cap should not resolve")
 	}
 }
