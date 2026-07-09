@@ -192,14 +192,14 @@ func index(root string, tree provider.FileTree, p provider.Provider, parsed map[
 
 // detectEdges dispatches every detector's rules over the parsed files via the
 // query engine — one traversal per file, files visited in sorted order for
-// deterministic dispatch. Detectors declare no rules until PR 7+, so this is a
-// no-op today, but the iteration and the engine are now live. The value
-// resolver is threaded once it exists (PR 13); nil until then.
+// deterministic dispatch. The provider's value resolver (Java evaluator) is
+// built from the Index and threaded to every handler via MatchContext.
 func detectEdges(p provider.Provider, parsed map[string]provider.ParsedFile, idx *provider.Index, svc *model.Service) error {
 	eng := query.New()
 	dets := p.Detectors()
+	res := p.NewResolver(idx)
 	for _, path := range sortedKeys(parsed) {
-		if err := eng.Run(parsed[path], dets, idx, nil, svc); err != nil {
+		if err := eng.Run(parsed[path], dets, idx, res, svc); err != nil {
 			return fmt.Errorf("pipeline: detect %s: %w", path, err)
 		}
 	}

@@ -121,3 +121,8 @@ func (*Provider) Detectors() []provider.Detector {
 		kafkaDetector{},
 	}
 }
+
+// NewResolver returns the shared Java value evaluator bound to the Index.
+func (*Provider) NewResolver(idx *provider.Index) provider.Resolver {
+	return java.NewEvaluator(idx)
+}

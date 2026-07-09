@@ -117,6 +117,24 @@ func (n Node) ChildByFieldName(field string) Node {
 	return Node{inner: n.inner.ChildByFieldName(field), file: n.file}
 }
 
+// Parent returns the enclosing node, or an invalid Node at the root. Used to
+// walk out to a declaration's scope (e.g. the class owning a referenced field).
+func (n Node) Parent() Node {
+	if n.inner == nil {
+		return Node{}
+	}
+	return Node{inner: n.inner.Parent(), file: n.file}
+}
+
+// StartByte is the node's start offset in the source — a stable per-file
+// identity used to memoize evaluation.
+func (n Node) StartByte() uint32 {
+	if n.inner == nil {
+		return 0
+	}
+	return n.inner.StartByte()
+}
+
 // Walk calls fn for n and every descendant, pre-order. Returning false from fn
 // prunes that node's subtree. Traversal order is deterministic (child index).
 func (n Node) Walk(fn func(Node) bool) {

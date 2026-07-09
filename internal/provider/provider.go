@@ -49,6 +49,11 @@ type Provider interface {
 
 	// Detectors declare the query rules for this framework, one concern each.
 	Detectors() []Detector
+
+	// NewResolver returns this framework's value/target resolver bound to the
+	// built Index. Called once after indexing; the pipeline passes it to every
+	// detector via MatchContext. May return nil (no in-code resolution).
+	NewResolver(idx *Index) Resolver
 }
 
 // FileTree is a read-only, repo-relative view of files, used during both
