@@ -122,6 +122,27 @@ func stringLiterals(arr java.Node) []string {
 	return out
 }
 
+// annotationNamedValue returns the string value of a NAMED annotation argument
+// (key=value), ignoring any positional argument. Unlike annotationStringValues,
+// it never returns a positional value — for attributes that are only ever named
+// (e.g. Feign's url, which must not be confused with a positional service name).
+func annotationNamedValue(ann java.Node, key string) (value string, literal, ok bool) {
+	args := ann.ChildByFieldName("arguments")
+	if !args.Valid() {
+		return "", true, false
+	}
+	for _, c := range namedChildren(args) {
+		if c.Type() == "element_value_pair" && c.ChildByFieldName("key").Text() == key {
+			vals, lit, o := elementValues(c.ChildByFieldName("value"))
+			if !o || len(vals) == 0 {
+				return "", lit, false
+			}
+			return vals[0], lit, true
+		}
+	}
+	return "", true, false
+}
+
 // unquote strips surrounding double quotes from a Java string literal's text.
 func unquote(s string) string {
 	s = strings.TrimSpace(s)
