@@ -24,6 +24,10 @@ to do.
 | 16 | **Spring Cloud Config Server**: URLs/topics live in a SEPARATE config git repo; everything resolving through it stays uncertain. Very common in big enterprises. | same analysis | `--config-repo <path>`: point at a local checkout of the config repo; its yml/properties files feed the existing resolver as a lower-precedence layer. | high | ✅ implemented |
 | 17 | **Meta-annotations not resolved**: platform teams compose `@MyGetMapping` / `@MyController` from Spring annotations; controllers using them are invisible. | same analysis | Index `@interface` declarations found in the repo; resolve ONE level: an unknown annotation whose declaration carries @RestController/@GetMapping/@RequestMapping behaves like it. | high | ✅ implemented |
 | 18 | **`@HttpExchange` declarative clients (Spring 6)**: like Feign but newer and growing fast — `@GetExchange("/pay")` interfaces. Invisible today. | same analysis | New detector, same shape as Feign: one outbound edge per interface; target = interface-level @HttpExchange url (resolved via config) or the interface name as the raw logical name. | high | ✅ implemented |
+| 19 | **`@Controller` + `@ResponseBody` style invisible**: ALL 31 controllers in `mall-admin` (80k-star repo) use class `@Controller` with `@ResponseBody` on each method — the classic pre-`@RestController` enterprise style. We find 0 of its endpoints. | round-5 / `macrozheng/mall` @ `0504e86` | Treat a `@Controller` class as a REST controller when the method (or class) carries `@ResponseBody`; everything else (path composition etc.) is already there. | **high** | |
+| 20 | **Functional routing (`RouterFunction`) invisible**: `route(GET("/posts"), handler)` chains declare endpoints in code, no annotations. 0 of 3 found. | round-5 / `hantsy/spring-reactive-sample` routes app | Detector for `GET/POST/...("path")` calls gated on the functional-web import; compose `nest()`/`path()` prefixes best-effort. (This was tier-5, previously skipped.) | high | |
+| 21 | **Helm `envFrom` + templated ConfigMap not traced**: real charts (aws retail-store) put config in a TEMPLATED ConfigMap and wire it with `envFrom` + `configMapRef` + `include` helpers. Our tracer only pairs literal `name:`/`value:` env entries. | round-5 / `retail-store-sample-app` cart chart | Parse `data:` blocks inside chart-template ConfigMaps (tolerant scan like the env tracer), resolving `{{ .Values.x }}` values; treat `envFrom` a ConfigMap in the same chart as importing those keys. | medium | |
+| 22 | **Cross-class constructor-argument flow**: OAuth boilerplate calls `getForEntity(path)` where `path` comes from a constructor argument set in ANOTHER class (`new CustomUserInfoTokenServices(userInfoUri, ...)`). Honest uncertain today. | round-5 / `piggymetrics` account-service | General inter-procedural/cross-class flow — big; only worth it if it shows up more often. Park as low. | low | |
 
 ## How to add a new entry
 When a benchmark tier finds a miss: add a row here with the repo + commit SHA,
@@ -56,3 +60,13 @@ mechanism, --config-repo (external Spring Cloud Config checkout), one-level
 meta-annotation resolution, and @HttpExchange clients. Full benchmark re-run:
 100%/100% on all 13 services, zero regressions from the broadened controller
 query and the three new detectors.
+
+## Round 5 result (2026-07-11) — new, more realistic repos; predictions pre-registered
+Scores: piggymetrics account 4/4 endpoints + 2/2 Feign (+1 honest unknown);
+stream-samples multi-functions-kafka 4/4 topics (validates #14 on real code);
+retail-store cart 15/15 endpoints; petclinic-reactive 31/31 (Mono/Flux fine).
+Misses that became findings: mall-admin 0% (R5→#19, @Controller+@ResponseBody —
+predicted), functional routes 0/3 (#20 — predicted), Helm envFrom/templated
+ConfigMap (#21 — predicted). Predictions that were WRONG: piggymetrics master
+has no messaging at all (old-Cloud-Stream + rabbit-binder predictions n/a), and
+--config-repo made no visible difference on account-service (no ${} edges there).
