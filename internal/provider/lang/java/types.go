@@ -10,7 +10,14 @@ import (
 // Types is the cross-file DTO index. It implements schema.TypeSource.
 type Types struct {
 	byName map[string]*schema.TypeDef
+	// newSites: `new ClassName(...)` expressions per simple class name, so the
+	// evaluator can follow constructor arguments across classes (IMPROVEMENTS #22).
+	newSites map[string][]Node
 }
+
+// CreationSites returns the argument_list nodes of every `new name(...)` in the
+// indexed files (any file — Node carries its own file reference).
+func (t *Types) CreationSites(name string) []Node { return t.newSites[name] }
 
 // Lookup resolves a simple or qualified type name to its definition; a qualified
 // name falls back to its last segment.
@@ -27,7 +34,7 @@ func (t *Types) Lookup(name string) (*schema.TypeDef, bool) {
 
 // IndexTypes builds the DTO index from the given files (sorted for determinism).
 func IndexTypes(files []*File) *Types {
-	t := &Types{byName: map[string]*schema.TypeDef{}}
+	t := &Types{byName: map[string]*schema.TypeDef{}, newSites: map[string][]Node{}}
 	sorted := append([]*File(nil), files...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].path < sorted[j].path })
 
@@ -40,6 +47,11 @@ func IndexTypes(files []*File) *Types {
 				"annotation_type_declaration":
 				td := buildTypeDef(n, pkg, imports)
 				t.byName[td.Name] = td
+			case "object_creation_expression":
+				cls := simpleTypeName(n.ChildByFieldName("type").Text())
+				if args := n.ChildByFieldName("arguments"); args.Valid() && cls != "" {
+					t.newSites[cls] = append(t.newSites[cls], args)
+				}
 			}
 			return true // index nested types too
 		})

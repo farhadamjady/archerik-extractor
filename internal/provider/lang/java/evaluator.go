@@ -43,7 +43,7 @@ func (e *Evaluator) Resolve(node provider.ASTNode) resolve.ValueSet {
 	if !ok || !n.Valid() {
 		return resolve.NewUnknown()
 	}
-	c := &evalCtx{e: e, memo: map[uint32]resolve.ValueSet{}, vars: map[string]bool{}}
+	c := &evalCtx{e: e, memo: map[memoKey]resolve.ValueSet{}, vars: map[string]bool{}}
 	return c.eval(n, 0)
 }
 
@@ -51,9 +51,14 @@ func (e *Evaluator) Resolve(node provider.ASTNode) resolve.ValueSet {
 // within one file) so a value revisited via variable-following is computed once;
 // vars is the set of local variables currently being resolved (cycle guard for
 // a = b; b = a).
+type memoKey struct {
+	file *File
+	pos  uint32
+}
+
 type evalCtx struct {
 	e    *Evaluator
-	memo map[uint32]resolve.ValueSet
+	memo map[memoKey]resolve.ValueSet
 	vars map[string]bool
 }
 
@@ -61,7 +66,7 @@ func (c *evalCtx) eval(n Node, depth int) resolve.ValueSet {
 	if !n.Valid() || depth > maxEvalDepth {
 		return resolve.NewUnknown()
 	}
-	key := n.StartByte()
+	key := memoKey{file: n.file, pos: n.StartByte()}
 	if v, ok := c.memo[key]; ok {
 		return v
 	}
@@ -146,10 +151,81 @@ func (c *evalCtx) evalName(n Node, name string, depth int) resolve.ValueSet {
 	if v, ok := c.fieldInitializer(n, name, depth); ok {
 		return v
 	}
+	if v, ok := c.ctorArgFromCreationSites(n, name, depth); ok {
+		return v
+	}
 	if v, ok := c.paramCallSites(n, name, depth); ok {
 		return v
 	}
 	return resolve.NewUnknown()
+}
+
+// ctorArgFromCreationSites follows a field ACROSS classes (IMPROVEMENTS #22):
+// the field is set from a plain constructor parameter (`this.url = url`, no
+// @Value), so its value comes from whoever writes `new ThisClass(...)`. We find
+// those creation sites in the whole repo (Types index) and union the argument
+// values, capped at likely. No sites / nothing resolvable -> stays a hole.
+func (c *evalCtx) ctorArgFromCreationSites(n Node, field string, depth int) (resolve.ValueSet, bool) {
+	types, ok := c.e.types.(*Types)
+	if !ok {
+		return resolve.ValueSet{}, false
+	}
+	cls := enclosingType(n)
+	if !cls.Valid() {
+		return resolve.ValueSet{}, false
+	}
+	clsName := cls.ChildByFieldName("name").Text()
+
+	guard := "newarg:" + clsName + ":" + field
+	if c.vars[guard] {
+		return resolve.ValueSet{}, false
+	}
+	c.vars[guard] = true
+	defer delete(c.vars, guard)
+
+	argIdx := ctorParamIndexForField(cls, field)
+	if argIdx < 0 {
+		return resolve.ValueSet{}, false
+	}
+	result := resolve.NewUnknown()
+	for _, args := range types.CreationSites(clsName) {
+		if arg := args.NamedChild(argIdx); arg.Valid() {
+			result = resolve.Union(result, c.eval(arg, depth+1))
+		}
+	}
+	if result.Kind == resolve.Unknown {
+		return resolve.ValueSet{}, false
+	}
+	return capLikely(result), true
+}
+
+// ctorParamIndexForField finds which constructor-parameter position feeds
+// `this.<field> = <param>`, or -1.
+func ctorParamIndexForField(cls Node, field string) int {
+	body := cls.ChildByFieldName("body")
+	for i := 0; i < body.NamedChildCount(); i++ {
+		ctor := body.NamedChild(i)
+		if ctor.Type() != "constructor_declaration" {
+			continue
+		}
+		param := ""
+		ctor.Walk(func(m Node) bool {
+			if m.Type() == "assignment_expression" && m.ChildByFieldName("left").Text() == "this."+field {
+				if r := m.ChildByFieldName("right"); r.Type() == "identifier" {
+					param = r.Text()
+				}
+				return false
+			}
+			return true
+		})
+		if param == "" {
+			continue
+		}
+		if idx := paramIndex(ctor, param); idx >= 0 {
+			return idx
+		}
+	}
+	return -1
 }
 
 // paramCallSites is the mirror of return-inlining (IMPROVEMENTS #13): when the

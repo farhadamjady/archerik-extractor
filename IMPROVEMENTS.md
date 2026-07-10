@@ -27,7 +27,8 @@ to do.
 | 19 | **`@Controller` + `@ResponseBody` style invisible**: ALL 31 controllers in `mall-admin` (80k-star repo) use class `@Controller` with `@ResponseBody` on each method — the classic pre-`@RestController` enterprise style. We find 0 of its endpoints. | round-5 / `macrozheng/mall` @ `0504e86` | Treat a `@Controller` class as a REST controller when the method (or class) carries `@ResponseBody`; everything else (path composition etc.) is already there. | **high** | ✅ implemented |
 | 20 | **Functional routing (`RouterFunction`) invisible**: `route(GET("/posts"), handler)` chains declare endpoints in code, no annotations. 0 of 3 found. | round-5 / `hantsy/spring-reactive-sample` routes app | Detector for `GET/POST/...("path")` calls gated on the functional-web import; compose `nest()`/`path()` prefixes best-effort. (This was tier-5, previously skipped.) | high | ✅ implemented |
 | 21 | **Helm `envFrom` + templated ConfigMap not traced**: real charts (aws retail-store) put config in a TEMPLATED ConfigMap and wire it with `envFrom` + `configMapRef` + `include` helpers. Our tracer only pairs literal `name:`/`value:` env entries. | round-5 / `retail-store-sample-app` cart chart | Parse `data:` blocks inside chart-template ConfigMaps (tolerant scan like the env tracer), resolving `{{ .Values.x }}` values; treat `envFrom` a ConfigMap in the same chart as importing those keys. | medium | ✅ implemented |
-| 22 | **Cross-class constructor-argument flow**: OAuth boilerplate calls `getForEntity(path)` where `path` comes from a constructor argument set in ANOTHER class (`new CustomUserInfoTokenServices(userInfoUri, ...)`). Honest uncertain today. | round-5 / `piggymetrics` account-service | General inter-procedural/cross-class flow — big; only worth it if it shows up more often. Park as low. | low | |
+| 22 | **Cross-class constructor-argument flow**: OAuth boilerplate calls `getForEntity(path)` where `path` comes from a constructor argument set in ANOTHER class (`new CustomUserInfoTokenServices(userInfoUri, ...)`). Honest uncertain today. | round-5 / `piggymetrics` account-service | General inter-procedural/cross-class flow — big; only worth it if it shows up more often. Park as low. | low | ✅ implemented |
+| 23 | **Cloud Stream function COMPOSITION**: `spring.cloud.function.definition: uppercase\|echo` composes beans — bindings are named `uppercase\|echo-in-0`, not per-bean defaults. We emit 4 wrong-name topics and miss the real ones. | round-7 / `spring-cloud-stream-samples` function-composition-kafka | Read `spring.cloud.function.definition`; when it composes (`a\|b`), emit bindings for the COMPOSED name (in from the first, out from the last) instead of per-bean defaults; also only emit beans that appear in the definition when one is set. | medium | |
 
 ## How to add a new entry
 When a benchmark tier finds a miss: add a row here with the repo + commit SHA,
@@ -79,3 +80,15 @@ new #20 detector found a REAL RouterFunction endpoint (GET /) in the old
 tier-2 api-gateway that hand-labeling had missed — label corrected. Open: #22
 (cross-class ctor-arg flow, low). compare.py gained a "sampled" labels mode
 for big repos.
+
+## Round 7 result (2026-07-11)
+#22 implemented: fields set from plain constructor params now resolve through
+`new ClassName(...)` sites across the repo (union, capped likely; opaque args
+stay honest holes). Memo keys are now (file, offset) — cross-file safe.
+Statistical-weight targets added (6 more): mall-portal 6/6 (sampled — second
+@Controller+@ResponseBody module), classic petclinic NEGATIVE CONTROL 1/1
+(view methods correctly excluded), piggymetrics statistics 3/3 + rates-client
+Feign URL resolved ONLY via --config-repo (#16 validated on real code),
+retail orders 9/9, boot-start-routes 5/5. New finding #23: Cloud Stream
+function composition (4 wrong-name topics on function-composition-kafka).
+Benchmark now spans ~26 targets across 5 tiers.

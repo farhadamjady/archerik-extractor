@@ -301,3 +301,56 @@ func TestParamNoCallSitesStaysHole(t *testing.T) {
 		t.Errorf("no-call-site param = %v, want Unknown", vs.Kind)
 	}
 }
+
+// TestCtorArgAcrossClasses (IMPROVEMENTS #22): a field set from a plain ctor
+// param resolves through `new ThisClass(...)` sites in OTHER classes.
+func TestCtorArgAcrossClasses(t *testing.T) {
+	vs := evalTarget(t, nil,
+		`class Config {
+			TokenServices build() { return new TokenServices("http://auth/uaa/users/current"); }
+		}`,
+		`class TokenServices {
+			private final String userInfoUrl;
+			public TokenServices(String userInfoUrl) { this.userInfoUrl = userInfoUrl; }
+			void m() { target(userInfoUrl); }
+		}`)
+	if vs.Kind != resolve.Exact || len(vs.Values) != 1 {
+		t.Fatalf("cross-class ctor arg = %+v, want one value", vs)
+	}
+	if vs.Values[0].S != "http://auth/uaa/users/current" {
+		t.Errorf("value = %q", vs.Values[0].S)
+	}
+	if string(vs.Values[0].Conf) != "likely" {
+		t.Errorf("conf = %v, want likely (cross-class cap)", vs.Values[0].Conf)
+	}
+}
+
+// TestCtorArgTwoSitesUnion: two creation sites -> union of both values.
+func TestCtorArgTwoSitesUnion(t *testing.T) {
+	vs := evalTarget(t, nil,
+		`class A { Client a() { return new Client("http://a"); } }`,
+		`class B { Client b() { return new Client("http://b"); } }`,
+		`class Client {
+			private final String base;
+			public Client(String base) { this.base = base; }
+			void m() { target(base); }
+		}`)
+	if !eqStr(sortedVals(vs), []string{"http://a", "http://b"}) {
+		t.Errorf("union = %v, want [http://a http://b]", sortedVals(vs))
+	}
+}
+
+// TestCtorArgUnresolvableStaysHole: the creation site passes an opaque getter
+// (the piggymetrics OAuth case) -> stays a hole, honestly.
+func TestCtorArgUnresolvableStaysHole(t *testing.T) {
+	vs := evalTarget(t, nil,
+		`class Config { TokenServices b(Props sso) { return new TokenServices(sso.getUserInfoUri()); } }`,
+		`class TokenServices {
+			private final String url;
+			public TokenServices(String url) { this.url = url; }
+			void m() { target(url); }
+		}`)
+	if vs.Kind != resolve.Unknown {
+		t.Errorf("opaque ctor arg = %v, want Unknown", vs.Kind)
+	}
+}
