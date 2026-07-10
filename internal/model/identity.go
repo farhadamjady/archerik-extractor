@@ -26,21 +26,27 @@ func DependencyKey(d Dependency) string { return d.TargetName + "|" + string(d.D
 // same topic get distinct identities.
 func KafkaKey(k KafkaEdge, direction string) string { return k.Topic + "|" + direction }
 
-// Sort orders every slice in svc deterministically and recursively sorts nested
-// schema fields. Idempotent. Call it in the marshal phase before encoding.
+// Sort orders every slice in svc deterministically, drops exact-duplicate
+// edges (two identical call sites, e.g. send("orders") twice, add no
+// information), and recursively sorts nested schema fields. Idempotent.
+// Call it in the marshal phase before encoding.
 func Sort(svc *Service) {
 	sort.SliceStable(svc.Endpoints, func(i, j int) bool {
 		return endpointSortKey(svc.Endpoints[i]) < endpointSortKey(svc.Endpoints[j])
 	})
+	svc.Endpoints = dedup(svc.Endpoints, endpointSortKey)
 	sort.SliceStable(svc.OutboundDependencies, func(i, j int) bool {
 		return dependencySortKey(svc.OutboundDependencies[i]) < dependencySortKey(svc.OutboundDependencies[j])
 	})
+	svc.OutboundDependencies = dedup(svc.OutboundDependencies, dependencySortKey)
 	sort.SliceStable(svc.KafkaProducers, func(i, j int) bool {
 		return kafkaSortKey(svc.KafkaProducers[i]) < kafkaSortKey(svc.KafkaProducers[j])
 	})
+	svc.KafkaProducers = dedup(svc.KafkaProducers, kafkaSortKey)
 	sort.SliceStable(svc.KafkaConsumers, func(i, j int) bool {
 		return kafkaSortKey(svc.KafkaConsumers[i]) < kafkaSortKey(svc.KafkaConsumers[j])
 	})
+	svc.KafkaConsumers = dedup(svc.KafkaConsumers, kafkaSortKey)
 	sort.SliceStable(svc.DatabasesUsed, func(i, j int) bool {
 		return databaseSortKey(svc.DatabasesUsed[i]) < databaseSortKey(svc.DatabasesUsed[j])
 	})
@@ -57,6 +63,21 @@ func Sort(svc *Service) {
 	for i := range svc.KafkaConsumers {
 		sortSchema(svc.KafkaConsumers[i].Schema)
 	}
+}
+
+// dedup removes adjacent elements with an equal sort key. The keys cover every
+// scalar field, so equal keys mean identical edges. Slices must be sorted first.
+func dedup[T any](xs []T, key func(T) string) []T {
+	if len(xs) < 2 {
+		return xs
+	}
+	out := xs[:1]
+	for _, x := range xs[1:] {
+		if key(x) != key(out[len(out)-1]) {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 // sortSchema recursively orders nested fields by wire name. Fields are deduped by

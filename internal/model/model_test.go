@@ -133,3 +133,17 @@ func TestRequiredAlwaysEmitted(t *testing.T) {
 		}
 	}
 }
+
+// TestSortDedupsIdenticalEdges: two identical call sites (same topic, same
+// fields) collapse to one edge; a different-confidence edge stays separate.
+func TestSortDedupsIdenticalEdges(t *testing.T) {
+	svc := NewService("id", "name", "repo")
+	e := KafkaEdge{Topic: "orders", Resolved: true, Protocol: ProtoKafka, Detection: DetectKafka, Confidence: Confirmed}
+	other := e
+	other.Confidence = Likely
+	svc.KafkaProducers = []KafkaEdge{e, e, other}
+	Sort(svc)
+	if len(svc.KafkaProducers) != 2 {
+		t.Errorf("got %d producers, want 2 (identical pair deduped, different kept)", len(svc.KafkaProducers))
+	}
+}

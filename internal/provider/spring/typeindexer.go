@@ -12,12 +12,23 @@ type typeIndexer struct{}
 func (typeIndexer) Name() string { return "spring.types" }
 
 func (typeIndexer) Index(ic *provider.IndexContext, idx *provider.Index) error {
+	idx.Types = java.IndexTypes(javaFilesOf(ic))
+	return nil
+}
+
+// javaFilesOf collects the service's Java files plus shared sibling-module
+// files (types/constants only — detectors never see the shared ones).
+func javaFilesOf(ic *provider.IndexContext) []*java.File {
 	var files []*java.File
 	for _, p := range sortedJavaPaths(ic.Parsed) {
 		if jf, ok := ic.Parsed[p].(*java.File); ok {
 			files = append(files, jf)
 		}
 	}
-	idx.Types = java.IndexTypes(files)
-	return nil
+	for _, p := range sortedJavaPaths(ic.Shared) {
+		if jf, ok := ic.Shared[p].(*java.File); ok {
+			files = append(files, jf)
+		}
+	}
+	return files
 }

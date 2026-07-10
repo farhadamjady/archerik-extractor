@@ -84,7 +84,7 @@ func (c *evalCtx) evalNode(n Node, depth int) resolve.ValueSet {
 	case "identifier":
 		return c.evalName(n, n.Text(), depth)
 	case "field_access":
-		return c.evalFieldAccess(n)
+		return c.evalFieldAccess(n, depth)
 	case "method_invocation":
 		return c.evalMethodInvocation(n, depth)
 	default:
@@ -139,7 +139,52 @@ func (c *evalCtx) evalName(n Node, name string, depth int) resolve.ValueSet {
 	if v, ok := c.symbolValue(name); ok {
 		return v
 	}
+	if v, ok := c.fieldInitializer(n, name, depth); ok {
+		return v
+	}
 	return resolve.NewUnknown()
+}
+
+// fieldInitializer resolves an instance field of the enclosing type through its
+// initializer: `private String hostname = "http://visits-service/";`. The field
+// is not final and could be reassigned at runtime, so the result is capped at
+// likely (IMPROVEMENTS #3).
+func (c *evalCtx) fieldInitializer(n Node, name string, depth int) (resolve.ValueSet, bool) {
+	cls := enclosingType(n)
+	if !cls.Valid() {
+		return resolve.ValueSet{}, false
+	}
+	body := cls.ChildByFieldName("body")
+	for i := 0; i < body.NamedChildCount(); i++ {
+		fd := body.NamedChild(i)
+		if fd.Type() != "field_declaration" {
+			continue
+		}
+		decl := directChild(fd, "variable_declarator")
+		if !decl.Valid() || decl.ChildByFieldName("name").Text() != name {
+			continue
+		}
+		if v := decl.ChildByFieldName("value"); v.Valid() {
+			return capLikely(c.eval(v, depth+1)), true
+		}
+		return resolve.ValueSet{}, false // field exists but has no initializer
+	}
+	return resolve.ValueSet{}, false
+}
+
+// capLikely lowers every confirmed value to likely (mutable-source cap).
+func capLikely(vs resolve.ValueSet) resolve.ValueSet {
+	if vs.Kind != resolve.Exact {
+		return vs
+	}
+	vals := make([]resolve.Value, len(vs.Values))
+	for i, v := range vs.Values {
+		if v.Conf == model.Confirmed {
+			v.Conf = model.Likely
+		}
+		vals[i] = v
+	}
+	return resolve.ExactValues(vals...)
 }
 
 // reachingDefs returns the value expressions assigned to a local variable that
@@ -212,9 +257,9 @@ func isLoop(typ string) bool {
 	return false
 }
 
-// evalFieldAccess handles X.Y: this.field routes to a @Value field / constant;
-// otherwise the qualified name is looked up as a constant (Const.HOST).
-func (c *evalCtx) evalFieldAccess(n Node) resolve.ValueSet {
+// evalFieldAccess handles X.Y: this.field routes to a @Value field / constant /
+// field initializer; otherwise the qualified name is looked up as a constant.
+func (c *evalCtx) evalFieldAccess(n Node, depth int) resolve.ValueSet {
 	obj := n.ChildByFieldName("object")
 	field := n.ChildByFieldName("field")
 	if obj.Text() == "this" {
@@ -222,6 +267,9 @@ func (c *evalCtx) evalFieldAccess(n Node) resolve.ValueSet {
 			return c.resolveConfig(ph)
 		}
 		if v, ok := c.symbolValue(field.Text()); ok {
+			return v
+		}
+		if v, ok := c.fieldInitializer(n, field.Text(), depth); ok {
 			return v
 		}
 		return resolve.NewUnknown()
@@ -232,13 +280,83 @@ func (c *evalCtx) evalFieldAccess(n Node) resolve.ValueSet {
 	return resolve.NewUnknown()
 }
 
-// evalMethodInvocation handles the recognized builder: String.format. Everything
-// else (getenv, getProperty, custom calls) is opaque.
+// evalMethodInvocation handles: String.format; a DiscoveryClient chain
+// (getInstances("name")... -> http://name, IMPROVEMENTS #4); and a same-class
+// helper method with a single return statement, which is inlined one level
+// (return-inlining). Everything else (getenv, getProperty, external calls)
+// stays opaque.
 func (c *evalCtx) evalMethodInvocation(n Node, depth int) resolve.ValueSet {
-	if n.ChildByFieldName("object").Text() == "String" && n.ChildByFieldName("name").Text() == "format" {
+	obj := n.ChildByFieldName("object")
+	name := n.ChildByFieldName("name").Text()
+
+	if obj.Text() == "String" && name == "format" {
 		return c.evalStringFormat(n, depth)
 	}
+	// discoveryClient.getInstances("customers-service").get(0).getUri():
+	// scan the receiver chain for getInstances with a literal service name.
+	// The static answer is the logical service target (as an lb-style URL),
+	// capped at likely — which instance answers is a runtime matter.
+	for cur := n; cur.Valid() && cur.Type() == "method_invocation"; cur = cur.ChildByFieldName("object") {
+		if cur.ChildByFieldName("name").Text() == "getInstances" {
+			args := cur.ChildByFieldName("arguments")
+			if arg := args.NamedChild(0); arg.Valid() && arg.Type() == "string_literal" {
+				return resolve.ExactValues(resolve.Value{S: "http://" + stripQuotes(arg.Text()), Conf: model.Likely})
+			}
+		}
+	}
+	// Same-class helper with no receiver: inline its single return expression.
+	if !obj.Valid() {
+		if v, ok := c.inlineLocalMethod(n, name, depth); ok {
+			return v
+		}
+	}
 	return resolve.NewUnknown()
+}
+
+// inlineLocalMethod finds a method of the enclosing type with the given name
+// and exactly one return statement, and evaluates that returned expression.
+// Guarded against recursion by the method-name set; parameters naturally
+// become holes.
+func (c *evalCtx) inlineLocalMethod(call Node, name string, depth int) (resolve.ValueSet, bool) {
+	if c.vars["method:"+name] {
+		return resolve.ValueSet{}, false // recursive helper — give up
+	}
+	cls := enclosingType(call)
+	if !cls.Valid() {
+		return resolve.ValueSet{}, false
+	}
+	body := cls.ChildByFieldName("body")
+	for i := 0; i < body.NamedChildCount(); i++ {
+		m := body.NamedChild(i)
+		if m.Type() != "method_declaration" || m.ChildByFieldName("name").Text() != name {
+			continue
+		}
+		ret, count := singleReturnExpr(m)
+		if count != 1 || !ret.Valid() {
+			return resolve.ValueSet{}, false // zero or several returns — too risky
+		}
+		c.vars["method:"+name] = true
+		defer delete(c.vars, "method:"+name)
+		return c.eval(ret, depth+1), true
+	}
+	return resolve.ValueSet{}, false
+}
+
+// singleReturnExpr returns the expression of the method's return statement and
+// how many return statements the method has.
+func singleReturnExpr(method Node) (Node, int) {
+	var expr Node
+	count := 0
+	method.Walk(func(n Node) bool {
+		if n.Type() == "return_statement" {
+			count++
+			if n.NamedChildCount() > 0 {
+				expr = n.NamedChild(0)
+			}
+		}
+		return true
+	})
+	return expr, count
 }
 
 var formatSpecRe = regexp.MustCompile(`%[a-zA-Z]`)

@@ -132,3 +132,40 @@ func TestKafkaConsumerTopicArray(t *testing.T) {
 		t.Errorf("array topics = %v, want [orders shipments]", got)
 	}
 }
+
+// TestKafkaStreamsTopology (IMPROVEMENTS #5): builder.stream/table consume,
+// KStream.to produces — gated on the org.apache.kafka.streams import.
+func TestKafkaStreamsTopology(t *testing.T) {
+	svc := kafkaScan(t, nil, `
+import org.apache.kafka.streams.StreamsBuilder;
+class OrderApp {
+	KStream<Long, Order> stream(StreamsBuilder builder) {
+		KStream<Long, Order> s = builder.stream("payment-orders");
+		s.join(builder.stream("stock-orders")).to("orders");
+		return s;
+	}
+	KTable<Long, Order> table(StreamsBuilder builder) {
+		return builder.stream("orders").toTable();
+	}
+}`)
+	if got := topics(svc.KafkaConsumers); len(got) != 3 || got[0] != "orders" || got[1] != "payment-orders" || got[2] != "stock-orders" {
+		t.Errorf("streams consumers = %v, want [orders payment-orders stock-orders]", got)
+	}
+	if got := topics(svc.KafkaProducers); len(got) != 1 || got[0] != "orders" {
+		t.Errorf("streams producers = %v, want [orders]", got)
+	}
+}
+
+// TestNoStreamsImportNoMatch: without the streams import, stream()/to() calls
+// (java.util streams, other libs) never produce Kafka edges.
+func TestNoStreamsImportNoMatch(t *testing.T) {
+	svc := kafkaScan(t, nil, `class C {
+		void m(java.util.List<String> xs) {
+			xs.stream().map(String::trim);
+			someBuilder.to("nowhere");
+		}
+	}`)
+	if len(svc.KafkaConsumers) != 0 || len(svc.KafkaProducers) != 0 {
+		t.Errorf("non-streams file must not emit kafka edges: %+v %+v", svc.KafkaConsumers, svc.KafkaProducers)
+	}
+}

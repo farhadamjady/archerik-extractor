@@ -18,8 +18,9 @@ const (
 // It is orthogonal to Protocol (which is the communication semantics): Feign,
 // RestTemplate, and WebClient are three DetectionMethods of one Protocol (rest).
 //
-// OpenAPI and DTO are intentionally absent: OpenAPI ingestion is cut from the MVP,
-// and an in-code DTO is a schema SOURCE, not an edge detection method.
+// DTO is intentionally absent: an in-code DTO is a schema SOURCE, not an edge
+// detection method. OpenAPI is back (IMPROVEMENTS #1) for builds that GENERATE
+// controllers from a spec — there the spec is the real source of the mappings.
 type DetectionMethod string
 
 const (
@@ -29,6 +30,7 @@ const (
 	DetectKafka        DetectionMethod = "kafka"
 	DetectConfig       DetectionMethod = "config"
 	DetectAnnotation   DetectionMethod = "annotation" // @RestController + mapping annotations
+	DetectOpenAPI      DetectionMethod = "openapi"    // read from an OpenAPI spec the build generates code from
 )
 
 // Protocol is the communication protocol of an edge — a FIRST-CLASS field, kept

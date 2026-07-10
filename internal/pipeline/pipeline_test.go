@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/farhadamjady/service-discovery/internal/exitcode"
+	"github.com/farhadamjady/service-discovery/internal/model"
 )
 
 // testKey satisfies the presence-only auth gate so pipeline tests can run
@@ -113,5 +114,74 @@ func write(t *testing.T, root, rel, content string) {
 	}
 	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestSharedModuleTypes (IMPROVEMENTS #6): the Kafka payload DTO lives in a
+// SIBLING Maven module; the schema must still resolve (types only).
+func TestSharedModuleTypes(t *testing.T) {
+	repo := t.TempDir()
+	// parent pom listing both modules
+	write(t, repo, "pom.xml", "<project><modules><module>base-domain</module><module>order-service</module></modules></project>")
+	// shared module with the DTO
+	write(t, repo, "base-domain/pom.xml", "<project></project>")
+	write(t, repo, "base-domain/src/main/java/Order.java", "public class Order { private String id; private int total; }")
+	// the scanned service
+	root := filepath.Join(repo, "order-service")
+	write(t, repo, "order-service/pom.xml", "<project><artifactId>spring-boot-starter</artifactId></project>")
+	write(t, repo, "order-service/src/main/java/App.java", "@SpringBootApplication public class App {}")
+	write(t, repo, "order-service/src/main/java/Pub.java",
+		"class Pub { KafkaTemplate<String, Order> kt; void m() { kt.send(\"orders\", null); } }")
+
+	svc, err := Run(context.Background(), Options{Root: root, APIKey: testKey})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(svc.KafkaProducers) != 1 {
+		t.Fatalf("producers = %+v, want 1", svc.KafkaProducers)
+	}
+	sc := svc.KafkaProducers[0].Schema
+	if sc == nil || sc.Type != "Order" {
+		t.Fatalf("schema = %+v, want Order (resolved from the sibling module)", sc)
+	}
+	if len(sc.Nested) != 2 {
+		t.Errorf("Order fields = %+v, want 2", sc.Nested)
+	}
+}
+
+// TestOpenAPIIngestion (IMPROVEMENTS #1): when the build generates controllers
+// from openapi.yml (openapi-generator in pom.xml), spec endpoints are ingested
+// at likely; without the generator plugin, the spec is ignored (docs drift).
+func TestOpenAPIIngestion(t *testing.T) {
+	spec := "openapi: 3.0.1\npaths:\n  /owners:\n    get:\n      responses:\n        \"200\":\n          description: ok\n"
+
+	// with the generator plugin -> ingested
+	gen := t.TempDir()
+	write(t, gen, "pom.xml", "<project><artifactId>x</artifactId><plugin>openapi-generator-maven-plugin</plugin><dep>spring-boot</dep></project>")
+	write(t, gen, "src/main/java/App.java", "@SpringBootApplication public class App {}")
+	write(t, gen, "src/main/resources/openapi.yml", spec)
+	svc, err := Run(context.Background(), Options{Root: gen, APIKey: testKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(svc.Endpoints) != 1 || svc.Endpoints[0].Path != "/owners" {
+		t.Fatalf("generated build: endpoints = %+v, want GET /owners from spec", svc.Endpoints)
+	}
+	e := svc.Endpoints[0]
+	if e.Detection != model.DetectOpenAPI || e.Confidence != model.Likely || e.Protocol != model.ProtoREST {
+		t.Errorf("spec endpoint fields = (%s,%s,%s), want openapi/likely/rest", e.Detection, e.Confidence, e.Protocol)
+	}
+
+	// without the plugin -> spec ignored
+	plain := t.TempDir()
+	write(t, plain, "pom.xml", "<project><dep>spring-boot</dep></project>")
+	write(t, plain, "src/main/java/App.java", "@SpringBootApplication public class App {}")
+	write(t, plain, "src/main/resources/openapi.yml", spec)
+	svc2, err := Run(context.Background(), Options{Root: plain, APIKey: testKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(svc2.Endpoints) != 0 {
+		t.Errorf("plain build: spec must be ignored, got %+v", svc2.Endpoints)
 	}
 }

@@ -25,6 +25,7 @@ const (
 	KindSpringConfig          // application.yml/.yaml/.properties (+ profile variants)
 	KindKafkaSchema           // .avsc / .proto / JSON Schema contract files
 	KindDeployConfig          // Helm values*.yaml + templates, K8s manifests, .env (DESIGN §8.5)
+	KindOpenAPI               // openapi.yml/json — read when controllers are generated from it (IMPROVEMENTS #1)
 )
 
 // Provider bundles everything a single framework contributes.
@@ -114,6 +115,12 @@ type IndexContext struct {
 	Parsed      map[string]ParsedFile // keyed by repo-relative path
 	Profiles    []string              // active Spring profiles (D3); overrides spring.profiles.active
 	Environment string                // deploy overlay selection (E3)
+
+	// Shared holds parsed files from SIBLING Maven modules of the same repo
+	// (a shared contracts/domain module). Indexers may read types and constants
+	// from them, but detectors never run on them — edges belong to the scanned
+	// service only (IMPROVEMENTS #6).
+	Shared map[string]ParsedFile
 }
 
 // Indexer populates one member of the shared Index.
@@ -185,6 +192,15 @@ type MatchContext struct {
 // ASTNode is an opaque parse-tree node. Handlers type-assert it to the language
 // layer's concrete node type (lang/java.Node), mirroring ParsedFile.
 type ASTNode interface{}
+
+// SpecIngester is an OPTIONAL provider capability: after detection, ingest
+// endpoints declared in spec files (OpenAPI) that the source scan cannot see —
+// e.g. controllers generated from openapi.yml at build time (IMPROVEMENTS #1).
+// The provider decides when ingestion applies (e.g. only when the build uses
+// openapi-generator) and must dedup against endpoints already found in code.
+type SpecIngester interface {
+	IngestSpecs(ic *IndexContext, svc *model.Service) error
+}
 
 // QueryRunner is a LANGUAGE capability implemented by parsed files whose grammar
 // supports tree-sitter queries. It runs a set of query patterns over the file in

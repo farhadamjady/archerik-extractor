@@ -70,8 +70,18 @@ func emitURI(mc *provider.MatchContext, call, uriArg java.Node) {
 		emitValueSet(mc, composed, model.DetectWebClient, model.ProtoREST, group)
 		return
 	}
-	// No base in this chain: only a full-URL uri is a target on its own.
-	if looksLikeURL(uri) {
+	// No base in this chain:
+	//  - a full URL stands alone -> emit;
+	//  - a KNOWN bare path (/pay) is relative to a base captured elsewhere -> skip;
+	//  - an unknown PREFIX (template starting with a hole, or fully unknown) may
+	//    hide the host — dropping it would lose the edge silently, which breaks
+	//    the honesty rule. Emit an uncertain edge instead (IMPROVEMENTS #2).
+	switch {
+	case looksLikeURL(uri):
+		emitValueSet(mc, uri, model.DetectWebClient, model.ProtoREST, group)
+	case uri.Kind == resolve.Template && len(uri.Segments) > 0 && uri.Segments[0].Hole:
+		emitValueSet(mc, uri, model.DetectWebClient, model.ProtoREST, group)
+	case uri.Kind == resolve.Unknown:
 		emitValueSet(mc, uri, model.DetectWebClient, model.ProtoREST, group)
 	}
 }

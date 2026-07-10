@@ -15,13 +15,9 @@ type symbolIndexer struct{}
 func (symbolIndexer) Name() string { return "spring.symbols" }
 
 func (symbolIndexer) Index(ic *provider.IndexContext, idx *provider.Index) error {
-	var files []*java.File
-	for _, p := range sortedJavaPaths(ic.Parsed) {
-		if jf, ok := ic.Parsed[p].(*java.File); ok {
-			files = append(files, jf)
-		}
-	}
-	idx.Symbols = java.IndexSymbols(files)
+	// Includes shared sibling-module files: constants (e.g. a Topics class in a
+	// shared contracts module) resolve across modules too.
+	idx.Symbols = java.IndexSymbols(javaFilesOf(ic))
 	return nil
 }
 

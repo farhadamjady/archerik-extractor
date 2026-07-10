@@ -34,30 +34,50 @@ const (
 
 func (d kafkaDetector) Rules() []provider.Rule {
 	return []provider.Rule{
-		{Query: kafkaProducerQuery, OnMatch: d.onProducer},
+		{Query: kafkaProducerQuery, OnMatch: d.onInvocation},
 		{Query: kafkaConsumerQuery, OnMatch: d.onConsumer},
 	}
 }
 
-// onProducer emits a produced-topic edge for KafkaTemplate.send(topic, ...); the
-// topic is the first argument, resolved via the value evaluator.
-func (kafkaDetector) onProducer(mc *provider.MatchContext) {
+// onInvocation dispatches call sites: KafkaTemplate.send -> producer; Kafka
+// Streams builder.stream/table/globalTable -> consumer and KStream.to ->
+// producer (IMPROVEMENTS #5). The Streams cases only fire in files that import
+// org.apache.kafka.streams, so List.stream() and unrelated to() never match.
+func (kafkaDetector) onInvocation(mc *provider.MatchContext) {
 	name, _ := mc.Captures["name"].(java.Node)
-	if name.Text() != "send" {
-		return
-	}
 	call, _ := mc.Captures["call"].(java.Node)
-	valueType, ok := kafkaTemplateValueType(call, receiverName(call))
-	if !ok {
-		return
-	}
 	args, _ := mc.Captures["args"].(java.Node)
 	topic := args.NamedChild(0)
-	if !topic.Valid() {
-		return
+
+	switch name.Text() {
+	case "send":
+		valueType, ok := kafkaTemplateValueType(call, receiverName(call))
+		if !ok || !topic.Valid() {
+			return
+		}
+		group := fmt.Sprintf("%s:%d:kafka-p", mc.File.Path(), topic.StartByte())
+		emitKafkaTopic(mc, resolveNode(mc, topic), true, group, kafkaSchema(mc, valueType))
+
+	case "stream", "table", "globalTable":
+		if !usesKafkaStreams(mc.File) || !topic.Valid() {
+			return
+		}
+		group := fmt.Sprintf("%s:%d:kafka-sc", mc.File.Path(), topic.StartByte())
+		emitKafkaTopic(mc, resolveNode(mc, topic), false, group, nil)
+
+	case "to":
+		if !usesKafkaStreams(mc.File) || !topic.Valid() {
+			return
+		}
+		group := fmt.Sprintf("%s:%d:kafka-sp", mc.File.Path(), topic.StartByte())
+		emitKafkaTopic(mc, resolveNode(mc, topic), true, group, nil)
 	}
-	group := fmt.Sprintf("%s:%d:kafka-p", mc.File.Path(), topic.StartByte())
-	emitKafkaTopic(mc, resolveNode(mc, topic), true, group, kafkaSchema(mc, valueType))
+}
+
+// usesKafkaStreams reports whether the file imports the Kafka Streams API.
+func usesKafkaStreams(f provider.ParsedFile) bool {
+	jf, ok := f.(*java.File)
+	return ok && strings.Contains(string(jf.Src()), "org.apache.kafka.streams")
 }
 
 // onConsumer emits a consumed-topic edge per topic on a @KafkaListener, with the

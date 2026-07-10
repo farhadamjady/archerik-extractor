@@ -67,6 +67,9 @@ func (*Provider) FileSpec() provider.FileSpec {
 				"**/*.proto",
 				"**/*.schema.json",
 			}},
+			{Kind: provider.KindOpenAPI, Include: []string{
+				"**/openapi*.yml", "**/openapi*.yaml", "**/openapi*.json",
+			}},
 			{Kind: provider.KindDeployConfig, Include: []string{
 				"**/values.yaml", "**/values.yml",
 				"**/values-*.yaml", "**/values-*.yml",
@@ -95,6 +98,7 @@ func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 		provider.KindSpringConfig: rawParser{kind: provider.KindSpringConfig},
 		provider.KindKafkaSchema:  rawParser{kind: provider.KindKafkaSchema},
 		provider.KindDeployConfig: rawParser{kind: provider.KindDeployConfig},
+		provider.KindOpenAPI:      rawParser{kind: provider.KindOpenAPI},
 	}
 }
 

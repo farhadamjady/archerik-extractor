@@ -134,3 +134,87 @@ func TestSwitchUnion(t *testing.T) {
 		t.Errorf("switch = %v, want [http://dev http://prod]", sortedVals(vs))
 	}
 }
+
+// TestFieldInitializer (IMPROVEMENTS #3): an instance field with a literal
+// initializer resolves through it, capped at likely (the field is mutable).
+func TestFieldInitializer(t *testing.T) {
+	vs := evalTarget(t, nil, `class C {
+		private String hostname = "http://visits-service/";
+		void m() { target(hostname + "pets/visits"); }
+	}`)
+	if vs.Kind != resolve.Exact || len(vs.Values) != 1 {
+		t.Fatalf("field-init concat = %+v, want one exact value", vs)
+	}
+	if vs.Values[0].S != "http://visits-service/pets/visits" {
+		t.Errorf("value = %q", vs.Values[0].S)
+	}
+	if string(vs.Values[0].Conf) != "likely" {
+		t.Errorf("conf = %v, want likely (mutable field cap)", vs.Values[0].Conf)
+	}
+}
+
+// TestFieldWithoutInitializerStaysUnknown: a field with no initializer (set in
+// the constructor or by Spring) stays a hole.
+func TestFieldWithoutInitializerStaysUnknown(t *testing.T) {
+	vs := evalTarget(t, nil, `class C {
+		private String hostname;
+		void m() { target(hostname); }
+	}`)
+	if vs.Kind != resolve.Unknown {
+		t.Errorf("uninitialized field = %v, want Unknown", vs.Kind)
+	}
+}
+
+// TestReturnInlining (IMPROVEMENTS #4): a same-class helper with one return is
+// followed one level.
+func TestReturnInlining(t *testing.T) {
+	vs := evalTarget(t, nil, `class C {
+		private String base() { return "http://payment"; }
+		void m() { target(base() + "/pay"); }
+	}`)
+	if vs.Kind != resolve.Exact || vs.Values[0].S != "http://payment/pay" {
+		t.Errorf("inlined helper = %+v, want http://payment/pay", vs)
+	}
+}
+
+// TestDiscoveryClientChain (IMPROVEMENTS #4): getInstances("name") anywhere in
+// the receiver chain resolves to the logical service target at likely.
+func TestDiscoveryClientChain(t *testing.T) {
+	vs := evalTarget(t, nil, `class C {
+		private DiscoveryClient discoveryClient;
+		private java.net.URI uri() { return discoveryClient.getInstances("customers-service").get(0).getUri(); }
+		void m() { target(uri() + "/owners"); }
+	}`)
+	if vs.Kind != resolve.Exact || len(vs.Values) != 1 {
+		t.Fatalf("discovery chain = %+v", vs)
+	}
+	if vs.Values[0].S != "http://customers-service/owners" {
+		t.Errorf("value = %q, want http://customers-service/owners", vs.Values[0].S)
+	}
+	if string(vs.Values[0].Conf) != "likely" {
+		t.Errorf("conf = %v, want likely", vs.Values[0].Conf)
+	}
+}
+
+// TestRecursiveHelperNoHang: a self-calling helper does not loop.
+func TestRecursiveHelperNoHang(t *testing.T) {
+	vs := evalTarget(t, nil, `class C {
+		private String x() { return x(); }
+		void m() { target(x()); }
+	}`)
+	if vs.Kind != resolve.Unknown {
+		t.Errorf("recursive helper = %v, want Unknown", vs.Kind)
+	}
+}
+
+// TestMultiReturnHelperNotInlined: a helper with two returns is not followed
+// (could be either branch; return-inlining is deliberately conservative).
+func TestMultiReturnHelperNotInlined(t *testing.T) {
+	vs := evalTarget(t, nil, `class C {
+		private String x(boolean f) { if (f) { return "a"; } return "b"; }
+		void m() { target(x(true)); }
+	}`)
+	if vs.Kind != resolve.Unknown {
+		t.Errorf("multi-return helper = %v, want Unknown (conservative)", vs.Kind)
+	}
+}

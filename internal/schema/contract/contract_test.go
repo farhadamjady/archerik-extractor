@@ -107,3 +107,86 @@ message OrderEvent {
 		t.Errorf("map = %+v, want map value integer", n["counts"])
 	}
 }
+
+func TestParseOpenAPI(t *testing.T) {
+	eps, err := ParseOpenAPI([]byte(`
+openapi: 3.0.1
+paths:
+  /owners:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Owner"
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Owner"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Owner"
+  /owners/{ownerId}:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Owner"
+components:
+  schemas:
+    Owner:
+      type: object
+      required: [firstName]
+      properties:
+        firstName: { type: string }
+        telephone: { type: string, nullable: true }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(eps) != 3 {
+		t.Fatalf("got %d endpoints, want 3: %+v", len(eps), eps)
+	}
+	byKey := map[string]model.Endpoint{}
+	for _, e := range eps {
+		byKey[e.Method+" "+e.Path] = e
+	}
+	if _, ok := byKey["GET /owners/{ownerId}"]; !ok {
+		t.Error("GET /owners/{ownerId} missing")
+	}
+	post := byKey["POST /owners"]
+	if post.Request == nil || post.Request.Type != "Owner" {
+		t.Errorf("POST request schema = %+v, want Owner", post.Request)
+	}
+	list := byKey["GET /owners"]
+	if list.Response == nil || list.Response.Type != "array" || list.Response.Items != "Owner" {
+		t.Errorf("GET list response = %+v, want array of Owner", list.Response)
+	}
+	// nested field detail: required + nullable from the spec
+	var first, tel *model.Schema
+	for i := range post.Request.Nested {
+		f := &post.Request.Nested[i]
+		if f.Name == "firstName" {
+			first = f
+		}
+		if f.Name == "telephone" {
+			tel = f
+		}
+	}
+	if first == nil || first.Required != model.ReqRequired {
+		t.Errorf("firstName = %+v, want required", first)
+	}
+	if tel == nil || !tel.Nullable || tel.Required != model.ReqOptional {
+		t.Errorf("telephone = %+v, want nullable/optional", tel)
+	}
+}
