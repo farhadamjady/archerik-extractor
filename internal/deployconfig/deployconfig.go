@@ -70,6 +70,36 @@ func Parse(p string, src []byte) ([]Binding, error) {
 	return nil, nil
 }
 
+// ParseK8s reads a yaml file but keeps ONLY Kubernetes documents (ConfigMap /
+// workload env) — no Helm-values fallback. Used for repo-root discovery in
+// monorepos (IMPROVEMENTS #9), where globbing **/*.yaml would otherwise turn
+// unrelated files (skaffold.yaml, CI configs) into garbage bindings.
+func ParseK8s(p string, src []byte) ([]Binding, error) {
+	if bytes.Contains(src, []byte("{{")) {
+		return nil, nil // Helm template — not valid YAML
+	}
+	base := path.Base(p)
+	var out []Binding
+	dec := yaml.NewDecoder(bytes.NewReader(src))
+	for {
+		var doc map[string]any
+		err := dec.Decode(&doc)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		switch kind, _ := doc["kind"].(string); kind {
+		case "ConfigMap":
+			out = append(out, configMapBindings(base, "", doc)...)
+		case "Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Pod", "Job", "CronJob":
+			out = append(out, workloadEnvBindings(base, "", doc)...)
+		}
+	}
+	return out, nil
+}
+
 // overlayFromName extracts the env from values-<env>.yaml, else "".
 func overlayFromName(base string) string {
 	name := strings.TrimSuffix(strings.TrimSuffix(base, ".yaml"), ".yml")

@@ -413,8 +413,10 @@ func (c *evalCtx) resolveConfig(expr string) resolve.ValueSet {
 	return resolve.NewUnknown()
 }
 
-// valueFieldPlaceholder finds a field named `name` in the enclosing type and, if
-// it carries @Value("${...}"), returns that placeholder.
+// valueFieldPlaceholder finds the @Value("...") string behind a field named
+// `name` in the enclosing type: on the field declaration itself, or — the
+// idiomatic constructor-injection style (IMPROVEMENTS #8) — on a constructor
+// parameter that is assigned to the field (`this.name = param`).
 func (c *evalCtx) valueFieldPlaceholder(n Node, name string) (string, bool) {
 	cls := enclosingType(n)
 	if !cls.Valid() {
@@ -431,9 +433,47 @@ func (c *evalCtx) valueFieldPlaceholder(n Node, name string) (string, bool) {
 			continue
 		}
 		if mods := directChild(fd, "modifiers"); mods.Valid() {
-			return valueAnnotationArg(mods)
+			if ph, ok := valueAnnotationArg(mods); ok {
+				return ph, true
+			}
 		}
-		return "", false
+		break // field exists but carries no @Value — try the constructors
+	}
+	return ctorParamValue(body, name)
+}
+
+// ctorParamValue scans the type's constructors for `this.<field> = <param>`
+// where <param> carries @Value("..."), and returns that annotation string.
+func ctorParamValue(body Node, field string) (string, bool) {
+	for i := 0; i < body.NamedChildCount(); i++ {
+		ctor := body.NamedChild(i)
+		if ctor.Type() != "constructor_declaration" {
+			continue
+		}
+		// Which parameter feeds the field? Default: one with the same name;
+		// otherwise follow the `this.field = param` assignment.
+		param := field
+		ctor.Walk(func(m Node) bool {
+			if m.Type() == "assignment_expression" && m.ChildByFieldName("left").Text() == "this."+field {
+				if r := m.ChildByFieldName("right"); r.Type() == "identifier" {
+					param = r.Text()
+				}
+				return false
+			}
+			return true
+		})
+		params := directChild(ctor, "formal_parameters")
+		for j := 0; j < params.NamedChildCount(); j++ {
+			p := params.NamedChild(j)
+			if p.Type() != "formal_parameter" || p.ChildByFieldName("name").Text() != param {
+				continue
+			}
+			if mods := directChild(p, "modifiers"); mods.Valid() {
+				if ph, ok := valueAnnotationArg(mods); ok {
+					return ph, true
+				}
+			}
+		}
 	}
 	return "", false
 }

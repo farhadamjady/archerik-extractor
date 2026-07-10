@@ -185,3 +185,32 @@ func TestOpenAPIIngestion(t *testing.T) {
 		t.Errorf("plain build: spec must be ignored, got %+v", svc2.Endpoints)
 	}
 }
+
+// TestRepoRootDeployConfig (IMPROVEMENTS #9): a monorepo keeps its k8s config
+// at the repo top; a service scanned from a subfolder still resolves env vars
+// through it.
+func TestRepoRootDeployConfig(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, repo, "kubernetes-manifests/config.yaml",
+		"apiVersion: v1\nkind: ConfigMap\nmetadata: { name: cfg }\ndata:\n  BALANCES_API_ADDR: \"balancereader:8080\"\n")
+	root := filepath.Join(repo, "src", "ledgerwriter")
+	write(t, repo, "src/ledgerwriter/pom.xml", "<project><dep>spring-boot</dep></project>")
+	write(t, repo, "src/ledgerwriter/src/main/java/App.java", "@SpringBootApplication public class App {}")
+	write(t, repo, "src/ledgerwriter/src/main/java/P.java",
+		"@FeignClient(name=\"balances\", url=\"http://${BALANCES_API_ADDR}\") interface P {}")
+
+	svc, err := Run(context.Background(), Options{Root: root, APIKey: testKey})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(svc.OutboundDependencies) != 1 {
+		t.Fatalf("deps = %+v, want 1", svc.OutboundDependencies)
+	}
+	d := svc.OutboundDependencies[0]
+	if d.URL != "http://balancereader:8080" || !d.Resolved || string(d.Confidence) != "likely" {
+		t.Errorf("dep = %+v, want http://balancereader:8080 resolved/likely (via repo-root ConfigMap)", d)
+	}
+}

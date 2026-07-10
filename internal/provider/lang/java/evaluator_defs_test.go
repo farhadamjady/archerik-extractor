@@ -218,3 +218,36 @@ func TestMultiReturnHelperNotInlined(t *testing.T) {
 		t.Errorf("multi-return helper = %v, want Unknown (conservative)", vs.Kind)
 	}
 }
+
+// TestCtorParamValue (IMPROVEMENTS #8): @Value on a constructor parameter
+// assigned to a field resolves through config — the bank-of-anthos pattern.
+func TestCtorParamValue(t *testing.T) {
+	cfg := fakeConfig{"BALANCES_API_ADDR": "balancereader:8080"}
+	vs := evalTarget(t, cfg, `class C {
+		private final String balancesApiUri;
+		public C(@Value("http://${BALANCES_API_ADDR}/balances") String balancesApiUri) {
+			this.balancesApiUri = balancesApiUri;
+		}
+		void m(String acct) { target(balancesApiUri + "/" + acct); }
+	}`)
+	if vs.Kind != resolve.Template {
+		t.Fatalf("kind = %v, want Template (trailing runtime acct): %+v", vs.Kind, vs)
+	}
+	if vs.Segments[0].Literal != "http://balancereader:8080/balances/" || !vs.Segments[1].Hole {
+		t.Errorf("segments = %+v, want [http://balancereader:8080/balances/, hole]", vs.Segments)
+	}
+}
+
+// TestCtorParamValueDifferentName: the parameter name differs from the field;
+// the `this.field = param` assignment binds them.
+func TestCtorParamValueDifferentName(t *testing.T) {
+	cfg := fakeConfig{"x.url": "http://x"}
+	vs := evalTarget(t, cfg, `class C {
+		private String uri;
+		public C(@Value("${x.url}") String addr) { this.uri = addr; }
+		void m() { target(uri); }
+	}`)
+	if vs.Kind != resolve.Exact || vs.Values[0].S != "http://x" {
+		t.Errorf("ctor different-name = %+v, want http://x", vs)
+	}
+}

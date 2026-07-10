@@ -2,12 +2,15 @@ package spring
 
 import (
 	"bytes"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/farhadamjady/service-discovery/internal/deployconfig"
 	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/service-discovery/internal/scan"
 )
 
 // deployIndexer parses externalized deployment config (KindDeployConfig) into an
@@ -54,8 +57,60 @@ func (deployIndexer) Index(ic *provider.IndexContext, idx *provider.Index) error
 		layer.Add(b)
 	}
 
+	// Monorepos keep deploy config at the REPO root (kubernetes-manifests/...),
+	// outside the scanned service folder (IMPROVEMENTS #9): walk up to the repo
+	// top and read k8s documents from there too (strict — k8s kinds and
+	// values*.yaml only, so unrelated yaml adds nothing).
+	addRepoRootDeployConfig(ic.Root, layer)
+
 	sc.setDeploy(layer, ic.Environment)
 	return nil
+}
+
+// addRepoRootDeployConfig finds the enclosing repo top (a .git up the tree) and
+// adds its k8s/values bindings to the layer. No-op when the scanned root IS the
+// repo top (its files were already collected).
+func addRepoRootDeployConfig(root string, layer *deployconfig.Layer) {
+	top := repoTop(root)
+	if top == "" || top == root {
+		return
+	}
+	tree := scan.NewOSFileTree(top, []string{
+		"**/.git/**", "**/node_modules/**", "**/target/**", "**/build/**", "**/src/test/**",
+	})
+	for _, pattern := range []string{"**/*.yaml", "**/*.yml"} {
+		for _, rel := range tree.Glob(pattern) {
+			src, err := tree.Read(rel)
+			if err != nil {
+				continue
+			}
+			var bs []deployconfig.Binding
+			if isValuesFile(path.Base(rel)) {
+				bs, _ = deployconfig.Parse(rel, src)
+			} else {
+				bs, _ = deployconfig.ParseK8s(rel, src)
+			}
+			for _, b := range bs {
+				layer.Add(b)
+			}
+		}
+	}
+}
+
+// repoTop walks up from dir (max 6 levels) to the first directory containing
+// .git, or "".
+func repoTop(dir string) string {
+	for i := 0; i < 6; i++ {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+	return ""
 }
 
 func sortedDeployPaths(parsed map[string]provider.ParsedFile) []string {

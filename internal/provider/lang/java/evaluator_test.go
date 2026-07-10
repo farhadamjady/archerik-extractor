@@ -1,6 +1,7 @@
 package java
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/farhadamjady/service-discovery/internal/model"
@@ -12,13 +13,18 @@ import (
 type fakeConfig map[string]string
 
 func (f fakeConfig) Resolve(expr string) (string, model.Confidence, bool) {
-	// expr is the @Value string, e.g. "${base.url}"; strip ${ } to key.
-	key := expr
-	if len(expr) >= 3 && expr[:2] == "${" && expr[len(expr)-1] == '}' {
-		key = expr[2 : len(expr)-1]
+	// Substitute every ${key} like the real resolver does (mixed literals too).
+	out, ok := expr, false
+	for k, v := range f {
+		if strings.Contains(out, "${"+k+"}") {
+			out = strings.ReplaceAll(out, "${"+k+"}", v)
+			ok = true
+		}
 	}
-	v, ok := f[key]
-	return v, model.Likely, ok
+	if strings.Contains(out, "${") {
+		return out, model.Uncertain, false
+	}
+	return out, model.Likely, ok
 }
 func (f fakeConfig) Candidates(string) []provider.ResolvedValue { return nil }
 

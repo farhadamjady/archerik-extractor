@@ -141,3 +141,22 @@ func TestLayerCandidatesAndDedup(t *testing.T) {
 		t.Errorf("Keys() = %v", keys)
 	}
 }
+
+// TestParseK8sStrict (IMPROVEMENTS #9): repo-root discovery keeps only k8s
+// documents — unrelated yaml (skaffold, CI) adds no bindings.
+func TestParseK8sStrict(t *testing.T) {
+	cm, err := ParseK8s("kubernetes-manifests/config.yaml", []byte(`
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: service-api-config }
+data:
+  BALANCES_API_ADDR: "balancereader:8080"
+`))
+	if err != nil || len(cm) != 1 || cm[0].Key != "balances.api.addr" {
+		t.Fatalf("configmap = %+v err=%v", cm, err)
+	}
+	skaffold, err := ParseK8s("skaffold.yaml", []byte("apiVersion: skaffold/v4\nkind: Config\nbuild:\n  artifacts:\n    - image: x\n"))
+	if err != nil || len(skaffold) != 0 {
+		t.Errorf("skaffold must add nothing, got %+v", skaffold)
+	}
+}
