@@ -56,13 +56,38 @@ func emitValueSet(mc *provider.MatchContext, vs resolve.ValueSet, detection mode
 
 	case resolve.Template:
 		base.TargetName = templateString(vs.Segments)
-		base.Resolved, base.Confidence = false, model.Uncertain
+		if templateHostKnown(vs.Segments) {
+			// The hole is only in the path/query AFTER a complete host — the
+			// TARGET SERVICE is known, like a path variable on an endpoint.
+			// (HTTP-only reasoning: a partial Kafka topic stays uncertain,
+			// because the topic name itself is the identity.)
+			base.URL = base.TargetName
+			base.Resolved, base.Confidence = true, model.Likely
+		} else {
+			base.Resolved, base.Confidence = false, model.Uncertain
+		}
 		mc.Out.OutboundDependencies = append(mc.Out.OutboundDependencies, base)
 
 	default: // Unknown
 		base.Resolved, base.Confidence = false, model.Uncertain
 		mc.Out.OutboundDependencies = append(mc.Out.OutboundDependencies, base)
 	}
+}
+
+// templateHostKnown reports whether a template's first hole comes only AFTER a
+// complete host: the first segment is a literal absolute URL whose path has
+// started ("/" after "://"). "http://svc:8080/x/" + {?} -> true;
+// "http://" + {?} (host IS the hole) or "http://svc" + {?} (host may continue)
+// -> false.
+func templateHostKnown(segs []resolve.Segment) bool {
+	if len(segs) == 0 || segs[0].Hole {
+		return false
+	}
+	i := strings.Index(segs[0].Literal, "://")
+	if i < 0 {
+		return false
+	}
+	return strings.Contains(segs[0].Literal[i+3:], "/")
 }
 
 // looksLikeURL reports whether a value set contains an absolute URL (has a

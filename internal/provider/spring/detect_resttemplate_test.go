@@ -70,17 +70,29 @@ func TestRestTemplateConstantConcat(t *testing.T) {
 	}
 }
 
-func TestRestTemplateTemplateHole(t *testing.T) {
-	// base is a known local, id is a param -> Template with a hole.
+func TestRestTemplateKnownHostTemplate(t *testing.T) {
+	// base is a known local, id is a runtime param. The SERVICE is known —
+	// only a path value is missing — so the edge is resolved at likely,
+	// like a path variable on an endpoint.
 	d := rtDep(t, `class C { RestTemplate rt; void m(String id) {
 		String base = "http://svc";
 		rt.getForObject(base + "/users/" + id, String.class);
 	} }`)
-	if d.Resolved || d.Confidence != model.Uncertain {
-		t.Errorf("templated = %+v, want unresolved/uncertain", d)
+	if !d.Resolved || d.Confidence != model.Likely {
+		t.Errorf("templated = %+v, want resolved/likely (host known)", d)
 	}
 	if d.TargetName != "http://svc/users/{?}" {
 		t.Errorf("target = %q, want http://svc/users/{?}", d.TargetName)
+	}
+}
+
+func TestRestTemplateUnknownHostStaysUncertain(t *testing.T) {
+	// The HOST itself is the hole -> which service is called is unknown.
+	d := rtDep(t, `class C { RestTemplate rt; void m(String host) {
+		rt.getForObject("http://" + host + "/users", String.class);
+	} }`)
+	if d.Resolved || d.Confidence != model.Uncertain {
+		t.Errorf("host-hole = %+v, want unresolved/uncertain", d)
 	}
 }
 
