@@ -104,6 +104,19 @@ type Index struct {
 	Types   schema.TypeSource
 	Symbols SymbolIndex
 	Schemas schema.SchemaSources
+
+	// Adapters are company-specific wrapper declarations from .ekg-adapters.json
+	// in the repo (IMPROVEMENTS #15): internal SDK calls like
+	// platformClient.call("payment-service", ...) that no generic detector can
+	// recognize. Each entry names a method and which argument is the target.
+	Adapters []AdapterSpec
+}
+
+// AdapterSpec declares one wrapper-method pattern.
+type AdapterSpec struct {
+	Method    string         `json:"method"`     // invocation name to match, e.g. "callService"
+	TargetArg int            `json:"target_arg"` // index of the argument holding the target
+	Protocol  model.Protocol `json:"protocol"`   // rest | kafka | ... (default rest)
 }
 
 // IndexContext is what Indexers read from: the file tree, the parsed buckets,
@@ -115,6 +128,7 @@ type IndexContext struct {
 	Parsed      map[string]ParsedFile // keyed by repo-relative path
 	Profiles    []string              // active Spring profiles (D3); overrides spring.profiles.active
 	Environment string                // deploy overlay selection (E3)
+	ConfigRepo  string                // local checkout of an external config repo (IMPROVEMENTS #16)
 
 	// Shared holds parsed files from SIBLING Maven modules of the same repo
 	// (a shared contracts/domain module). Indexers may read types and constants

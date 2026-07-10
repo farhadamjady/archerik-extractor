@@ -112,6 +112,7 @@ func (*Provider) Indexers() []provider.Indexer {
 		symbolIndexer{},
 		typeIndexer{},
 		schemaSourceIndexer{},
+		adapterIndexer{},
 	}
 }
 
@@ -125,6 +126,9 @@ func (*Provider) Detectors() []provider.Detector {
 		restTemplateDetector{},
 		webClientDetector{},
 		kafkaDetector{},
+		httpExchangeDetector{},
+		cloudStreamDetector{},
+		adapterDetector{},
 	}
 }
 

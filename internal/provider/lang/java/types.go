@@ -36,7 +36,8 @@ func IndexTypes(files []*File) *Types {
 		imports := importMap(f)
 		f.Root().Walk(func(n Node) bool {
 			switch n.Type() {
-			case "class_declaration", "record_declaration", "interface_declaration", "enum_declaration":
+			case "class_declaration", "record_declaration", "interface_declaration", "enum_declaration",
+				"annotation_type_declaration":
 				td := buildTypeDef(n, pkg, imports)
 				t.byName[td.Name] = td
 			}
@@ -72,6 +73,8 @@ func kindOf(nodeType string) schema.Kind {
 		return schema.KindInterface
 	case "enum_declaration":
 		return schema.KindEnum
+	case "annotation_type_declaration":
+		return schema.KindAnnotation
 	default:
 		return schema.KindClass
 	}

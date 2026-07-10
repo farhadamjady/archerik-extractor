@@ -214,3 +214,27 @@ func TestRepoRootDeployConfig(t *testing.T) {
 		t.Errorf("dep = %+v, want http://balancereader:8080 resolved/likely (via repo-root ConfigMap)", d)
 	}
 }
+
+// TestConfigRepo (IMPROVEMENTS #16): a value that lives only in the external
+// Spring Cloud Config repo resolves when --config-repo points at its checkout.
+func TestConfigRepo(t *testing.T) {
+	cfgRepo := t.TempDir()
+	write(t, cfgRepo, "orders-service.yml", "payment:\n  url: http://payment:8080\n")
+
+	root := springRepo(t)
+	write(t, root, "src/main/java/P.java",
+		"@FeignClient(name=\"pay\", url=\"${payment.url}\") interface P {}")
+
+	svc, err := Run(context.Background(), Options{Root: root, APIKey: testKey, ConfigRepo: cfgRepo})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(svc.OutboundDependencies) != 1 || svc.OutboundDependencies[0].URL != "http://payment:8080" {
+		t.Fatalf("deps = %+v, want resolved via config repo", svc.OutboundDependencies)
+	}
+	// without the config repo the same placeholder stays unresolved
+	svc2, _ := Run(context.Background(), Options{Root: root, APIKey: testKey})
+	if len(svc2.OutboundDependencies) != 1 || svc2.OutboundDependencies[0].Resolved {
+		t.Errorf("without config repo = %+v, want unresolved", svc2.OutboundDependencies)
+	}
+}

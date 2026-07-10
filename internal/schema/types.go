@@ -20,6 +20,7 @@ const (
 	KindRecord
 	KindInterface
 	KindEnum
+	KindAnnotation // an @interface declaration — carries META-annotations (IMPROVEMENTS #17)
 )
 
 // TypeDef is a declared type's structure, the raw material the schema walker

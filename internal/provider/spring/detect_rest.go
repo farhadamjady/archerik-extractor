@@ -19,15 +19,16 @@ type restDetector struct{}
 func (restDetector) Name() string             { return "spring.rest" }
 func (restDetector) Protocol() model.Protocol { return model.ProtoREST }
 
-// restControllerQuery captures any class annotated @RestController. @_ann is
-// bound by whichever branch matches (marker vs argumented) and filtered to
-// RestController; @class is the class node the handler walks.
+// restControllerQuery captures ANY annotated class; the handler decides if it
+// is a controller — directly @RestController, or via a META-annotation whose
+// declaration carries @RestController (IMPROVEMENTS #17). A class with several
+// annotations fires the handler once per annotation; the identical endpoints
+// collapse in the marshal dedup.
 const restControllerQuery = `(class_declaration
   (modifiers [
     (marker_annotation name: (identifier) @_ann)
     (annotation name: (identifier) @_ann)
   ])
-  (#eq? @_ann "RestController")
 ) @class`
 
 func (d restDetector) Rules() []provider.Rule {
@@ -48,15 +49,51 @@ func (restDetector) onController(mc *provider.MatchContext) {
 	if !ok || !class.Valid() {
 		return
 	}
-	bases := classBasePaths(class)
-	walker := schema.NewWalker(mc.Index.Types)
+	types := mc.Index.Types
+	mods := childByType(class, "modifiers")
+	if !isRestController(mods, types) {
+		return
+	}
+	bases := classBasePaths(class, types)
+	walker := schema.NewWalker(types)
 	body := class.ChildByFieldName("body")
 	for _, m := range namedChildren(body) {
 		if m.Type() == "method_declaration" {
 			req, resp := methodSchemas(walker, m)
-			appendMethodEndpoints(mc.Out, m, bases, req, resp)
+			appendMethodEndpoints(mc.Out, m, bases, req, resp, types)
 		}
 	}
+}
+
+// isRestController: the class carries @RestController directly, or an
+// annotation whose @interface declaration (indexed in the repo) carries it.
+func isRestController(mods java.Node, types schema.TypeSource) bool {
+	if !mods.Valid() {
+		return false
+	}
+	for _, a := range annotationsOf(mods) {
+		name := annotationName(a)
+		if name == "RestController" {
+			return true
+		}
+		if md, ok := metaDef(types, name); ok && md.HasAnnotation("RestController") {
+			return true
+		}
+	}
+	return false
+}
+
+// metaDef resolves an annotation name to its @interface declaration, if that
+// declaration is in the repo.
+func metaDef(types schema.TypeSource, name string) (*schema.TypeDef, bool) {
+	if types == nil {
+		return nil, false
+	}
+	td, ok := types.Lookup(name)
+	if !ok || td.Kind != schema.KindAnnotation {
+		return nil, false
+	}
+	return td, true
 }
 
 // methodSchemas resolves a handler method's request (the @RequestBody parameter,
@@ -87,29 +124,37 @@ func bodyOrNil(s *model.Schema) *model.Schema {
 	return s
 }
 
-// classBasePaths is the path prefix(es) from a class-level @RequestMapping, or
-// [""] when absent. Usually one, but a class may declare a base-path array.
-func classBasePaths(class java.Node) []string {
+// classBasePaths is the path prefix(es) from a class-level @RequestMapping —
+// direct, or carried by a meta-annotation's declaration — or [""] when absent.
+func classBasePaths(class java.Node, types schema.TypeSource) []string {
 	mods := childByType(class, "modifiers")
 	if !mods.Valid() {
 		return []string{""}
 	}
-	ann := findAnnotation(mods, "RequestMapping")
-	if !ann.Valid() {
+	if ann := findAnnotation(mods, "RequestMapping"); ann.Valid() {
+		if paths, _, ok := annotationStringValues(ann, "value", "path"); ok && len(paths) > 0 {
+			return paths
+		}
 		return []string{""}
 	}
-	paths, _, ok := annotationStringValues(ann, "value", "path")
-	if !ok || len(paths) == 0 {
-		return []string{""}
+	// meta: @MyController = @RestController + @RequestMapping("/api")
+	for _, a := range annotationsOf(mods) {
+		if md, ok := metaDef(types, annotationName(a)); ok {
+			for _, meta := range md.Annotations {
+				if meta.Name == "RequestMapping" && meta.Arg != "" {
+					return []string{meta.Arg}
+				}
+			}
+		}
 	}
-	return paths
+	return []string{""}
 }
 
 // appendMethodEndpoints emits the endpoints for a single handler method: its
 // first mapping annotation, expanded across the cartesian product of class base
 // paths, method paths, and verbs — so @GetMapping({"/a","/b"}) and method-array
 // @RequestMapping each yield every combination Spring would register.
-func appendMethodEndpoints(out *model.Service, method java.Node, bases []string, req, resp *model.Schema) {
+func appendMethodEndpoints(out *model.Service, method java.Node, bases []string, req, resp *model.Schema, types schema.TypeSource) {
 	mods := childByType(method, "modifiers")
 	if !mods.Valid() {
 		return
@@ -117,18 +162,36 @@ func appendMethodEndpoints(out *model.Service, method java.Node, bases []string,
 	for _, ann := range annotationsOf(mods) {
 		name := annotationName(ann)
 		var verbs []string
+		var metaPath string
 		switch {
 		case mappingVerb[name] != "":
 			verbs = []string{mappingVerb[name]}
 		case name == "RequestMapping":
 			verbs = requestMappingVerbs(ann)
 		default:
-			continue
+			// meta-annotation: @MyGet declared with @GetMapping("/path")
+			md, ok := metaDef(types, name)
+			if !ok {
+				continue
+			}
+			for _, meta := range md.Annotations {
+				if v := mappingVerb[meta.Name]; v != "" {
+					verbs, metaPath = []string{v}, meta.Arg
+					break
+				}
+				if meta.Name == "RequestMapping" {
+					verbs, metaPath = []string{"*"}, meta.Arg
+					break
+				}
+			}
+			if len(verbs) == 0 {
+				continue
+			}
 		}
 
 		subs, literal, ok := annotationStringValues(ann, "value", "path")
 		if !ok || len(subs) == 0 {
-			subs = []string{""} // no path on the method — maps to the base path
+			subs = []string{metaPath} // usage path wins; else the meta's path; else base
 		}
 		conf := model.Confirmed
 		if !literal {

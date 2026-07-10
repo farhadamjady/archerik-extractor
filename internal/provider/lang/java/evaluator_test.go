@@ -40,7 +40,7 @@ func evalTarget(t *testing.T, cfg provider.ConfigResolver, srcs ...string) resol
 		}
 		files = append(files, pf.(*File))
 	}
-	idx := &provider.Index{Symbols: IndexSymbols(files), Config: cfg}
+	idx := &provider.Index{Symbols: IndexSymbols(files), Config: cfg, Types: IndexTypes(files)}
 	ev := NewEvaluator(idx)
 
 	// The expression under test is the first argument of a target(...) call in

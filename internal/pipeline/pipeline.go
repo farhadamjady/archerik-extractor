@@ -37,6 +37,7 @@ type Options struct {
 	ConfigFile  string
 	Profiles    []string // active Spring profiles (D3)
 	Environment string   // deploy overlay selection, e.g. "staging" (E3)
+	ConfigRepo  string   // local checkout of the Spring Cloud Config repo (IMPROVEMENTS #16)
 	APIURL      string   // backend base URL (auth validate + submit); empty = local/dev
 	DryRun      bool     // skip submit
 
@@ -191,6 +192,7 @@ func index(root string, tree provider.FileTree, p provider.Provider, parsed map[
 		Parsed:      parsed,
 		Profiles:    opt.Profiles,
 		Environment: opt.Environment,
+		ConfigRepo:  opt.ConfigRepo,
 		Shared:      collectSharedModules(root, p),
 	}
 	for _, ix := range p.Indexers() {

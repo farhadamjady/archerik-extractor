@@ -29,8 +29,11 @@ const (
 	DetectWebClient    DetectionMethod = "webclient"
 	DetectKafka        DetectionMethod = "kafka"
 	DetectConfig       DetectionMethod = "config"
-	DetectAnnotation   DetectionMethod = "annotation" // @RestController + mapping annotations
-	DetectOpenAPI      DetectionMethod = "openapi"    // read from an OpenAPI spec the build generates code from
+	DetectAnnotation   DetectionMethod = "annotation"   // @RestController + mapping annotations
+	DetectOpenAPI      DetectionMethod = "openapi"      // read from an OpenAPI spec the build generates code from
+	DetectHTTPExchange DetectionMethod = "httpexchange" // Spring 6 @HttpExchange declarative client
+	DetectCloudStream  DetectionMethod = "cloudstream"  // Spring Cloud Stream functional binding
+	DetectAdapter      DetectionMethod = "adapter"      // company wrapper declared in .ekg-adapters.json
 )
 
 // Protocol is the communication protocol of an edge — a FIRST-CLASS field, kept

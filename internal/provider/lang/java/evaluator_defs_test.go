@@ -251,3 +251,53 @@ func TestCtorParamValueDifferentName(t *testing.T) {
 		t.Errorf("ctor different-name = %+v, want http://x", vs)
 	}
 }
+
+// TestGetenvLookup (IMPROVEMENTS #12): the env-var name is a literal; the
+// deploy/config layer knows it.
+func TestGetenvLookup(t *testing.T) {
+	cfg := fakeConfig{"PAYMENT_URL": "http://pay:8080"}
+	vs := evalTarget(t, cfg, `class C { void m() { target(System.getenv("PAYMENT_URL") + "/x"); } }`)
+	if vs.Kind != resolve.Exact || vs.Values[0].S != "http://pay:8080/x" {
+		t.Errorf("getenv = %+v, want http://pay:8080/x", vs)
+	}
+}
+
+// TestConfigBeanGetter (IMPROVEMENTS #11): props.getServiceUrl() on a
+// @ConfigurationProperties(prefix="payment") bean -> payment.service-url.
+func TestConfigBeanGetter(t *testing.T) {
+	cfg := fakeConfig{"payment.service-url": "http://payment:8080"}
+	vs := evalTarget(t, cfg,
+		`@ConfigurationProperties(prefix = "payment")
+		class PaymentProps { private String serviceUrl; public String getServiceUrl() { return serviceUrl; } }`,
+		`class C {
+			private PaymentProps props;
+			void m() { target(props.getServiceUrl() + "/pay"); }
+		}`)
+	if vs.Kind != resolve.Exact || vs.Values[0].S != "http://payment:8080/pay" {
+		t.Errorf("config bean getter = %+v, want http://payment:8080/pay", vs)
+	}
+}
+
+// TestParamCallSiteUnion (IMPROVEMENTS #13): a helper's parameter takes the
+// union of the argument values at its call sites in the same class.
+func TestParamCallSiteUnion(t *testing.T) {
+	vs := evalTarget(t, nil, `class C {
+		void helper(String host) { target(host + "/x"); }
+		void a() { helper("http://a"); }
+		void b() { helper("http://b"); }
+	}`)
+	if !eqStr(sortedVals(vs), []string{"http://a/x", "http://b/x"}) {
+		t.Errorf("call-site union = %v, want [http://a/x http://b/x]", sortedVals(vs))
+	}
+}
+
+// TestParamNoCallSitesStaysHole: a public API method with no in-class callers
+// keeps its parameter as a hole.
+func TestParamNoCallSitesStaysHole(t *testing.T) {
+	vs := evalTarget(t, nil, `class C {
+		public void api(String url) { target(url); }
+	}`)
+	if vs.Kind != resolve.Unknown {
+		t.Errorf("no-call-site param = %v, want Unknown", vs.Kind)
+	}
+}

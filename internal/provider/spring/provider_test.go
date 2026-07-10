@@ -38,6 +38,9 @@ func TestDetectors(t *testing.T) {
 		"spring.resttemplate": model.ProtoREST,
 		"spring.webclient":    model.ProtoREST,
 		"spring.kafka":        model.ProtoKafka,
+		"spring.httpexchange": model.ProtoREST,
+		"spring.cloudstream":  model.ProtoKafka,
+		"spring.adapter":      model.ProtoREST,
 	}
 
 	dets := New().Detectors()

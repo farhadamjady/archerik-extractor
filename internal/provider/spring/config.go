@@ -11,6 +11,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/deployconfig"
 	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/service-discovery/internal/scan"
 )
 
 // maxDeployCandidates caps overlay fan-out per key (bounding, T4.5.8).
@@ -380,11 +381,49 @@ func buildConfig(ic *provider.IndexContext) (*springConfig, error) {
 		}
 	}
 
+	// External config repo (Spring Cloud Config Server checkout, IMPROVEMENTS
+	// #16): its yml/properties feed the FALLBACK layer — in-repo config always
+	// wins; the config repo fills what the service does not carry itself.
+	if ic.ConfigRepo != "" {
+		addConfigRepo(ic.ConfigRepo, values, fallback)
+	}
+
 	return &springConfig{
 		values:     values,
 		fallback:   fallback,
 		referenced: map[string]model.ConfigDep{},
 	}, nil
+}
+
+// addConfigRepo flattens every yml/properties file in the config repo into the
+// fallback map (never overriding existing keys). Files are visited in sorted
+// order, so the first file to define a key wins deterministically.
+func addConfigRepo(dir string, values, fallback map[string]configVal) {
+	tree := scan.NewOSFileTree(dir, []string{"**/.git/**"})
+	var files []string
+	for _, pattern := range []string{"**/*.yml", "**/*.yaml", "**/*.properties"} {
+		files = append(files, tree.Glob(pattern)...)
+	}
+	sort.Strings(files)
+	for _, rel := range files {
+		src, err := tree.Read(rel)
+		if err != nil {
+			continue
+		}
+		flat, err := parseConfig(rel, src)
+		if err != nil {
+			continue // a broken file in the config repo never fails the scan
+		}
+		for k, v := range flat {
+			if _, ok := values[k]; ok {
+				continue
+			}
+			if _, ok := fallback[k]; ok {
+				continue
+			}
+			fallback[k] = configVal{value: v, source: "config-repo/" + rel}
+		}
+	}
 }
 
 // sortedSpringConfigPaths returns the KindSpringConfig file paths, sorted.

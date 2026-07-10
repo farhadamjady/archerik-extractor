@@ -2,10 +2,12 @@ package java
 
 import (
 	"regexp"
+	"strings"
 
 	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/provider"
 	"github.com/farhadamjady/service-discovery/internal/resolve"
+	"github.com/farhadamjady/service-discovery/internal/schema"
 )
 
 // maxEvalDepth bounds expression recursion (defensive; deep chains and variable
@@ -21,6 +23,7 @@ const maxEvalDepth = 20
 type Evaluator struct {
 	symbols provider.SymbolIndex
 	config  provider.ConfigResolver
+	types   schema.TypeSource
 }
 
 // NewEvaluator binds an evaluator to the built Index.
@@ -29,6 +32,7 @@ func NewEvaluator(idx *provider.Index) *Evaluator {
 	if idx != nil {
 		e.symbols = idx.Symbols
 		e.config = idx.Config
+		e.types = idx.Types
 	}
 	return e
 }
@@ -142,7 +146,74 @@ func (c *evalCtx) evalName(n Node, name string, depth int) resolve.ValueSet {
 	if v, ok := c.fieldInitializer(n, name, depth); ok {
 		return v
 	}
+	if v, ok := c.paramCallSites(n, name, depth); ok {
+		return v
+	}
 	return resolve.NewUnknown()
+}
+
+// paramCallSites is the mirror of return-inlining (IMPROVEMENTS #13): when the
+// name is a PARAMETER of the enclosing method, union the argument values from
+// this method's call sites within the same class. No call sites in the class
+// (a public API called from outside) -> stays a hole.
+func (c *evalCtx) paramCallSites(n Node, name string, depth int) (resolve.ValueSet, bool) {
+	m := enclosingMethod(n)
+	if !m.Valid() || m.Type() != "method_declaration" {
+		return resolve.ValueSet{}, false
+	}
+	idx := paramIndex(m, name)
+	if idx < 0 {
+		return resolve.ValueSet{}, false
+	}
+	methodName := m.ChildByFieldName("name").Text()
+	guard := "arg:" + methodName + ":" + name
+	if c.vars[guard] {
+		return resolve.ValueSet{}, false
+	}
+	c.vars[guard] = true
+	defer delete(c.vars, guard)
+
+	cls := enclosingType(n)
+	if !cls.Valid() {
+		return resolve.ValueSet{}, false
+	}
+	result := resolve.NewUnknown()
+	found := false
+	cls.Walk(func(inv Node) bool {
+		if inv.Type() != "method_invocation" || inv.ChildByFieldName("name").Text() != methodName {
+			return true
+		}
+		if obj := inv.ChildByFieldName("object"); obj.Valid() && obj.Text() != "this" {
+			return true // a different receiver — not this class's method
+		}
+		if arg := inv.ChildByFieldName("arguments").NamedChild(idx); arg.Valid() {
+			result = resolve.Union(result, c.eval(arg, depth+1))
+			found = true
+		}
+		return true
+	})
+	if !found || result.Kind == resolve.Unknown {
+		return resolve.ValueSet{}, false
+	}
+	return result, true
+}
+
+// paramIndex is the position of `name` among a method's formal parameters, -1
+// if it is not a parameter.
+func paramIndex(method Node, name string) int {
+	params := directChild(method, "formal_parameters")
+	idx := 0
+	for i := 0; i < params.NamedChildCount(); i++ {
+		p := params.NamedChild(i)
+		if p.Type() != "formal_parameter" {
+			continue
+		}
+		if p.ChildByFieldName("name").Text() == name {
+			return idx
+		}
+		idx++
+	}
+	return -1
 }
 
 // fieldInitializer resolves an instance field of the enclosing type through its
@@ -292,6 +363,20 @@ func (c *evalCtx) evalMethodInvocation(n Node, depth int) resolve.ValueSet {
 	if obj.Text() == "String" && name == "format" {
 		return c.evalStringFormat(n, depth)
 	}
+	// System.getenv("KEY") / getProperty: the KEY is a literal, and the
+	// deploy/config layer may know it (IMPROVEMENTS #12).
+	if obj.Text() == "System" && (name == "getenv" || name == "getProperty") {
+		args := n.ChildByFieldName("arguments")
+		if a := args.NamedChild(0); a.Valid() && a.Type() == "string_literal" {
+			return c.resolveConfig("${" + stripQuotes(a.Text()) + "}")
+		}
+		return resolve.NewUnknown()
+	}
+	// props.getPaymentUrl() on a @ConfigurationProperties bean — THE standard
+	// enterprise config style (IMPROVEMENTS #11).
+	if v, ok := c.configBeanGetter(n, obj, name); ok {
+		return v
+	}
 	// discoveryClient.getInstances("customers-service").get(0).getUri():
 	// scan the receiver chain for getInstances with a literal service name.
 	// The static answer is the logical service target (as an lb-style URL),
@@ -311,6 +396,104 @@ func (c *evalCtx) evalMethodInvocation(n Node, depth int) resolve.ValueSet {
 		}
 	}
 	return resolve.NewUnknown()
+}
+
+// configBeanGetter resolves `props.getServiceUrl()` where `props` is declared
+// (field or method param) with a type carrying @ConfigurationProperties: the
+// getter maps to `<prefix>.<property>` and resolves through the config layer.
+func (c *evalCtx) configBeanGetter(call, obj Node, method string) (resolve.ValueSet, bool) {
+	if c.e.types == nil || !obj.Valid() {
+		return resolve.ValueSet{}, false
+	}
+	prop := getterProperty(method)
+	if prop == "" {
+		return resolve.ValueSet{}, false
+	}
+	recv := obj.Text()
+	if obj.Type() == "field_access" && obj.ChildByFieldName("object").Text() == "this" {
+		recv = obj.ChildByFieldName("field").Text()
+	}
+	typeName := declaredTypeOf(call, recv)
+	if typeName == "" {
+		return resolve.ValueSet{}, false
+	}
+	td, ok := c.e.types.Lookup(typeName)
+	if !ok || !td.HasAnnotation("ConfigurationProperties") {
+		return resolve.ValueSet{}, false
+	}
+	prefix := ""
+	for _, a := range td.Annotations {
+		if a.Name == "ConfigurationProperties" {
+			prefix = a.Arg
+			if prefix == "" {
+				prefix = a.Named["prefix"]
+			}
+			if prefix == "" {
+				prefix = a.Named["value"]
+			}
+		}
+	}
+	// Relaxed binding: the yml may spell the key kebab-case or camelCase.
+	for _, key := range []string{joinProp(prefix, kebab(prop)), joinProp(prefix, prop)} {
+		if v := c.resolveConfig("${" + key + "}"); v.Kind != resolve.Unknown {
+			return v, true
+		}
+	}
+	return resolve.ValueSet{}, false
+}
+
+// declaredTypeOf finds the declared type (generics stripped) of a name in the
+// enclosing method's parameters or the enclosing class's fields.
+func declaredTypeOf(n Node, name string) string {
+	if m := enclosingMethod(n); m.Valid() {
+		if params := directChild(m, "formal_parameters"); params.Valid() {
+			for i := 0; i < params.NamedChildCount(); i++ {
+				p := params.NamedChild(i)
+				if p.Type() == "formal_parameter" && p.ChildByFieldName("name").Text() == name {
+					return simpleTypeName(p.ChildByFieldName("type").Text())
+				}
+			}
+		}
+	}
+	cls := enclosingType(n)
+	if !cls.Valid() {
+		return ""
+	}
+	body := cls.ChildByFieldName("body")
+	for i := 0; i < body.NamedChildCount(); i++ {
+		fd := body.NamedChild(i)
+		if fd.Type() != "field_declaration" {
+			continue
+		}
+		decl := directChild(fd, "variable_declarator")
+		if decl.Valid() && decl.ChildByFieldName("name").Text() == name {
+			return simpleTypeName(fd.ChildByFieldName("type").Text())
+		}
+	}
+	return ""
+}
+
+// kebab converts camelCase to kebab-case: serviceUrl -> service-url.
+func kebab(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		if r >= 'A' && r <= 'Z' {
+			if i > 0 {
+				b.WriteByte('-')
+			}
+			b.WriteRune(r + ('a' - 'A'))
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func joinProp(prefix, prop string) string {
+	if prefix == "" {
+		return prop
+	}
+	return prefix + "." + prop
 }
 
 // inlineLocalMethod finds a method of the enclosing type with the given name
