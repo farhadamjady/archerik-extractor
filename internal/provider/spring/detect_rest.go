@@ -51,36 +51,74 @@ func (restDetector) onController(mc *provider.MatchContext) {
 	}
 	types := mc.Index.Types
 	mods := childByType(class, "modifiers")
-	if !isRestController(mods, types) {
+	isCtrl, needResponseBody := controllerKind(mods, types)
+	if !isCtrl {
 		return
 	}
 	bases := classBasePaths(class, types)
 	walker := schema.NewWalker(types)
 	body := class.ChildByFieldName("body")
 	for _, m := range namedChildren(body) {
-		if m.Type() == "method_declaration" {
-			req, resp := methodSchemas(walker, m)
-			appendMethodEndpoints(mc.Out, m, bases, req, resp, types)
+		if m.Type() != "method_declaration" {
+			continue
 		}
+		// Classic @Controller style (IMPROVEMENTS #19): only methods marked
+		// @ResponseBody are REST endpoints; the rest render views.
+		if needResponseBody && !methodHasResponseBody(m) {
+			continue
+		}
+		req, resp := methodSchemas(walker, m)
+		appendMethodEndpoints(mc.Out, m, bases, req, resp, types)
 	}
 }
 
-// isRestController: the class carries @RestController directly, or an
-// annotation whose @interface declaration (indexed in the repo) carries it.
-func isRestController(mods java.Node, types schema.TypeSource) bool {
+// controllerKind classifies the class (directly or via a meta-annotation):
+//   - @RestController            -> controller, every mapped method is REST
+//   - @Controller + @ResponseBody at class level -> same
+//   - @Controller                -> controller, but ONLY @ResponseBody methods
+//     are REST (the classic pre-@RestController enterprise style, #19)
+func controllerKind(mods java.Node, types schema.TypeSource) (isController, needResponseBody bool) {
 	if !mods.Valid() {
-		return false
+		return false, false
 	}
+	plainController := false
 	for _, a := range annotationsOf(mods) {
 		name := annotationName(a)
-		if name == "RestController" {
-			return true
-		}
-		if md, ok := metaDef(types, name); ok && md.HasAnnotation("RestController") {
-			return true
+		switch name {
+		case "RestController":
+			return true, false
+		case "Controller":
+			plainController = true
+		case "ResponseBody":
+			if plainController {
+				return true, false
+			}
+		default:
+			if md, ok := metaDef(types, name); ok {
+				if md.HasAnnotation("RestController") {
+					return true, false
+				}
+				if md.HasAnnotation("Controller") {
+					plainController = true
+				}
+			}
 		}
 	}
-	return false
+	if plainController {
+		// class-level @ResponseBody may appear before @Controller in the loop
+		for _, a := range annotationsOf(mods) {
+			if annotationName(a) == "ResponseBody" {
+				return true, false
+			}
+		}
+		return true, true
+	}
+	return false, false
+}
+
+func methodHasResponseBody(m java.Node) bool {
+	mods := childByType(m, "modifiers")
+	return mods.Valid() && findAnnotation(mods, "ResponseBody").Valid()
 }
 
 // metaDef resolves an annotation name to its @interface declaration, if that

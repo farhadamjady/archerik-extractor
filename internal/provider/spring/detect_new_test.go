@@ -164,3 +164,79 @@ class NotAController { @GetMapping("/nope") String x() { return null; } }`)
 		t.Errorf("non-controller emitted endpoints: %+v", svc.Endpoints)
 	}
 }
+
+// --- #19 @Controller + @ResponseBody ---
+
+func TestControllerResponseBodyStyle(t *testing.T) {
+	svc := scanWith(t, restDetector{}, nil, nil, `
+@Controller
+@RequestMapping("/subject")
+class CmsSubjectController {
+	@RequestMapping(value = "/listAll", method = RequestMethod.GET)
+	@ResponseBody
+	public CommonResult listAll() { return null; }
+
+	@RequestMapping(value = "/page", method = RequestMethod.GET)
+	public String renderPage() { return "page"; } // view method — NOT an endpoint
+}`)
+	if len(svc.Endpoints) != 1 {
+		t.Fatalf("endpoints = %+v, want only the @ResponseBody method", svc.Endpoints)
+	}
+	if svc.Endpoints[0].Path != "/subject/listAll" || svc.Endpoints[0].Method != "GET" {
+		t.Errorf("endpoint = %+v, want GET /subject/listAll", svc.Endpoints[0])
+	}
+}
+
+func TestPlainViewControllerIgnored(t *testing.T) {
+	svc := scanWith(t, restDetector{}, nil, nil, `
+@Controller
+class WebController { @GetMapping("/home") String home() { return "home"; } }`)
+	if len(svc.Endpoints) != 0 {
+		t.Errorf("view controller emitted endpoints: %+v", svc.Endpoints)
+	}
+}
+
+func TestClassLevelResponseBody(t *testing.T) {
+	svc := scanWith(t, restDetector{}, nil, nil, `
+@Controller
+@ResponseBody
+class ApiController { @GetMapping("/x") String x() { return null; } }`)
+	if len(svc.Endpoints) != 1 {
+		t.Errorf("class-level @ResponseBody = %+v, want 1 endpoint", svc.Endpoints)
+	}
+}
+
+// --- #20 functional routing ---
+
+func TestRouterFunctionEndpoints(t *testing.T) {
+	svc := scanWith(t, routerDetector{}, nil, nil, `
+import static org.springframework.web.reactive.function.server.RequestPredicates.*;
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+class WebConfig {
+	public RouterFunction<ServerResponse> routes(PostHandler h) {
+		return route(GET("/posts"), h::all)
+			.andRoute(POST("/posts").and(contentType(APPLICATION_JSON)), h::create)
+			.andRoute(GET("/posts/{id}"), h::get);
+	}
+}`)
+	got := map[string]bool{}
+	for _, e := range svc.Endpoints {
+		got[e.Method+" "+e.Path] = true
+	}
+	for _, want := range []string{"GET /posts", "POST /posts", "GET /posts/{id}"} {
+		if !got[want] {
+			t.Errorf("missing %s; got %+v", want, svc.Endpoints)
+		}
+	}
+	if len(svc.Endpoints) != 3 {
+		t.Errorf("endpoints = %d, want 3", len(svc.Endpoints))
+	}
+}
+
+func TestRouterGateNoImportNoMatch(t *testing.T) {
+	svc := scanWith(t, routerDetector{}, nil, nil, `
+class C { void m() { GET("/not-a-route"); } }`)
+	if len(svc.Endpoints) != 0 {
+		t.Errorf("no functional import must mean no endpoints: %+v", svc.Endpoints)
+	}
+}

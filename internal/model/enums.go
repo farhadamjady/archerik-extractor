@@ -34,6 +34,7 @@ const (
 	DetectHTTPExchange DetectionMethod = "httpexchange" // Spring 6 @HttpExchange declarative client
 	DetectCloudStream  DetectionMethod = "cloudstream"  // Spring Cloud Stream functional binding
 	DetectAdapter      DetectionMethod = "adapter"      // company wrapper declared in .ekg-adapters.json
+	DetectRouter       DetectionMethod = "router"       // WebFlux/WebMvc.fn functional routing (RouterFunction)
 )
 
 // Protocol is the communication protocol of an edge — a FIRST-CLASS field, kept

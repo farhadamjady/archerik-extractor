@@ -82,3 +82,33 @@ func TestTraceNonValuesSkipped(t *testing.T) {
 		t.Errorf("non-.Values expression should not resolve, got %+v", got)
 	}
 }
+
+// TestTraceConfigMapData (IMPROVEMENTS #21): a templated ConfigMap's data
+// entries become env bindings — literals directly, {{ .Values.x }} resolved,
+// {{ include }} skipped.
+func TestTraceConfigMapData(t *testing.T) {
+	values := valuesLayer(t, "values.yaml", "catalog:\n  endpoint: http://catalog:8080\n")
+	tpl := NamedSource{Path: "templates/configmap.yaml", Src: []byte(`
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "carts.fullname" . }}
+data:
+  RETAIL_CART_PERSISTENCE_PROVIDER: "dynamodb"
+  CATALOG_ENDPOINT: {{ .Values.catalog.endpoint | quote }}
+  FROM_HELPER: {{ include "chart.thing" . }}
+`)}
+	got := map[string]string{}
+	for _, b := range TraceConfigMapData([]NamedSource{tpl}, values) {
+		got[b.Key] = b.Value
+	}
+	if got["retail.cart.persistence.provider"] != "dynamodb" {
+		t.Errorf("literal entry = %v", got)
+	}
+	if got["catalog.endpoint"] != "http://catalog:8080" {
+		t.Errorf("values-ref entry = %v", got)
+	}
+	if _, ok := got["from.helper"]; ok {
+		t.Error("include-expression entry must be skipped")
+	}
+}

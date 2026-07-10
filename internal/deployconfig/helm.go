@@ -1,6 +1,7 @@
 package deployconfig
 
 import (
+	"bytes"
 	"regexp"
 	"strings"
 )
@@ -64,6 +65,67 @@ func traceOne(tpl NamedSource, values *Layer) []Binding {
 				}
 			}
 			pendingName = ""
+		}
+	}
+	return out
+}
+
+// TraceConfigMapData reads `data:` entries out of TEMPLATED ConfigMap manifests
+// (IMPROVEMENTS #21): real charts put env config in a ConfigMap template and
+// wire it to the container with envFrom + configMapRef, so the keys ARE env
+// vars. Values may be literals or {{ .Values.x }} refs (resolved against the
+// values layer); other expressions ({{ include }}) are skipped. The envFrom
+// link itself is not verified — within one chart this over-approximates safely.
+func TraceConfigMapData(templates []NamedSource, values *Layer) []Binding {
+	var out []Binding
+	for _, tpl := range templates {
+		if !bytes.Contains(tpl.Src, []byte("kind: ConfigMap")) {
+			continue
+		}
+		out = append(out, traceConfigMap(tpl, values)...)
+	}
+	return out
+}
+
+var cmEntryRe = regexp.MustCompile(`^(\s+)([A-Za-z0-9_.-]+):\s*(.*)$`)
+
+func traceConfigMap(tpl NamedSource, values *Layer) []Binding {
+	var out []Binding
+	inData := false
+	dataIndent := -1
+	for _, line := range strings.Split(string(tpl.Src), "\n") {
+		trimmed := strings.TrimRight(line, " \t")
+		if strings.TrimSpace(trimmed) == "data:" {
+			inData = true
+			dataIndent = len(trimmed) - len(strings.TrimLeft(trimmed, " "))
+			continue
+		}
+		if !inData {
+			continue
+		}
+		m := cmEntryRe.FindStringSubmatch(trimmed)
+		if m == nil || len(m[1]) <= dataIndent {
+			if strings.TrimSpace(trimmed) != "" {
+				inData = false // dedent or non-entry ends the data block
+			}
+			continue
+		}
+		key, raw := m[2], strings.Trim(strings.TrimSpace(m[3]), `"'`)
+		switch {
+		case raw == "" || raw == "|" || raw == ">":
+			continue // multi-line blob (embedded file) — skip
+		case strings.Contains(raw, "{{"):
+			if ref := valuesRefRe.FindStringSubmatch(raw); ref != nil {
+				for _, b := range values.Get(NormalizeKey(ref[1])) {
+					out = append(out, Binding{
+						Key: NormalizeKey(key), Raw: key, Value: b.Value,
+						Source: tpl.Path, Overlay: b.Overlay,
+					})
+				}
+			}
+			// include/tpl/other expressions: unresolved, skip (honest)
+		default:
+			out = append(out, Binding{Key: NormalizeKey(key), Raw: key, Value: raw, Source: tpl.Path})
 		}
 	}
 	return out

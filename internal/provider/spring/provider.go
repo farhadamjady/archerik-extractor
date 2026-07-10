@@ -129,6 +129,7 @@ func (*Provider) Detectors() []provider.Detector {
 		httpExchangeDetector{},
 		cloudStreamDetector{},
 		adapterDetector{},
+		routerDetector{},
 	}
 }
 

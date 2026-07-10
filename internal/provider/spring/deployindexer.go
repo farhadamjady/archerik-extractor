@@ -52,8 +52,12 @@ func (deployIndexer) Index(ic *provider.IndexContext, idx *provider.Index) error
 		}
 	}
 
-	// Trace templates: env-var name -> .Values path -> value (overlays propagate).
+	// Trace templates: env-var name -> .Values path -> value (overlays propagate),
+	// plus data: entries of templated ConfigMaps (envFrom pattern, #21).
 	for _, b := range deployconfig.TraceTemplates(templates, values) {
+		layer.Add(b)
+	}
+	for _, b := range deployconfig.TraceConfigMapData(templates, values) {
 		layer.Add(b)
 	}
 
