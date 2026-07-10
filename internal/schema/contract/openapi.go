@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -18,10 +19,13 @@ import (
 // annotations, so reading it recovers endpoints a source-only scan cannot see
 // (IMPROVEMENTS #1).
 func ParseOpenAPI(src []byte) ([]model.Endpoint, error) {
-	var doc map[string]any
-	if err := yaml.Unmarshal(src, &doc); err != nil {
+	var raw map[string]any
+	if err := yaml.Unmarshal(src, &raw); err != nil {
 		return nil, err
 	}
+	// Specs often write response codes as numbers (200:); yaml.v3 then decodes
+	// those maps as map[any]any. Stringify every key so lookups work.
+	doc, _ := normalizeKeys(raw).(map[string]any)
 	paths, _ := doc["paths"].(map[string]any)
 	if paths == nil {
 		return nil, nil
@@ -143,6 +147,31 @@ func openapiSchema(node, components map[string]any, depth int, seen map[string]b
 		}
 	}
 	return s
+}
+
+// normalizeKeys converts every map[any]any to map[string]any (keys stringified)
+// so numeric YAML keys like `200:` are reachable as "200".
+func normalizeKeys(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, val := range t {
+			t[k] = normalizeKeys(val)
+		}
+		return t
+	case map[any]any:
+		out := make(map[string]any, len(t))
+		for k, val := range t {
+			out[fmt.Sprint(k)] = normalizeKeys(val)
+		}
+		return out
+	case []any:
+		for i := range t {
+			t[i] = normalizeKeys(t[i])
+		}
+		return t
+	default:
+		return v
+	}
 }
 
 func refName(ref string) string {

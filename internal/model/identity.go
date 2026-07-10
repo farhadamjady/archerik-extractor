@@ -39,13 +39,9 @@ func Sort(svc *Service) {
 		return dependencySortKey(svc.OutboundDependencies[i]) < dependencySortKey(svc.OutboundDependencies[j])
 	})
 	svc.OutboundDependencies = dedup(svc.OutboundDependencies, dependencySortKey)
-	sort.SliceStable(svc.KafkaProducers, func(i, j int) bool {
-		return kafkaSortKey(svc.KafkaProducers[i]) < kafkaSortKey(svc.KafkaProducers[j])
-	})
+	sortKafka(svc.KafkaProducers)
 	svc.KafkaProducers = dedup(svc.KafkaProducers, kafkaSortKey)
-	sort.SliceStable(svc.KafkaConsumers, func(i, j int) bool {
-		return kafkaSortKey(svc.KafkaConsumers[i]) < kafkaSortKey(svc.KafkaConsumers[j])
-	})
+	sortKafka(svc.KafkaConsumers)
 	svc.KafkaConsumers = dedup(svc.KafkaConsumers, kafkaSortKey)
 	sort.SliceStable(svc.DatabasesUsed, func(i, j int) bool {
 		return databaseSortKey(svc.DatabasesUsed[i]) < databaseSortKey(svc.DatabasesUsed[j])
@@ -63,6 +59,20 @@ func Sort(svc *Service) {
 	for i := range svc.KafkaConsumers {
 		sortSchema(svc.KafkaConsumers[i].Schema)
 	}
+}
+
+// sortKafka orders kafka edges by key; among edges with an EQUAL key, the one
+// carrying a schema comes first, so dedup keeps the richer edge (the same topic
+// can be seen by two detections — e.g. KafkaTemplate.send with a payload schema
+// and a Streams .to() without one).
+func sortKafka(edges []KafkaEdge) {
+	sort.SliceStable(edges, func(i, j int) bool {
+		ki, kj := kafkaSortKey(edges[i]), kafkaSortKey(edges[j])
+		if ki != kj {
+			return ki < kj
+		}
+		return edges[i].Schema != nil && edges[j].Schema == nil
+	})
 }
 
 // dedup removes adjacent elements with an equal sort key. The keys cover every

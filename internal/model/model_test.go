@@ -147,3 +147,20 @@ func TestSortDedupsIdenticalEdges(t *testing.T) {
 		t.Errorf("got %d producers, want 2 (identical pair deduped, different kept)", len(svc.KafkaProducers))
 	}
 }
+
+// TestDedupPrefersSchemaBearingEdge: the same topic seen by two detections —
+// one with a payload schema, one without — keeps the edge WITH the schema.
+func TestDedupPrefersSchemaBearingEdge(t *testing.T) {
+	svc := NewService("id", "name", "repo")
+	plain := KafkaEdge{Topic: "orders", Resolved: true, Protocol: ProtoKafka, Detection: DetectKafka, Confidence: Confirmed}
+	rich := plain
+	rich.Schema = &Schema{Type: "OrderEvent"}
+	svc.KafkaProducers = []KafkaEdge{plain, rich} // schema-less first on purpose
+	Sort(svc)
+	if len(svc.KafkaProducers) != 1 {
+		t.Fatalf("got %d producers, want 1", len(svc.KafkaProducers))
+	}
+	if svc.KafkaProducers[0].Schema == nil {
+		t.Error("dedup kept the schema-less edge; want the schema-bearing one")
+	}
+}

@@ -108,6 +108,27 @@ message OrderEvent {
 	}
 }
 
+func TestParseOpenAPINumericCodes(t *testing.T) {
+	// response codes written as YAML numbers (200:) must still resolve.
+	eps, err := ParseOpenAPI([]byte(`
+openapi: 3.0.1
+paths:
+  /x:
+    get:
+      responses:
+        200:
+          content:
+            application/json:
+              schema: { type: string }
+`))
+	if err != nil || len(eps) != 1 {
+		t.Fatalf("eps=%+v err=%v", eps, err)
+	}
+	if eps[0].Response == nil || eps[0].Response.Type != "string" {
+		t.Errorf("numeric-code response = %+v, want string", eps[0].Response)
+	}
+}
+
 func TestParseOpenAPI(t *testing.T) {
 	eps, err := ParseOpenAPI([]byte(`
 openapi: 3.0.1
