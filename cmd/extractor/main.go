@@ -12,8 +12,11 @@ import (
 	"os"
 	"strings"
 
+	"encoding/json"
+
 	"github.com/farhadamjady/service-discovery/internal/exitcode"
 	"github.com/farhadamjady/service-discovery/internal/pipeline"
+	"github.com/farhadamjady/service-discovery/internal/submit"
 )
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
@@ -33,6 +36,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		out         = fs.String("out", "-", "output path for the service JSON, or - for stdout")
 		apiURL      = fs.String("api-url", "", "backend base URL for key validation + submit; empty runs local/dev")
 		dryRun      = fs.Bool("dry-run", false, "produce JSON but do not submit")
+		branch      = fs.String("branch", "", "branch being scanned (auto-detected from CI env)")
+		sha         = fs.String("sha", "", "commit sha (auto-detected from CI env)")
+		pr          = fs.String("pr", "", "pull-request number (auto-detected from CI env)")
+		commentOut  = fs.String("comment-out", "", "write the returned PR-comment markdown to this file (empty = discard)")
 	)
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
@@ -59,6 +66,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		ConfigRepo:  *configRepo,
 		APIURL:      *apiURL,
 		DryRun:      *dryRun,
+		CI:          ciMeta(*branch, *sha, *pr),
+		OnSubmitResponse: func(body []byte) {
+			handleIngestResponse(body, *commentOut, stderr)
+		},
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, "extractor:", err)
@@ -114,6 +125,58 @@ func scanConfigKey(b []byte) string {
 		}
 	}
 	return ""
+}
+
+// ciMeta builds the commit metadata for the submission: explicit flags win,
+// else GitHub Actions env vars. On PR events GITHUB_HEAD_REF is the source
+// branch and GITHUB_BASE_REF the target (used as the baseline branch).
+func ciMeta(branch, sha, pr string) submit.Meta {
+	m := submit.Meta{Sha: sha, Branch: branch, PR: pr}
+	if m.Sha == "" {
+		m.Sha = os.Getenv("GITHUB_SHA")
+	}
+	if m.Branch == "" {
+		if m.Branch = os.Getenv("GITHUB_HEAD_REF"); m.Branch == "" {
+			m.Branch = os.Getenv("GITHUB_REF_NAME")
+		}
+	}
+	if m.PR == "" {
+		// refs/pull/42/merge -> 42
+		if ref := os.Getenv("GITHUB_REF"); strings.HasPrefix(ref, "refs/pull/") {
+			m.PR = strings.SplitN(strings.TrimPrefix(ref, "refs/pull/"), "/", 2)[0]
+		}
+	}
+	m.DefaultBranch = os.Getenv("GITHUB_BASE_REF") // PR target; backend defaults to main
+	return m
+}
+
+// handleIngestResponse surfaces the backend's diff: a one-line summary on
+// stderr and, when requested, the PR-comment markdown written to a file
+// (CI posts it: `gh pr comment --body-file`).
+func handleIngestResponse(body []byte, commentPath string, stderr io.Writer) {
+	var resp struct {
+		Unchanged bool   `json:"unchanged"`
+		FirstScan bool   `json:"first_scan"`
+		Markdown  string `json:"markdown"`
+		Diff      *struct {
+			Summary struct{ Added, Removed, Changed int } `json:"summary"`
+		} `json:"diff"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return // response not understood — never fail the scan over reporting
+	}
+	switch {
+	case resp.Unchanged:
+		fmt.Fprintln(stderr, "extractor: architecture unchanged")
+	case resp.Diff != nil:
+		fmt.Fprintf(stderr, "extractor: architecture impact — %d added · %d removed · %d changed\n",
+			resp.Diff.Summary.Added, resp.Diff.Summary.Removed, resp.Diff.Summary.Changed)
+	}
+	if commentPath != "" && resp.Markdown != "" {
+		if err := os.WriteFile(commentPath, []byte(resp.Markdown), 0o644); err != nil {
+			fmt.Fprintln(stderr, "extractor: write comment file:", err)
+		}
+	}
 }
 
 func splitCSV(s string) []string {

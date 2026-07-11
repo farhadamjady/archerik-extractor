@@ -23,7 +23,7 @@ func TestSubmitSuccess(t *testing.T) {
 	defer srv.Close()
 
 	body := []byte(`{"service_id":"x"}`)
-	if err := Submit(context.Background(), srv.URL, "secret-key", body); err != nil {
+	if _, err := Submit(context.Background(), srv.URL, "secret-key", body, Meta{Sha: "abc", Branch: "feature/x", PR: "42"}); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
 	if gotAuth != "Bearer secret-key" {
@@ -44,7 +44,7 @@ func TestSubmitRejected(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	err := Submit(context.Background(), srv.URL, "k", []byte("{}"))
+	_, err := Submit(context.Background(), srv.URL, "k", []byte("{}"), Meta{})
 	if exitcode.Of(err) != int(exitcode.Submit) {
 		t.Errorf("rejected exit = %d, want %d", exitcode.Of(err), exitcode.Submit)
 	}
@@ -55,8 +55,37 @@ func TestSubmitUnreachable(t *testing.T) {
 	url := srv.URL
 	srv.Close()
 
-	err := Submit(context.Background(), url, "k", []byte("{}"))
+	_, err := Submit(context.Background(), url, "k", []byte("{}"), Meta{})
 	if exitcode.Of(err) != int(exitcode.Submit) {
 		t.Errorf("unreachable exit = %d, want %d", exitcode.Of(err), exitcode.Submit)
+	}
+}
+
+// TestSubmitMetaHeaders (B4): commit metadata travels as X-EKG-* headers and
+// the ingest response body comes back to the caller.
+func TestSubmitMetaHeaders(t *testing.T) {
+	var got http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"markdown":"### impact"}`))
+	}))
+	defer srv.Close()
+
+	resp, err := Submit(context.Background(), srv.URL, "k", []byte("{}"),
+		Meta{Sha: "abc123", Branch: "feature/x", PR: "42", DefaultBranch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for h, want := range map[string]string{
+		"X-Ekg-Sha": "abc123", "X-Ekg-Branch": "feature/x",
+		"X-Ekg-Pr": "42", "X-Ekg-Default-Branch": "main",
+	} {
+		if got.Get(h) != want {
+			t.Errorf("header %s = %q, want %q", h, got.Get(h), want)
+		}
+	}
+	if string(resp) != `{"markdown":"### impact"}` {
+		t.Errorf("response body = %s", resp)
 	}
 }

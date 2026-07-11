@@ -35,11 +35,16 @@ type Options struct {
 	Root        string
 	APIKey      string
 	ConfigFile  string
-	Profiles    []string // active Spring profiles (D3)
-	Environment string   // deploy overlay selection, e.g. "staging" (E3)
-	ConfigRepo  string   // local checkout of the Spring Cloud Config repo (IMPROVEMENTS #16)
-	APIURL      string   // backend base URL (auth validate + submit); empty = local/dev
-	DryRun      bool     // skip submit
+	Profiles    []string    // active Spring profiles (D3)
+	Environment string      // deploy overlay selection, e.g. "staging" (E3)
+	ConfigRepo  string      // local checkout of the Spring Cloud Config repo (IMPROVEMENTS #16)
+	APIURL      string      // backend base URL (auth validate + submit); empty = local/dev
+	DryRun      bool        // skip submit
+	CI          submit.Meta // commit metadata sent with the submission (headers)
+
+	// OnSubmitResponse, when set, receives the raw ingest-response body (the
+	// architecture diff + rendered PR comment) after a successful submit.
+	OnSubmitResponse func(body []byte)
 
 	// Providers overrides the registry — for tests. Nil means registry.Default().
 	Providers []provider.Provider
@@ -309,5 +314,12 @@ func submitGraph(ctx context.Context, opt Options, svc *model.Service) error {
 	if err != nil {
 		return err
 	}
-	return submit.Submit(ctx, opt.APIURL, opt.APIKey, body)
+	resp, err := submit.Submit(ctx, opt.APIURL, opt.APIKey, body, opt.CI)
+	if err != nil {
+		return err
+	}
+	if opt.OnSubmitResponse != nil {
+		opt.OnSubmitResponse(resp)
+	}
+	return nil
 }

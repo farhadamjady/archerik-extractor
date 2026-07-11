@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/farhadamjady/service-discovery/internal/backend"
 	"github.com/farhadamjady/service-discovery/internal/exitcode"
 )
 
@@ -120,5 +122,58 @@ func write(t *testing.T, root, rel, content string) {
 	}
 	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestCIMetaFromGitHubEnv (B4): PR event env -> branch/sha/pr/default-branch.
+func TestCIMetaFromGitHubEnv(t *testing.T) {
+	t.Setenv("GITHUB_SHA", "abc123")
+	t.Setenv("GITHUB_HEAD_REF", "feature/add-payment")
+	t.Setenv("GITHUB_REF", "refs/pull/42/merge")
+	t.Setenv("GITHUB_REF_NAME", "42/merge")
+	t.Setenv("GITHUB_BASE_REF", "main")
+
+	m := ciMeta("", "", "")
+	if m.Sha != "abc123" || m.Branch != "feature/add-payment" || m.PR != "42" || m.DefaultBranch != "main" {
+		t.Errorf("meta = %+v", m)
+	}
+	// explicit flags win
+	m = ciMeta("hotfix", "def456", "7")
+	if m.Branch != "hotfix" || m.Sha != "def456" || m.PR != "7" {
+		t.Errorf("flag override = %+v", m)
+	}
+}
+
+// TestCommentFileWritten (B4 e2e): extractor -> real backend handler -> the
+// PR-comment markdown lands in --comment-out.
+func TestCommentFileWritten(t *testing.T) {
+	store, err := backend.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(backend.New([]string{"k"}, store).Handler())
+	defer srv.Close()
+
+	root := springRepo(t)
+	write(t, root, "src/main/java/C.java",
+		"@RestController class C { @GetMapping(\"/ping\") String p() { return null; } }")
+	comment := filepath.Join(t.TempDir(), "comment.md")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--root", root, "--api-key", "k", "--api-url", srv.URL,
+		"--branch", "main", "--comment-out", comment, "--out", filepath.Join(t.TempDir(), "out.json")},
+		&stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d, stderr: %s", code, stderr.String())
+	}
+	md, err := os.ReadFile(comment)
+	if err != nil {
+		t.Fatalf("comment file not written: %v", err)
+	}
+	if !strings.Contains(string(md), "GET /ping") {
+		t.Errorf("comment markdown:\n%s", md)
+	}
+	if !strings.Contains(stderr.String(), "architecture impact") {
+		t.Errorf("stderr summary missing: %s", stderr.String())
 	}
 }
