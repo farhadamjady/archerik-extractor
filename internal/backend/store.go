@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,6 +42,33 @@ func (s *Store) Save(serviceID string, data []byte) error {
 		return err
 	}
 	return os.Rename(tmp, p)
+}
+
+// List returns every stored baseline's (service_id, service_name) pair — the
+// fleet registry the name→service mapping is built from.
+func (s *Store) List() ([][2]string, error) {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return nil, err
+	}
+	var out [][2]string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(s.dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var svc struct {
+			ID   string `json:"service_id"`
+			Name string `json:"service_name"`
+		}
+		if json.Unmarshal(b, &svc) == nil && svc.ID != "" {
+			out = append(out, [2]string{svc.ID, svc.Name})
+		}
+	}
+	return out, nil
 }
 
 // path maps a service id to a file, sanitized so an id can never escape the

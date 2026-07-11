@@ -23,7 +23,9 @@ func Markdown(d *Diff) string {
 	fmt.Fprintf(&b, "**%d added · %d removed · %d changed**\n", d.Summary.Added, d.Summary.Removed, d.Summary.Changed)
 
 	renderCategory(&b, "Endpoints", d.Endpoints, endpointLine)
-	renderCategory(&b, "Outbound dependencies", d.Outbound, dependencyLine)
+	renderCategory(&b, "Outbound dependencies", d.Outbound, func(dep model.Dependency) string {
+		return dependencyLine(dep) + targetNote(d.TargetResolutions, model.DependencyKey(dep))
+	})
 	renderCategory(&b, "Kafka — produced topics", d.KafkaProducers, kafkaLine)
 	renderCategory(&b, "Kafka — consumed topics", d.KafkaConsumers, kafkaLine)
 
@@ -140,6 +142,22 @@ func confOf(v any) string {
 		return string(t.Confidence)
 	}
 	return ""
+}
+
+// targetNote renders the backend's name resolution for an outbound target:
+// a known internal service, or external.
+func targetNote(res map[string]string, key string) string {
+	if res == nil {
+		return ""
+	}
+	switch id := res[key]; id {
+	case "":
+		return ""
+	case "external":
+		return " · external"
+	default:
+		return " · known service **" + id + "**"
+	}
 }
 
 func warnIf(conf string) string {

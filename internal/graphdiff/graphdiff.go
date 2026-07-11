@@ -28,6 +28,12 @@ type Diff struct {
 	KafkaConsumers CategoryDiff[model.KafkaEdge]  `json:"kafka_consumers"`
 
 	Summary Summary `json:"summary"`
+
+	// TargetResolutions maps an outbound dependency's identity key to the KNOWN
+	// service id it points at, or "external" — filled by the backend, which
+	// knows the fleet (every service with a stored baseline). Both outcomes are
+	// reportable per the feature spec.
+	TargetResolutions map[string]string `json:"target_resolutions,omitempty"`
 }
 
 // CategoryDiff holds one category's changes, all sorted by identity key.

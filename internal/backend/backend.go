@@ -17,20 +17,29 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/farhadamjady/service-discovery/internal/graphdiff"
 	"github.com/farhadamjady/service-discovery/internal/model"
 )
 
-// Server holds the MVP state: the accepted API keys and the baseline store.
+// Server holds the MVP state: the accepted API keys, the baseline store, and
+// the fleet-name registry (normalized service name/id -> service_id) used to
+// resolve outbound targets to known services.
 type Server struct {
 	keys  map[string]bool
 	store *Store
+
+	mu    sync.RWMutex
+	names map[string]string
 }
 
 // New builds a server from a comma-separated key list and a data directory.
+// The name registry starts from the stored baselines: every service that has
+// ever scanned its default branch is "known".
 func New(keys []string, store *Store) *Server {
 	km := map[string]bool{}
 	for _, k := range keys {
@@ -38,7 +47,75 @@ func New(keys []string, store *Store) *Server {
 			km[k] = true
 		}
 	}
-	return &Server{keys: km, store: store}
+	s := &Server{keys: km, store: store, names: map[string]string{}}
+	if pairs, err := store.List(); err == nil {
+		for _, p := range pairs {
+			s.registerName(p[0], p[1])
+		}
+	}
+	return s
+}
+
+func (s *Server) registerName(id, name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.names[strings.ToLower(id)] = id
+	if name != "" {
+		s.names[strings.ToLower(name)] = id
+	}
+}
+
+// resolveTarget maps an outbound dependency to a known service id or
+// "external". Matching (minimal, per spec): the raw target name, or the URL's
+// hostname / its first dot-label (k8s style: payment-service.ns.svc -> payment-service).
+func (s *Server) resolveTarget(dep model.Dependency) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, cand := range targetCandidates(dep) {
+		if id, ok := s.names[cand]; ok {
+			return id
+		}
+	}
+	return "external"
+}
+
+func targetCandidates(dep model.Dependency) []string {
+	var out []string
+	if dep.TargetName != "" && !strings.Contains(dep.TargetName, "://") {
+		out = append(out, strings.ToLower(dep.TargetName))
+	}
+	for _, raw := range []string{dep.URL, dep.TargetName} {
+		if !strings.Contains(raw, "://") {
+			continue
+		}
+		if u, err := url.Parse(raw); err == nil && u.Hostname() != "" {
+			host := strings.ToLower(u.Hostname())
+			out = append(out, host)
+			if i := strings.IndexByte(host, '.'); i > 0 {
+				out = append(out, host[:i]) // first label: k8s service DNS
+			}
+		}
+	}
+	return out
+}
+
+// annotateTargets fills diff.TargetResolutions for every outbound entry.
+func (s *Server) annotateTargets(d *graphdiff.Diff) {
+	add := func(dep model.Dependency) {
+		if d.TargetResolutions == nil {
+			d.TargetResolutions = map[string]string{}
+		}
+		d.TargetResolutions[model.DependencyKey(dep)] = s.resolveTarget(dep)
+	}
+	for _, dep := range d.Outbound.Added {
+		add(dep)
+	}
+	for _, dep := range d.Outbound.Removed {
+		add(dep)
+	}
+	for _, ch := range d.Outbound.Changed {
+		add(ch.After)
+	}
 }
 
 // Handler returns the HTTP routes.
@@ -113,6 +190,7 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		// renderer's per-section cap keeps the comment sane.
 		empty := model.NewService(head.ServiceID, head.ServiceName, head.Repository)
 		d := graphdiff.Compute(empty, &head)
+		s.annotateTargets(d)
 		resp.Diff, resp.Markdown = d, graphdiff.Markdown(d)
 
 	default:
@@ -122,6 +200,7 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		d := graphdiff.Compute(&base, &head)
+		s.annotateTargets(d)
 		resp.Diff, resp.Markdown = d, graphdiff.Markdown(d)
 	}
 
@@ -132,6 +211,7 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		resp.BaselineUpdated = true
+		s.registerName(head.ServiceID, head.ServiceName)
 	}
 
 	writeJSON(w, resp)

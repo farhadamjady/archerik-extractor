@@ -160,3 +160,71 @@ func TestStorePathTraversalSafe(t *testing.T) {
 		t.Error("sanitized id should round-trip")
 	}
 }
+
+// TestNameToServiceMapping: an added target resolves to a KNOWN service (by
+// name or by URL host, k8s style) or is reported as external — both per spec.
+func TestNameToServiceMapping(t *testing.T) {
+	srv := newTestServer(t)
+
+	// register the fleet: payment-service scans its main branch first
+	payment, _ := json.Marshal(map[string]any{"service_id": "payment-service", "service_name": "payment-service",
+		"endpoints": []any{}, "outbound_dependencies": []any{}, "kafka_producers": []any{}, "kafka_consumers": []any{},
+		"databases_used": []any{}, "config_dependencies": []any{}, "repository": ""})
+	if r, code := ingest(t, srv, "good-key", "main", payment); code != 200 || !r.BaselineUpdated {
+		t.Fatalf("payment baseline: %+v (%d)", r, code)
+	}
+
+	// orders baseline (so the next scan is not first_scan)
+	ingest(t, srv, "good-key", "main", graph(t, nil))
+
+	// PR adds three deps: known by name, known by URL host, external
+	pr := graph(t, func(s *model.Service) {
+		s.OutboundDependencies = append(s.OutboundDependencies,
+			model.Dependency{TargetName: "payment-service", Protocol: model.ProtoREST,
+				Detection: model.DetectFeign, Confidence: model.Confirmed, Resolved: true},
+			model.Dependency{TargetName: "http://payment-service.prod.svc:8080/pay", URL: "http://payment-service.prod.svc:8080/pay",
+				Protocol: model.ProtoREST, Detection: model.DetectRestTemplate, Confidence: model.Confirmed, Resolved: true},
+			model.Dependency{TargetName: "https://api.stripe.com/v1", URL: "https://api.stripe.com/v1",
+				Protocol: model.ProtoREST, Detection: model.DetectWebClient, Confidence: model.Confirmed, Resolved: true})
+	})
+	r, _ := ingest(t, srv, "good-key", "feature/pay", pr)
+	if r.Diff == nil || len(r.Diff.TargetResolutions) != 3 {
+		t.Fatalf("resolutions = %+v", r.Diff)
+	}
+	want := map[string]string{
+		"payment-service|feign":                                 "payment-service",
+		"http://payment-service.prod.svc:8080/pay|resttemplate": "payment-service",
+		"https://api.stripe.com/v1|webclient":                   "external",
+	}
+	for k, w := range want {
+		if got := r.Diff.TargetResolutions[k]; got != w {
+			t.Errorf("resolution[%q] = %q, want %q", k, got, w)
+		}
+	}
+	if !strings.Contains(r.Markdown, "known service **payment-service**") {
+		t.Errorf("markdown should mark the known service:\n%s", r.Markdown)
+	}
+	if !strings.Contains(r.Markdown, "· external") {
+		t.Errorf("markdown should mark the external target:\n%s", r.Markdown)
+	}
+}
+
+// TestRegistrySurvivesRestart: the registry is rebuilt from stored baselines.
+func TestRegistrySurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	store1, _ := NewStore(dir)
+	srv1 := httptest.NewServer(New([]string{"k"}, store1).Handler())
+	payment, _ := json.Marshal(map[string]any{"service_id": "payment-service", "service_name": "payments",
+		"endpoints": []any{}, "outbound_dependencies": []any{}, "kafka_producers": []any{}, "kafka_consumers": []any{},
+		"databases_used": []any{}, "config_dependencies": []any{}, "repository": ""})
+	ingest(t, srv1, "k", "main", payment)
+	srv1.Close()
+
+	// new process over the same data dir
+	store2, _ := NewStore(dir)
+	srv2 := New([]string{"k"}, store2)
+	dep := model.Dependency{TargetName: "payments", Detection: model.DetectFeign}
+	if got := srv2.resolveTarget(dep); got != "payment-service" {
+		t.Errorf("after restart resolveTarget = %q, want payment-service (via service_name)", got)
+	}
+}
