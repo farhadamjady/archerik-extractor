@@ -68,7 +68,7 @@ func TestRunEmptyGraph(t *testing.T) {
 		t.Errorf("output not byte-stable:\n run1: %s run2: %s", b1, b2)
 	}
 
-	want := fmt.Sprintf(`{"service_id":%[1]q,"service_name":%[1]q,"repository":"",`+
+	want := fmt.Sprintf(`{"service_id":%[1]q,"service_name":%[1]q,"repository":"","language":"Java",`+
 		`"endpoints":[],"outbound_dependencies":[],"kafka_producers":[],"kafka_consumers":[],`+
 		`"databases_used":[],"config_dependencies":[]}`+"\n", wantName)
 	if string(b1) != want {

@@ -20,6 +20,10 @@ func New() *Provider { return &Provider{} }
 
 func (*Provider) Name() string { return "spring-boot-java" }
 
+// Language is Java: this provider parses **/*.java only. A Kotlin Spring service
+// would ship as its own provider returning "Kotlin".
+func (*Provider) Language() string { return "Java" }
+
 // Match scores the repo on Spring Boot markers. Build-file presence is a weak
 // signal; a spring-boot dependency or a @SpringBootApplication class confirms it.
 func (*Provider) Match(root string, fs provider.FileTree) (bool, int) {

@@ -34,7 +34,7 @@ func TestRunEmptyJSON(t *testing.T) {
 	}
 
 	name := filepath.Base(root)
-	want := fmt.Sprintf(`{"service_id":%[1]q,"service_name":%[1]q,"repository":"",`+
+	want := fmt.Sprintf(`{"service_id":%[1]q,"service_name":%[1]q,"repository":"","language":"Java",`+
 		`"endpoints":[],"outbound_dependencies":[],"kafka_producers":[],"kafka_consumers":[],`+
 		`"databases_used":[],"config_dependencies":[]}`+"\n", name)
 	if stdout.String() != want {

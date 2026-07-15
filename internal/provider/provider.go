@@ -33,6 +33,13 @@ type Provider interface {
 	// Name is the stable provider id, e.g. "spring-boot-java".
 	Name() string
 
+	// Language is the canonical, human-cased primary implementation language of
+	// services this provider handles ("Java", "Kotlin", "Go", ...). One value per
+	// provider — the framework seam is language-scoped (a Kotlin Spring service
+	// would be a separate provider). Emitted verbatim as Service.language; the
+	// backend stores it without normalization, so keep the casing consistent.
+	Language() string
+
 	// Match reports whether this provider handles the repo rooted at root, and a
 	// score used to disambiguate when several providers match. Higher = more
 	// certain. A score of 0 (or matched=false) means "not mine".

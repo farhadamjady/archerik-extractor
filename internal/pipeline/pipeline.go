@@ -78,6 +78,7 @@ func Run(ctx context.Context, opt Options) (*model.Service, error) {
 	// a configured identity, both default to the repo directory name.
 	name := filepath.Base(root)
 	svc := model.NewService(name, name, "")
+	svc.Language = p.Language() // the winning provider declares the module's language
 
 	spec := p.FileSpec()
 	tree := scan.NewOSFileTree(root, spec.Exclude)

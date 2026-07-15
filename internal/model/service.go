@@ -8,9 +8,15 @@ package model
 // NOTE: inbound_dependencies is intentionally absent — the backend derives those
 // from everyone's outbound edges. Emit raw; the backend stores and maps.
 type Service struct {
-	ServiceID            string       `json:"service_id"`
-	ServiceName          string       `json:"service_name"`
-	Repository           string       `json:"repository"`
+	ServiceID   string `json:"service_id"`
+	ServiceName string `json:"service_name"`
+	Repository  string `json:"repository"`
+	// Language is the service's primary implementation language in canonical
+	// human casing ("Java", "Kotlin", "Go", ...) — one value per service, the
+	// dominant language of the module, not a per-file count or a list. Optional:
+	// omitempty drops the key when undetermined, which the backend treats
+	// identically to null. Set from the winning provider (Provider.Language).
+	Language             string       `json:"language,omitempty"`
 	Endpoints            []Endpoint   `json:"endpoints"`
 	OutboundDependencies []Dependency `json:"outbound_dependencies"`
 	KafkaProducers       []KafkaEdge  `json:"kafka_producers"`
