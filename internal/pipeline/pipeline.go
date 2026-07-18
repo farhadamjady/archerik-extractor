@@ -33,6 +33,7 @@ import (
 // deploy-config indexers.
 type Options struct {
 	Root        string
+	Repository  string // repo identifier emitted as service.repository — the backend's read-API key
 	APIKey      string
 	ConfigFile  string
 	Profiles    []string    // active Spring profiles (D3)
@@ -77,7 +78,7 @@ func Run(ctx context.Context, opt Options) (*model.Service, error) {
 	// names to canonical ids (CLAUDE.md coverage rule 4). Until submit carries
 	// a configured identity, both default to the repo directory name.
 	name := filepath.Base(root)
-	svc := model.NewService(name, name, "")
+	svc := model.NewService(name, name, opt.Repository)
 	svc.Language = p.Language() // the winning provider declares the module's language
 
 	spec := p.FileSpec()

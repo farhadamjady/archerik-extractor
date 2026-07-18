@@ -25,6 +25,9 @@ func springRepo(t *testing.T) string {
 // prints the exact empty-contract JSON (with trailing newline), exit 0. This is
 // the end-to-end demo that everything downstream enriches.
 func TestRunEmptyJSON(t *testing.T) {
+	// Hermetic: pin repository to empty so the golden body is stable regardless of
+	// the CI runner's GITHUB_REPOSITORY (the temp root is not a git checkout).
+	t.Setenv("GITHUB_REPOSITORY", "")
 	root := springRepo(t)
 	var stdout, stderr bytes.Buffer
 

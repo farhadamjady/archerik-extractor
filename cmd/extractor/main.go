@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 
 	"encoding/json"
@@ -28,6 +29,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	var (
 		root        = fs.String("root", ".", "repository root to scan")
+		repository  = fs.String("repository", "", "repository identifier emitted as service.repository (e.g. github.com/owner/repo); auto-detected from CI env / git remote")
 		apiKey      = fs.String("api-key", "", "API key (overrides EKG_API_KEY and config file)")
 		configFile  = fs.String("config", "", "path to config file")
 		profiles    = fs.String("profiles", "", "comma-separated active Spring profiles")
@@ -59,6 +61,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	svc, err := pipeline.Run(context.Background(), pipeline.Options{
 		Root:        *root,
+		Repository:  resolveRepository(*repository, *root),
 		APIKey:      key,
 		ConfigFile:  *configFile,
 		Profiles:    splitCSV(*profiles),
@@ -125,6 +128,50 @@ func scanConfigKey(b []byte) string {
 		}
 	}
 	return ""
+}
+
+// resolveRepository determines the repo identifier emitted as service.repository
+// — the backend's read-API key, so it must be non-empty and stable per repo.
+// Precedence: explicit flag > GitHub Actions env > git remote. All paths
+// normalize to host/owner/repo (e.g. github.com/acme/orders) so a CI run and a
+// local run of the same repo produce the identical key.
+func resolveRepository(flagRepo, root string) string {
+	if flagRepo != "" {
+		return flagRepo
+	}
+	// GitHub Actions: GITHUB_REPOSITORY is owner/repo; prepend the server host.
+	if r := os.Getenv("GITHUB_REPOSITORY"); r != "" {
+		host := strings.TrimPrefix(strings.TrimPrefix(os.Getenv("GITHUB_SERVER_URL"), "https://"), "http://")
+		if host == "" {
+			host = "github.com"
+		}
+		return host + "/" + r
+	}
+	return gitRemoteSlug(root) // best-effort local fallback; "" when not a git checkout
+}
+
+// gitRemoteSlug reads origin's URL and normalizes it to host/owner/repo. Returns
+// "" on any error (not a checkout, no origin) — never fails the run.
+func gitRemoteSlug(root string) string {
+	out, err := exec.Command("git", "-C", root, "config", "--get", "remote.origin.url").Output()
+	if err != nil {
+		return ""
+	}
+	return normalizeRemote(string(out))
+}
+
+// normalizeRemote maps both SSH (git@host:owner/repo.git) and HTTPS
+// (https://host/owner/repo.git) remotes to host/owner/repo.
+func normalizeRemote(url string) string {
+	url = strings.TrimSuffix(strings.TrimSpace(url), ".git")
+	if i := strings.Index(url, "://"); i >= 0 {
+		url = url[i+3:] // strip scheme
+	}
+	url = strings.TrimPrefix(url, "git@")
+	if at := strings.Index(url, "@"); at >= 0 {
+		url = url[at+1:] // strip any remaining userinfo
+	}
+	return strings.Replace(url, ":", "/", 1) // scp-form host:owner/repo -> host/owner/repo
 }
 
 // ciMeta builds the commit metadata for the submission: explicit flags win,
