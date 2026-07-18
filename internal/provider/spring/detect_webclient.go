@@ -64,11 +64,10 @@ func (webClientDetector) onCall(mc *provider.MatchContext) {
 func emitURI(mc *provider.MatchContext, call, uriArg java.Node) {
 	group := fmt.Sprintf("%s:%d:webclient", mc.File.Path(), uriArg.StartByte())
 	uri := resolveNode(mc, uriArg)
-	fallback := exprLabel(uriArg) // label for an unresolved edge (never anonymous)
 
 	if base := chainBaseArg(call); base.Valid() {
 		composed := resolve.Concat(resolveNode(mc, base), uri)
-		emitValueSet(mc, composed, model.DetectWebClient, model.ProtoREST, group, exprLabel(base)+exprLabel(uriArg))
+		emitValueSet(mc, composed, model.DetectWebClient, model.ProtoREST, group)
 		return
 	}
 	// No base in this chain:
@@ -79,11 +78,11 @@ func emitURI(mc *provider.MatchContext, call, uriArg java.Node) {
 	//    the honesty rule. Emit an uncertain edge instead (IMPROVEMENTS #2).
 	switch {
 	case looksLikeURL(uri):
-		emitValueSet(mc, uri, model.DetectWebClient, model.ProtoREST, group, fallback)
+		emitValueSet(mc, uri, model.DetectWebClient, model.ProtoREST, group)
 	case uri.Kind == resolve.Template && len(uri.Segments) > 0 && uri.Segments[0].Hole:
-		emitValueSet(mc, uri, model.DetectWebClient, model.ProtoREST, group, fallback)
+		emitValueSet(mc, uri, model.DetectWebClient, model.ProtoREST, group)
 	case uri.Kind == resolve.Unknown:
-		emitValueSet(mc, uri, model.DetectWebClient, model.ProtoREST, group, fallback)
+		emitValueSet(mc, uri, model.DetectWebClient, model.ProtoREST, group)
 	}
 }
 

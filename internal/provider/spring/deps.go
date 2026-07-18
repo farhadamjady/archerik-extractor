@@ -17,27 +17,21 @@ import (
 //   - Exact, one value  -> one edge, resolved, at the value's confidence.
 //   - Exact, many values -> one edge per candidate (conditional/switch/overlay),
 //     Conditional + a shared CandidateGroup, capped likely.
-//   - Template (holes)  -> one uncertain edge keeping the known shape (http://{?}/x).
-//   - Unknown           -> one uncertain edge labelled with the raw source
-//     expression (an outbound call was made but the endpoint couldn't be pinned)
-//     — unresolved deps are still emitted (CLAUDE.md), never anonymous.
+//   - Template (holes)  -> host known: one resolved edge keeping the shape
+//     (http://svc/x/{?}); host a runtime hole: one uncertain edge with the
+//     partial shape in url and an EMPTY target_name.
+//   - Unknown           -> one uncertain edge with no url and no target_name
+//     (an outbound call was made but the endpoint is a runtime value).
+//
+// target_name is a call TARGET (host / logical service name), never the source
+// identifier holding the URL: a variable/bean name like `path` or `client` is
+// not a resolvable target, so an unresolvable value stays empty rather than
+// polluting the graph with a meaningless node label (the backend renders the
+// empty case as a runtime-unknown node). Unresolved deps are still emitted
+// (CLAUDE.md); they are just anonymous, which is honest.
 func emitTargets(mc *provider.MatchContext, expr java.Node, detection model.DetectionMethod, protocol model.Protocol) {
 	group := fmt.Sprintf("%s:%d:%s", mc.File.Path(), expr.StartByte(), detection)
-	emitValueSet(mc, resolveNode(mc, expr), detection, protocol, group, exprLabel(expr))
-}
-
-// exprLabel is the normalized source text of a target expression, used as the
-// target_name for an UNRESOLVED edge so it is still identifiable (which variable
-// / call was the endpoint) and distinct unresolved call sites don't collapse
-// onto one empty "|detection" identity key. Whitespace is collapsed and the
-// label capped so it stays a sane node id.
-func exprLabel(n java.Node) string {
-	s := strings.Join(strings.Fields(n.Text()), " ")
-	const max = 120
-	if len(s) > max {
-		s = s[:max]
-	}
-	return s
+	emitValueSet(mc, resolveNode(mc, expr), detection, protocol, group)
 }
 
 // resolveNode evaluates an expression node, tolerating a nil resolver.
@@ -49,10 +43,8 @@ func resolveNode(mc *provider.MatchContext, n java.Node) resolve.ValueSet {
 }
 
 // emitValueSet appends the edges for an already-resolved target ValueSet. group
-// ties multi-value candidates from one call site together; fallback is the raw
-// source-expression label used as target_name when the set is Unknown, so an
-// unresolved edge is never anonymous.
-func emitValueSet(mc *provider.MatchContext, vs resolve.ValueSet, detection model.DetectionMethod, protocol model.Protocol, group, fallback string) {
+// ties multi-value candidates from one call site together.
+func emitValueSet(mc *provider.MatchContext, vs resolve.ValueSet, detection model.DetectionMethod, protocol model.Protocol, group string) {
 	base := model.Dependency{Protocol: protocol, Detection: detection}
 
 	switch vs.Kind {
@@ -71,24 +63,29 @@ func emitValueSet(mc *provider.MatchContext, vs resolve.ValueSet, detection mode
 		}
 
 	case resolve.Template:
-		base.TargetName = templateString(vs.Segments)
+		shape := templateString(vs.Segments)
 		if templateHostKnown(vs.Segments) {
 			// The hole is only in the path/query AFTER a complete host — the
 			// TARGET SERVICE is known, like a path variable on an endpoint.
 			// (HTTP-only reasoning: a partial Kafka topic stays uncertain,
 			// because the topic name itself is the identity.)
-			base.URL = base.TargetName
+			base.TargetName, base.URL = shape, shape
 			base.Resolved, base.Confidence = true, model.Likely
 		} else {
+			// The host itself is (partly) a runtime hole — the target service is
+			// unknown. Keep the partial shape in url (so the edge stays distinct
+			// and the backend can show it), but leave target_name empty: a
+			// runtime host is not a resolvable node label.
+			base.URL = shape
 			base.Resolved, base.Confidence = false, model.Uncertain
 		}
 		mc.Out.OutboundDependencies = append(mc.Out.OutboundDependencies, base)
 
 	default: // Unknown
-		base.TargetName = fallback
-		if base.TargetName == "" {
-			base.TargetName = "<unresolved>" // never emit an anonymous edge
-		}
+		// A fully runtime value (a variable/bean like `path`) — no url, no
+		// target_name. Emitted (never dropped) but anonymous; the backend renders
+		// it as a runtime-unknown node rather than inventing a label from the
+		// source identifier.
 		base.Resolved, base.Confidence = false, model.Uncertain
 		mc.Out.OutboundDependencies = append(mc.Out.OutboundDependencies, base)
 	}

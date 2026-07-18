@@ -74,8 +74,9 @@ func TestWebClientBarePathURISkipped(t *testing.T) {
 }
 
 // TestWebClientUnknownHostEmitsUncertain (IMPROVEMENTS #2): a uri whose PREFIX
-// is unknown (field + path) must not vanish — it becomes an uncertain edge
-// that keeps the known path shape.
+// is unknown (field + path) must not vanish — it becomes an uncertain edge that
+// keeps the known path shape in url, with an empty target_name (the host is a
+// runtime hole, not a resolvable node label).
 func TestWebClientUnknownHostEmitsUncertain(t *testing.T) {
 	deps := wcDeps(t, `wc.get().uri(hostname + "pets/visits?petId={petId}").retrieve();`)
 	if len(deps) != 1 {
@@ -85,7 +86,10 @@ func TestWebClientUnknownHostEmitsUncertain(t *testing.T) {
 	if d.Confidence != model.Uncertain || d.Resolved {
 		t.Errorf("edge = %+v, want uncertain/unresolved", d)
 	}
-	if d.TargetName != "{?}pets/visits?petId={petId}" {
-		t.Errorf("target = %q, want {?}pets/visits?petId={petId}", d.TargetName)
+	if d.TargetName != "" {
+		t.Errorf("target_name = %q, want empty (host is a runtime hole)", d.TargetName)
+	}
+	if d.URL != "{?}pets/visits?petId={petId}" {
+		t.Errorf("url = %q, want the partial shape {?}pets/visits?petId={petId}", d.URL)
 	}
 }
