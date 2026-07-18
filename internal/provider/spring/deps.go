@@ -18,12 +18,26 @@ import (
 //   - Exact, many values -> one edge per candidate (conditional/switch/overlay),
 //     Conditional + a shared CandidateGroup, capped likely.
 //   - Template (holes)  -> one uncertain edge keeping the known shape (http://{?}/x).
-//   - Unknown           -> one uncertain edge with no target (an outbound call
-//     was made but the endpoint couldn't be pinned) — unresolved deps are still
-//     emitted (CLAUDE.md).
+//   - Unknown           -> one uncertain edge labelled with the raw source
+//     expression (an outbound call was made but the endpoint couldn't be pinned)
+//     — unresolved deps are still emitted (CLAUDE.md), never anonymous.
 func emitTargets(mc *provider.MatchContext, expr java.Node, detection model.DetectionMethod, protocol model.Protocol) {
 	group := fmt.Sprintf("%s:%d:%s", mc.File.Path(), expr.StartByte(), detection)
-	emitValueSet(mc, resolveNode(mc, expr), detection, protocol, group)
+	emitValueSet(mc, resolveNode(mc, expr), detection, protocol, group, exprLabel(expr))
+}
+
+// exprLabel is the normalized source text of a target expression, used as the
+// target_name for an UNRESOLVED edge so it is still identifiable (which variable
+// / call was the endpoint) and distinct unresolved call sites don't collapse
+// onto one empty "|detection" identity key. Whitespace is collapsed and the
+// label capped so it stays a sane node id.
+func exprLabel(n java.Node) string {
+	s := strings.Join(strings.Fields(n.Text()), " ")
+	const max = 120
+	if len(s) > max {
+		s = s[:max]
+	}
+	return s
 }
 
 // resolveNode evaluates an expression node, tolerating a nil resolver.
@@ -35,8 +49,10 @@ func resolveNode(mc *provider.MatchContext, n java.Node) resolve.ValueSet {
 }
 
 // emitValueSet appends the edges for an already-resolved target ValueSet. group
-// ties multi-value candidates from one call site together.
-func emitValueSet(mc *provider.MatchContext, vs resolve.ValueSet, detection model.DetectionMethod, protocol model.Protocol, group string) {
+// ties multi-value candidates from one call site together; fallback is the raw
+// source-expression label used as target_name when the set is Unknown, so an
+// unresolved edge is never anonymous.
+func emitValueSet(mc *provider.MatchContext, vs resolve.ValueSet, detection model.DetectionMethod, protocol model.Protocol, group, fallback string) {
 	base := model.Dependency{Protocol: protocol, Detection: detection}
 
 	switch vs.Kind {
@@ -69,6 +85,10 @@ func emitValueSet(mc *provider.MatchContext, vs resolve.ValueSet, detection mode
 		mc.Out.OutboundDependencies = append(mc.Out.OutboundDependencies, base)
 
 	default: // Unknown
+		base.TargetName = fallback
+		if base.TargetName == "" {
+			base.TargetName = "<unresolved>" // never emit an anonymous edge
+		}
 		base.Resolved, base.Confidence = false, model.Uncertain
 		mc.Out.OutboundDependencies = append(mc.Out.OutboundDependencies, base)
 	}

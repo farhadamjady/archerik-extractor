@@ -96,6 +96,37 @@ func TestRestTemplateUnknownHostStaysUncertain(t *testing.T) {
 	}
 }
 
+// A fully unresolvable target (an opaque variable, no literal segments) must
+// still be emitted, but NAMED with its source expression rather than anonymous —
+// so it is identifiable and can't collide on an empty "|resttemplate" key.
+func TestRestTemplateUnknownTargetKeepsSourceLabel(t *testing.T) {
+	d := rtDep(t, `class C { RestTemplate rt; void m(String uri) {
+		rt.getForObject(uri, String.class);
+	} }`)
+	if d.Resolved || d.Confidence != model.Uncertain {
+		t.Errorf("unknown target = %+v, want unresolved/uncertain", d)
+	}
+	if d.TargetName != "uri" {
+		t.Errorf("target = %q, want the source label %q", d.TargetName, "uri")
+	}
+}
+
+// Two DISTINCT unresolvable call sites must survive as two edges. With anonymous
+// (empty) target_names they share one identity key and dedup collapses them to
+// one — the labels keep them apart.
+func TestRestTemplateDistinctUnknownsDoNotCollapse(t *testing.T) {
+	deps := httpDeps(t, restTemplateDetector{}, nil, `class C { RestTemplate rt; void m(String a, String b) {
+		rt.getForObject(a, String.class);
+		rt.postForObject(b, "x", String.class);
+	} }`)
+	if len(deps) != 2 {
+		t.Fatalf("got %d deps, want 2 distinct unknown edges: %+v", len(deps), deps)
+	}
+	if deps[0].TargetName == deps[1].TargetName {
+		t.Errorf("edges collapsed onto one name: %+v", deps)
+	}
+}
+
 func TestRestTemplateTernaryCandidates(t *testing.T) {
 	deps := httpDeps(t, restTemplateDetector{}, nil, `class C { RestTemplate rt; void m(boolean f) {
 		rt.getForObject(f ? "http://a" : "http://b", String.class);
