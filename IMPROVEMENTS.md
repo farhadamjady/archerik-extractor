@@ -29,6 +29,13 @@ to do.
 | 21 | **Helm `envFrom` + templated ConfigMap not traced**: real charts (aws retail-store) put config in a TEMPLATED ConfigMap and wire it with `envFrom` + `configMapRef` + `include` helpers. Our tracer only pairs literal `name:`/`value:` env entries. | round-5 / `retail-store-sample-app` cart chart | Parse `data:` blocks inside chart-template ConfigMaps (tolerant scan like the env tracer), resolving `{{ .Values.x }}` values; treat `envFrom` a ConfigMap in the same chart as importing those keys. | medium | ✅ implemented |
 | 22 | **Cross-class constructor-argument flow**: OAuth boilerplate calls `getForEntity(path)` where `path` comes from a constructor argument set in ANOTHER class (`new CustomUserInfoTokenServices(userInfoUri, ...)`). Honest uncertain today. | round-5 / `piggymetrics` account-service | General inter-procedural/cross-class flow — big; only worth it if it shows up more often. Park as low. | low | ✅ implemented |
 | 23 | **Cloud Stream function COMPOSITION**: `spring.cloud.function.definition: uppercase\|echo` composes beans — bindings are named `uppercase\|echo-in-0`, not per-bean defaults. We emit 4 wrong-name topics and miss the real ones. | round-7 / `spring-cloud-stream-samples` function-composition-kafka | Read `spring.cloud.function.definition`; when it composes (`a\|b`), emit bindings for the COMPOSED name (in from the first, out from the last) instead of per-bean defaults; also only emit beans that appear in the definition when one is set. | medium | |
+| 24 | **Producer topic hidden behind a `NewTopic` bean + `KafkaHeaders.TOPIC` header**: the idiomatic JavaGuides/Spring producer never passes a literal topic — it injects a `@Bean NewTopic` (`TopicBuilder.name("${...}")`) and sends `MessageBuilder.withPayload(x).setHeader(KafkaHeaders.TOPIC, topic.name()).build()`. Our `send()` detector read arg0 as the topic → an anonymous `uncertain` producer edge with an EMPTY topic, so the async graph never connects to the consumers. | round-8 / `haphong463/springboot-kafka-microservices` @ `bbcd5b4` (order-service `OrderProducer`, product-service `ProductProducer`) | Index `@Bean NewTopic` methods (`TopicBuilder.name(<arg>)` arg node → `Index.TopicBeans`). In the `send` detector: 2+ args → arg0 is the topic (unchanged); a single `Message` arg → follow the local var to the `MessageBuilder` chain, read the `KafkaHeaders.TOPIC` header; when it is `<newTopicField>.name()`, resolve through the topic bean's name-arg + config layer, capped `likely`. No bean → still an honest uncertain edge. | high | ✅ implemented |
+| 25 | **Shared lib consumed by GAV, not reactor**: `common-lib/` sits as a sibling dir but there is NO aggregator pom — each service is standalone and depends on `io.github.haphong463:common-lib:1.0.7` as a published artifact. The #6 shared-module walk keys on `../pom.xml` `<modules>`, so it bails → `OrderEvent`/`ProductEvent`/`ApiResponse` never enter the Types index → ALL Kafka payload schemas and most endpoint schemas are nil even though the source is in the checkout. | round-8 / `haphong463/springboot-kafka-microservices` @ `bbcd5b4` (all Kafka edges + endpoint DTOs) | In `collectSharedModules`: keep the reactor path; add a GAV path — parse the service pom's `<dependencies>`, parse each sibling dir's pom coordinates (groupId falls back to `<parent>`), and index siblings whose `groupId:artifactId` the service declares (artifactId exact; groupId exact unless either side is empty/`${...}`). Types only, detectors never see them — same rule as #6. | high | ✅ implemented |
+| 26 | **Cross-class wrapper producer**: `EventProducer.send(topic, msg)` wraps `kafkaTemplate.send(topic, message)` — the topic is a method PARAM, and the call sites live in OTHER classes with resolvable `KafkaConstant.PROFILE_ONBOARDED_TOPIC` args. #13 unions call-site args intra-class only → both producer edges come out anonymous/uncertain while the constants sit in the repo. Thin producer wrappers are the norm in real codebases. | round-9 / `hoangtien2k3/ecommerce-microservices` @ `138c63e` (notification + payment `EventProducer`) | Mirror of #22: build a repo-wide method-call-site index (like `Types.CreationSites`) keyed by simple method name + receiver's declared type; `paramCallSites` falls back to it when the intra-class walk finds nothing. Union, capped likely, cycle-guarded. | high | ✅ implemented |
+| 27 | **Nested aggregator shared module**: `common-lib` is listed in the root reactor but is ITSELF an aggregator (`common-core`, `common-kafka`, … 7 submodules). The sibling walk globs `src/main/java/**` directly under the sibling dir → finds zero files → no shared types, zero schemas across all 13 services. | round-9 / `hoangtien2k3/ecommerce-microservices` @ `138c63e` (all services, `common-lib/*`) | In `collectSharedModules`: when a qualifying sibling's pom has `<modules>`, recurse one level into its listed modules (same types-only rule). Applies to both the reactor and GAV paths. | high | ✅ implemented |
+| 28 | **Debezium outbox producers invisible**: services "produce" by inserting an `OutBox` row — zero `KafkaTemplate` in the repo. The topic materializes in repo-root Kafka-Connect configs: `outbox_*_connector.json` has `transforms.outbox.route.topic.replacement = ${routedByValue}.events` routed by `aggregate_type`, and the aggregate types ARE static in code (`.aggregateType(ORDER)` constants). Consumers were found (cloudstream #14) but all producer edges are missing → the graph has consumers of `ORDER.events` with no producer. | round-9 / `uuhnaut69/saga-pattern-microservices` @ `41da497` (order/customer/inventory) | Parse repo-root `*connector*.json` Kafka-Connect configs: outbox SMT route pattern + route-by field → join with `aggregateType(<literal/constant>)` values found in the service's builder calls → one producer edge per aggregate type (`ORDER.events`), likely; unresolvable route values → uncertain edge per connector. | medium | ✅ implemented |
+| 29 | **Gradle multi-module repos have no shared-type discovery**: FTGO has no pom.xml anywhere — `settings.gradle` lists 29 modules; sibling `*-service-api` modules hold the channel constants (`OrderServiceChannels.COMMAND_CHANNEL = "orderService"`) and DTOs. Our shared-module walk is pom-only → Symbols/Types never see them → messaging channels unresolvable, schemas nil. Gradle is roughly half of enterprise Java. | round-9 / `microservices-patterns/ftgo-application` @ `558dfc5` | Parse `settings.gradle(.kts)` `include` lines for the module list; read the service's `build.gradle` `project(':x')` dependencies for the GAV-equivalent filter; feed qualifying siblings to the same types-only indexing. No Gradle execution — text-parse only, mirroring the pom paths. | high | ✅ implemented |
+| 30 | **Eventuate Tram messaging** (`DomainEventPublisher.publish(...)`, `MessageConsumer`/saga channels): 101 publish + 53 consume sites in FTGO, all invisible — the framework hides Kafka entirely. Channels are constants in `*-api` modules (needs #29 first). | round-9 / `microservices-patterns/ftgo-application` @ `558dfc5` | After #29: a small Eventuate detector — `DomainEventPublisher.publish(aggregateType, …)` = producer edge on the aggregate channel; `DomainEventHandlersBuilder.forAggregateType("x")` = consumer edge. Or leave to the `.ekg-adapters.json` mechanism (#15) and document the recipe. | low | |
 
 ## How to add a new entry
 When a benchmark tier finds a miss: add a row here with the repo + commit SHA,
@@ -92,3 +99,72 @@ Feign URL resolved ONLY via --config-repo (#16 validated on real code),
 retail orders 9/9, boot-start-routes 5/5. New finding #23: Cloud Stream
 function composition (4 wrong-name topics on function-composition-kafka).
 Benchmark now spans ~26 targets across 5 tiers.
+
+## Round 8 result (2026-07-19) — new Kafka-rich, no-cloud-config target
+Added `haphong463/springboot-kafka-microservices` @ `bbcd5b4` (8 modules, Java,
+MIT, Eureka-only — no config server). Clean recall on the parts we already model:
+REST endpoints 32/32 confirmed (order 5, payment 1, product 22, identity 4),
+Feign 5/5 confirmed (raw Eureka names; `STOCK-SERVICE` correctly an honest
+unresolved edge — no such module), Kafka consumers 3/3 resolved `likely`
+(`order_topics`, `create_order_topic` via `@KafkaListener("${...}")`). New finding
+#24 (producer `NewTopic`-bean + `KafkaHeaders.TOPIC` indirection) found AND
+implemented same round: order-service producer now resolves `create_order_topic`,
+product-service `product_topics` (both `likely`) — previously anonymous/uncertain.
+Fixtures `TestKafkaProducerNewTopicBeanHeader` / `...MessageNoBeanUncertain` added.
+Live-backend re-submit diffed +1/−1 on both (resolved edge replaces the empty one).
+Still open: api-gateway 0 edges — Spring Cloud Gateway `uri: lb://SERVICE` routes
+live in `application.yml`, no code; decide whether config-route outbound deps are
+in scope (7 routes to IDENTITY/PRODUCT/ORDER unseen today).
+
+Follow-up, same round: #25 (GAV-consumed shared lib) found and implemented — the
+repo has no aggregator pom, so the #6 walk never saw `common-lib`. With the GAV
+path, every Kafka edge now carries its payload schema (`OrderEvent` with nested
+`OrderDTO` → `array<OrderItemDTO>` at depth 2, `ProductEvent`), and endpoint
+schemas lit up too (`ApiResponse` + request DTOs across order/product). Live
+re-submit diffs: 6/2/1/20 "changed" on order/payment/email/product — all schema
+fills, zero edge churn. Fixture `TestSharedLibraryByGAV` (positive + negative
+sibling) added next to `TestSharedModuleTypes`.
+
+## Round 9 result (2026-07-19) — four repos, four new stressors; scans only, fixes pending
+Targets (35 services scanned, all exit 0): `SelimHorri/ecommerce-microservice-backend-app`
+@ `695a6d4` (10-svc REST mesh), `uuhnaut69/saga-pattern-microservices` @ `41da497`
+(Debezium outbox, Java 21), `hoangtien2k3/ecommerce-microservices` @ `138c63e`
+(13 svcs + nested common-lib, reactive), `microservices-patterns/ftgo-application`
+@ `558dfc5` (Gradle + Eventuate, 3.7k★).
+What VALIDATED on new real code: RestTemplate + constant-host templates (#3/#10) —
+SelimHorri's 7 cross-service edges all resolved `http://USER-SERVICE/user-service/api/users/{?}`
+likely; 149 endpoints across the mesh incl. proxy-client 71; Cloud Stream detector (#14)
+found all 4 saga consumers (`ORDER.events` etc.) with zero Spring-Kafka annotations;
+@KafkaListener via constants and `${...}` both resolved (hoangtien2k3); Spring MVC
+endpoint extraction works unchanged on a Gradle repo (FTGO 17 endpoints); negative
+controls clean (cloud-config / service-discovery / gateways = 0 edges).
+New findings: #26 (cross-class wrapper producer — the only 2 producer misses in
+hoangtien2k3), #27 (nested aggregator shared module — kills ALL schemas there),
+#28 (Debezium outbox producers — graph shows consumers with no producer),
+#29 (Gradle shared-type discovery), #30 (Eventuate, gated on #29, parked low).
+
+## Round 9 fix result (2026-07-19) — #26–#29 implemented, plus two found-while-fixing
+All four implemented and re-verified against the live repos + backend:
+saga now emits ALL THREE outbox producers (`ORDER/CUSTOMER/PRODUCT.events`,
+likely) — the choreography loop closes end to end; hoangtien2k3 wrapper
+producers resolve to their real topics; FTGO endpoint schemas resolve from the
+Gradle `-api` modules (`CreateOrderRequest`/`GetOrderResponse` etc.);
+hoangtien2k3 endpoint schemas 15/15 via the nested-aggregator walk.
+Found while fixing (both fixed + tested):
+- | 31 | **Sibling-service value leak**: under a reactor the shared set includes
+  sibling SERVICES; following wrapper call sites through THEIR code injected
+  notification's topic into payment's graph (same-named `EventProducer`). Fix:
+  shared files feed the Types index as TYPE DEFINITIONS ONLY — creation/call
+  sites are indexed for service-owned files exclusively. | ✅ |
+- | 32 | **Multi-document application.yml**: `yaml.Unmarshal` read only the
+  first `---` document; Spring applies all of them. search-service's
+  `product.topic.name` lived in doc 3 → consumer was anonymous. Fix: decode all
+  documents, merge unmarked ones in order, skip profile-marked overlays. | ✅ |
+Fixtures: TestKafkaProducerCrossClassWrapper, TestKafkaProducerWrapperUnrelatedReceiver,
+TestNestedAggregatorSharedModule, TestKafkaOutboxProducer (+setter +no-connector
+gates), TestGradleSharedModule, TestSharedSiblingServiceNoValueLeak,
+TestParseYAMLMultiDocument. Full suite green, zero regressions on rounds 1–8.
+Backend note: live re-submits exposed that the ingest backend keys baselines by
+service_id ONLY — order-service from different repos overwrite each other
+(round-8 haphong463 vs round-9 repos). Backend-side fix needed: scope the
+baseline by (repository, service_id).
