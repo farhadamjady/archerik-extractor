@@ -1,7 +1,9 @@
 package spring
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -19,13 +21,38 @@ func parseConfig(path string, src []byte) (map[string]string, error) {
 	return parseYAML(src)
 }
 
+// parseYAML flattens a YAML config file, merging MULTI-DOCUMENT files (round-9
+// finding): Spring applies every `---` document; a document carrying a profile
+// marker (`spring.config.activate.on-profile` / legacy `spring.profiles`) is a
+// profile overlay and is skipped here — profile selection stays file-level
+// (application-<profile>.yml). Later unmarked documents override earlier keys,
+// matching Spring's order.
 func parseYAML(src []byte) (map[string]string, error) {
-	var root map[string]any
-	if err := yaml.Unmarshal(src, &root); err != nil {
-		return nil, err
-	}
 	out := map[string]string{}
-	flatten("", root, out)
+	dec := yaml.NewDecoder(bytes.NewReader(src))
+	parsed := false
+	for {
+		var root map[string]any
+		err := dec.Decode(&root)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			if !parsed {
+				return nil, err
+			}
+			break // tolerate a malformed trailing document; keep what we have
+		}
+		parsed = true
+		doc := map[string]string{}
+		flatten("", root, doc)
+		if doc["spring.config.activate.on-profile"] != "" || doc["spring.profiles"] != "" {
+			continue
+		}
+		for k, v := range doc {
+			out[k] = v
+		}
+	}
 	return out, nil
 }
 
