@@ -25,7 +25,7 @@ func kafkaScan(t *testing.T, cfg provider.ConfigResolver, srcs ...string) *model
 		files = append(files, pf.(*java.File))
 		parsed[name] = pf
 	}
-	idx := &provider.Index{Symbols: java.IndexSymbols(files), Config: cfg}
+	idx := &provider.Index{Symbols: java.IndexSymbols(files), Config: cfg, Types: java.IndexTypes(files, nil)}
 	// Populate the NewTopic-bean index so producer topic resolution (IMPROVEMENTS
 	// #24) has the same inputs it gets from the real pipeline.
 	_ = kafkaTopicIndexer{}.Index(&provider.IndexContext{Parsed: parsed}, idx)
@@ -227,6 +227,46 @@ func TestKafkaProducerMessageNoBeanUncertain(t *testing.T) {
 	}
 	if e := svc.KafkaProducers[0]; e.Resolved || e.Topic != "" || e.Confidence != model.Uncertain {
 		t.Errorf("edge = %+v, want unresolved/empty/uncertain", e)
+	}
+}
+
+// TestKafkaProducerCrossClassWrapper reproduces IMPROVEMENTS #26: a thin
+// EventProducer wrapper sends with a topic PARAM whose call sites live in OTHER
+// classes with resolvable constants. The topic must resolve through the
+// repo-wide call-site index, capped likely (crosses a class boundary).
+func TestKafkaProducerCrossClassWrapper(t *testing.T) {
+	svc := kafkaScan(t, nil,
+		`class KafkaConstant { public static final String PROFILE_TOPIC = "profile-onboarded"; }`,
+		`class EventProducer {
+			private final KafkaTemplate<String, String> kafkaTemplate;
+			public void send(String topic, String message) { kafkaTemplate.send(topic, message); }
+		}`,
+		`class EventConsumer {
+			private final EventProducer eventProducer;
+			void handle(String result) { eventProducer.send(KafkaConstant.PROFILE_TOPIC, result); }
+		}`)
+	if got := topics(svc.KafkaProducers); len(got) != 1 || got[0] != "profile-onboarded" {
+		t.Fatalf("producer topics = %v, want [profile-onboarded]", got)
+	}
+	if e := svc.KafkaProducers[0]; !e.Resolved || e.Confidence != model.Likely {
+		t.Errorf("edge = %+v, want resolved/likely", e)
+	}
+}
+
+// TestKafkaProducerWrapperUnrelatedReceiver: a same-named send() on an unrelated
+// type must not contribute values to the wrapper's parameter.
+func TestKafkaProducerWrapperUnrelatedReceiver(t *testing.T) {
+	svc := kafkaScan(t, nil,
+		`class EventProducer {
+			private final KafkaTemplate<String, String> kafkaTemplate;
+			public void send(String topic, String message) { kafkaTemplate.send(topic, message); }
+		}`,
+		`class MailSender { void m(JavaMailSender mail) { mail.send("not-a-topic", "x"); } }`)
+	if len(svc.KafkaProducers) != 1 {
+		t.Fatalf("producers = %+v, want 1", svc.KafkaProducers)
+	}
+	if e := svc.KafkaProducers[0]; e.Resolved || e.Topic != "" || e.Confidence != model.Uncertain {
+		t.Errorf("edge = %+v, want honest unresolved (mail.send must not leak in)", e)
 	}
 }
 

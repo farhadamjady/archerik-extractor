@@ -25,7 +25,7 @@ func scanWith(t *testing.T, det provider.Detector, cfg provider.ConfigResolver, 
 		parsed[name] = pf
 	}
 	idx := &provider.Index{
-		Types:    java.IndexTypes(files),
+		Types:    java.IndexTypes(files, nil),
 		Symbols:  java.IndexSymbols(files),
 		Config:   cfg,
 		Adapters: adapters,

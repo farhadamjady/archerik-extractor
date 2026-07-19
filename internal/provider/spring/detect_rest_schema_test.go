@@ -24,7 +24,7 @@ func restEndpoints(t *testing.T, srcs ...string) []model.Endpoint {
 		files = append(files, pf.(*java.File))
 		parsed[name] = pf
 	}
-	idx := &provider.Index{Types: java.IndexTypes(files)}
+	idx := &provider.Index{Types: java.IndexTypes(files, nil)}
 	svc := model.NewService("s", "s", "")
 	for _, p := range sortedJavaPaths(parsed) {
 		if err := query.New().Run(parsed[p], []provider.Detector{restDetector{}}, idx, nil, svc); err != nil {

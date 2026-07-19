@@ -13,11 +13,20 @@ type Types struct {
 	// newSites: `new ClassName(...)` expressions per simple class name, so the
 	// evaluator can follow constructor arguments across classes (IMPROVEMENTS #22).
 	newSites map[string][]Node
+	// callSites: receiver-qualified method invocations per method name, so the
+	// evaluator can follow a wrapper method's parameters to call sites in OTHER
+	// classes (IMPROVEMENTS #26). Receiverless (same-class) calls are already
+	// covered by the intra-class walk and are not recorded.
+	callSites map[string][]Node
 }
 
 // CreationSites returns the argument_list nodes of every `new name(...)` in the
 // indexed files (any file — Node carries its own file reference).
 func (t *Types) CreationSites(name string) []Node { return t.newSites[name] }
+
+// CallSitesOf returns every receiver-qualified `x.name(...)` invocation in the
+// indexed files. Callers filter by the receiver's declared type.
+func (t *Types) CallSitesOf(name string) []Node { return t.callSites[name] }
 
 // Lookup resolves a simple or qualified type name to its definition; a qualified
 // name falls back to its last segment.
@@ -32,31 +41,56 @@ func (t *Types) Lookup(name string) (*schema.TypeDef, bool) {
 	return nil, false
 }
 
-// IndexTypes builds the DTO index from the given files (sorted for determinism).
-func IndexTypes(files []*File) *Types {
-	t := &Types{byName: map[string]*schema.TypeDef{}, newSites: map[string][]Node{}}
-	sorted := append([]*File(nil), files...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].path < sorted[j].path })
-
-	for _, f := range sorted {
-		pkg := packageName(f)
-		imports := importMap(f)
-		f.Root().Walk(func(n Node) bool {
-			switch n.Type() {
-			case "class_declaration", "record_declaration", "interface_declaration", "enum_declaration",
-				"annotation_type_declaration":
-				td := buildTypeDef(n, pkg, imports)
-				t.byName[td.Name] = td
-			case "object_creation_expression":
-				cls := simpleTypeName(n.ChildByFieldName("type").Text())
-				if args := n.ChildByFieldName("arguments"); args.Valid() && cls != "" {
-					t.newSites[cls] = append(t.newSites[cls], args)
-				}
-			}
-			return true // index nested types too
-		})
+// IndexTypes builds the DTO index. `files` are the scanned service's own
+// sources; `shared` are sibling-module sources (IMPROVEMENTS #6/#25/#29), which
+// contribute TYPE DEFINITIONS only — never creation/call sites. Under a reactor
+// the shared set includes sibling SERVICES, and following value flow through
+// their code would leak one service's topics/URLs into another's graph (every
+// service tends to have its own same-named EventProducer wrapper).
+func IndexTypes(files, shared []*File) *Types {
+	t := &Types{byName: map[string]*schema.TypeDef{}, newSites: map[string][]Node{}, callSites: map[string][]Node{}}
+	for _, f := range sortedByPath(shared) {
+		indexFile(t, f, false)
+	}
+	for _, f := range sortedByPath(files) {
+		indexFile(t, f, true) // service defs win name collisions with shared ones
 	}
 	return t
+}
+
+func sortedByPath(files []*File) []*File {
+	sorted := append([]*File(nil), files...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].path < sorted[j].path })
+	return sorted
+}
+
+// indexFile walks one file into the index. Value-flow sites (object creation,
+// receiver-qualified invocations) are recorded only for service-owned files.
+func indexFile(t *Types, f *File, withSites bool) {
+	pkg := packageName(f)
+	imports := importMap(f)
+	f.Root().Walk(func(n Node) bool {
+		switch n.Type() {
+		case "class_declaration", "record_declaration", "interface_declaration", "enum_declaration",
+			"annotation_type_declaration":
+			td := buildTypeDef(n, pkg, imports)
+			t.byName[td.Name] = td
+		case "object_creation_expression":
+			if !withSites {
+				return true
+			}
+			cls := simpleTypeName(n.ChildByFieldName("type").Text())
+			if args := n.ChildByFieldName("arguments"); args.Valid() && cls != "" {
+				t.newSites[cls] = append(t.newSites[cls], args)
+			}
+		case "method_invocation":
+			if withSites && n.ChildByFieldName("object").Valid() {
+				name := n.ChildByFieldName("name").Text()
+				t.callSites[name] = append(t.callSites[name], n)
+			}
+		}
+		return true // index nested types too
+	})
 }
 
 func buildTypeDef(n Node, pkg string, imports map[string]string) *schema.TypeDef {

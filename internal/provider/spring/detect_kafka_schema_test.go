@@ -30,7 +30,7 @@ func kafkaScanWith(t *testing.T, contracts map[string]string, srcs ...string) *m
 		name, sch := parseContract(p, []byte(body))
 		sources.Add(name, sch)
 	}
-	idx := &provider.Index{Types: java.IndexTypes(files), Schemas: sources}
+	idx := &provider.Index{Types: java.IndexTypes(files, nil), Schemas: sources}
 	res := java.NewEvaluator(idx)
 	svc := model.NewService("s", "s", "")
 	for _, p := range sortedJavaPaths(parsed) {

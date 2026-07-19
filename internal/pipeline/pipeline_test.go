@@ -351,3 +351,35 @@ func TestGradleSharedModule(t *testing.T) {
 		t.Fatalf("schema = %+v, want OrderEvent with 2 fields (from the Gradle project dep)", sc)
 	}
 }
+
+// TestSharedSiblingServiceNoValueLeak (round-9 contamination fix): under a
+// reactor, SIBLING SERVICES are shared-indexed for types — but their call sites
+// must never feed value resolution. Payment's same-named EventProducer wrapper
+// must NOT pick up notification's topic constant.
+func TestSharedSiblingServiceNoValueLeak(t *testing.T) {
+	repo := t.TempDir()
+	write(t, repo, "pom.xml", "<project><modules><module>payment-service</module><module>notification-service</module></modules></project>")
+	// sibling SERVICE with its own EventProducer + an active call site
+	write(t, repo, "notification-service/pom.xml", "<project><artifactId>notification-service</artifactId></project>")
+	write(t, repo, "notification-service/src/main/java/EventProducer.java",
+		"class EventProducer { KafkaTemplate<String,String> kt; public void send(String topic, String m) { kt.send(topic, m); } }")
+	write(t, repo, "notification-service/src/main/java/Caller.java",
+		"class Caller { EventProducer eventProducer; void h() { eventProducer.send(\"notification-topic\", \"x\"); } }")
+	// the scanned service: same wrapper shape, NO local call site
+	root := filepath.Join(repo, "payment-service")
+	write(t, repo, "payment-service/pom.xml", "<project><artifactId>spring-boot-starter</artifactId></project>")
+	write(t, repo, "payment-service/src/main/java/App.java", "@SpringBootApplication public class App {}")
+	write(t, repo, "payment-service/src/main/java/EventProducer.java",
+		"class EventProducer { KafkaTemplate<String,String> kt; public void send(String topic, String m) { kt.send(topic, m); } }")
+
+	svc, err := Run(context.Background(), Options{Root: root, APIKey: testKey})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(svc.KafkaProducers) != 1 {
+		t.Fatalf("producers = %+v, want 1", svc.KafkaProducers)
+	}
+	if e := svc.KafkaProducers[0]; e.Resolved || e.Topic != "" {
+		t.Errorf("edge = %+v, want honest unresolved — sibling service's topic must not leak", e)
+	}
+}

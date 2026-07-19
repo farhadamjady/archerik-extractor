@@ -230,8 +230,11 @@ func ctorParamIndexForField(cls Node, field string) int {
 
 // paramCallSites is the mirror of return-inlining (IMPROVEMENTS #13): when the
 // name is a PARAMETER of the enclosing method, union the argument values from
-// this method's call sites within the same class. No call sites in the class
-// (a public API called from outside) -> stays a hole.
+// this method's call sites — first within the same class, then (IMPROVEMENTS
+// #26) from receiver-qualified call sites across the whole repo where the
+// receiver's declared type is this class (the thin-wrapper pattern:
+// `eventProducer.send(TOPIC, msg)` feeding `kafkaTemplate.send(topic, ...)`).
+// No resolvable call site anywhere -> stays a hole.
 func (c *evalCtx) paramCallSites(n Node, name string, depth int) (resolve.ValueSet, bool) {
 	m := enclosingMethod(n)
 	if !m.Valid() || m.Type() != "method_declaration" {
@@ -268,10 +271,46 @@ func (c *evalCtx) paramCallSites(n Node, name string, depth int) (resolve.ValueS
 		}
 		return true
 	})
+	if found && result.Kind != resolve.Unknown {
+		return result, true
+	}
+	return c.crossClassCallSites(cls, methodName, idx, depth)
+}
+
+// crossClassCallSites unions the argument values from receiver-qualified call
+// sites of `<cls>.<methodName>` anywhere in the repo (IMPROVEMENTS #26). The
+// receiver's DECLARED type must be the wrapper's class, so an unrelated `send`
+// on some other type never contributes. Values are capped at likely — the flow
+// crosses a class boundary.
+func (c *evalCtx) crossClassCallSites(cls Node, methodName string, argIdx, depth int) (resolve.ValueSet, bool) {
+	types, ok := c.e.types.(*Types)
+	if !ok {
+		return resolve.ValueSet{}, false
+	}
+	clsName := cls.ChildByFieldName("name").Text()
+	if clsName == "" {
+		return resolve.ValueSet{}, false
+	}
+	result := resolve.NewUnknown()
+	found := false
+	for _, inv := range types.CallSitesOf(methodName) {
+		obj := inv.ChildByFieldName("object")
+		recv := obj.Text()
+		if obj.Type() == "field_access" && obj.ChildByFieldName("object").Text() == "this" {
+			recv = obj.ChildByFieldName("field").Text()
+		}
+		if declaredTypeOf(inv, recv) != clsName {
+			continue
+		}
+		if arg := inv.ChildByFieldName("arguments").NamedChild(argIdx); arg.Valid() {
+			result = resolve.Union(result, c.eval(arg, depth+1))
+			found = true
+		}
+	}
 	if !found || result.Kind == resolve.Unknown {
 		return resolve.ValueSet{}, false
 	}
-	return result, true
+	return capLikely(result), true
 }
 
 // paramIndex is the position of `name` among a method's formal parameters, -1

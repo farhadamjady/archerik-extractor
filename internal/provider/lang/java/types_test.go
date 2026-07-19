@@ -17,7 +17,7 @@ func indexOne(t *testing.T, srcs ...string) *Types {
 		}
 		files = append(files, pf.(*File))
 	}
-	return IndexTypes(files)
+	return IndexTypes(files, nil)
 }
 
 // fieldNames returns the field candidate names (with duplicates from multiple
