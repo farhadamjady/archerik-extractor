@@ -270,3 +270,70 @@ func TestKafkaProducerWrapperUnrelatedReceiver(t *testing.T) {
 	}
 }
 
+// TestKafkaOutboxProducer reproduces IMPROVEMENTS #28: the service produces by
+// writing an OutBox row; the topic pattern lives in a Debezium connector JSON
+// and is joined with the resolvable aggregate-type argument.
+func TestKafkaOutboxProducer(t *testing.T) {
+	svcObj := kafkaScanOutbox(t, []string{"${routedByValue}.events"},
+		`class Topics { public static final String ORDER = "ORDER"; }`,
+		`class OrderHandler {
+			void persist(OutBoxRepository repo, Object payload) {
+				repo.save(OutBox.builder().aggregateType(Topics.ORDER).payload(payload).build());
+			}
+		}`)
+	if got := topics(svcObj.KafkaProducers); len(got) != 1 || got[0] != "ORDER.events" {
+		t.Fatalf("outbox producer topics = %v, want [ORDER.events]", got)
+	}
+	if e := svcObj.KafkaProducers[0]; !e.Resolved || e.Confidence != model.Likely {
+		t.Errorf("edge = %+v, want resolved/likely", e)
+	}
+}
+
+// TestKafkaOutboxNoConnectorNoEdge: without connector JSONs in the repo,
+// aggregateType() calls emit nothing (the gate keeps unrelated builders silent).
+func TestKafkaOutboxNoConnectorNoEdge(t *testing.T) {
+	svcObj := kafkaScan(t, nil,
+		`class OrderHandler { void m(B b) { b.aggregateType("ORDER"); } }`)
+	if len(svcObj.KafkaProducers) != 0 {
+		t.Errorf("no connector -> no outbox edges, got %+v", svcObj.KafkaProducers)
+	}
+}
+
+// kafkaScanOutbox is kafkaScan with outbox route patterns injected.
+func kafkaScanOutbox(t *testing.T, routes []string, srcs ...string) *model.Service {
+	t.Helper()
+	var files []*java.File
+	parsed := map[string]provider.ParsedFile{}
+	for i, s := range srcs {
+		name := string(rune('A'+i)) + ".java"
+		pf, err := java.NewParser().Parse(name, []byte(s))
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		files = append(files, pf.(*java.File))
+		parsed[name] = pf
+	}
+	idx := &provider.Index{Symbols: java.IndexSymbols(files), Types: java.IndexTypes(files, nil), OutboxRoutes: routes}
+	res := java.NewEvaluator(idx)
+	svc := model.NewService("s", "s", "")
+	for _, p := range sortedJavaPaths(parsed) {
+		if err := query.New().Run(parsed[p], []provider.Detector{kafkaDetector{}}, idx, res, svc); err != nil {
+			t.Fatalf("run: %v", err)
+		}
+	}
+	model.Sort(svc)
+	return svc
+}
+
+// TestKafkaOutboxSetterStyle: the setter form (`outbox.setAggregateType(X)`,
+// uuhnaut69 customer/inventory style) resolves like the builder form.
+func TestKafkaOutboxSetterStyle(t *testing.T) {
+	svcObj := kafkaScanOutbox(t, []string{"${routedByValue}.events"},
+		`class H {
+			static final String CUSTOMER = "CUSTOMER";
+			void m(OutBox outbox) { outbox.setAggregateType(CUSTOMER); }
+		}`)
+	if got := topics(svcObj.KafkaProducers); len(got) != 1 || got[0] != "CUSTOMER.events" {
+		t.Fatalf("setter outbox topics = %v, want [CUSTOMER.events]", got)
+	}
+}

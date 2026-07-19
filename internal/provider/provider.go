@@ -124,7 +124,16 @@ type Index struct {
 	// through a Message header (KafkaHeaders.TOPIC, topic.name()). Indexing each
 	// bean's name-argument lets the producer detector resolve that topic through
 	// the existing config layer instead of emitting an anonymous uncertain edge.
-	TopicBeans []TopicBean}
+	TopicBeans []TopicBean
+
+	// OutboxRoutes are Debezium outbox EventRouter topic patterns found in
+	// Kafka-Connect connector JSONs near the repo root (IMPROVEMENTS #28), e.g.
+	// "${routedByValue}.events". In the outbox pattern the service "produces" by
+	// inserting a row — the topic only materializes in the connector config, so
+	// the producer detector joins these patterns with the aggregate-type values
+	// found in the service's builder calls.
+	OutboxRoutes []string
+}
 
 // TopicBean is one Kafka `@Bean NewTopic` declaration: the bean/method name and
 // the TopicBuilder.name(<arg>) argument expression, resolved lazily by the

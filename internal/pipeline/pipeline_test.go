@@ -383,3 +383,30 @@ func TestSharedSiblingServiceNoValueLeak(t *testing.T) {
 		t.Errorf("edge = %+v, want honest unresolved — sibling service's topic must not leak", e)
 	}
 }
+
+// TestOutboxConnectorProducer (IMPROVEMENTS #28, end to end): the Debezium
+// connector JSON sits at the repo root; the service only writes OutBox rows.
+func TestOutboxConnectorProducer(t *testing.T) {
+	repo := t.TempDir()
+	write(t, repo, "outbox_order_connector.json",
+		`{"name":"order_connector","config":{"transforms.outbox.type":"io.debezium.transforms.outbox.EventRouter","transforms.outbox.route.topic.replacement":"${routedByValue}.events"}}`)
+	root := filepath.Join(repo, "order-service")
+	write(t, repo, "order-service/pom.xml", "<project><artifactId>spring-boot-starter</artifactId></project>")
+	write(t, repo, "order-service/src/main/java/App.java", "@SpringBootApplication public class App {}")
+	write(t, repo, "order-service/src/main/java/H.java",
+		`class H {
+			static final String ORDER = "ORDER";
+			void persist(OutBoxRepository repo, Object p) { repo.save(OutBox.builder().aggregateType(ORDER).payload(p).build()); }
+		}`)
+
+	svc, err := Run(context.Background(), Options{Root: root, APIKey: testKey})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(svc.KafkaProducers) != 1 || svc.KafkaProducers[0].Topic != "ORDER.events" {
+		t.Fatalf("producers = %+v, want [ORDER.events]", svc.KafkaProducers)
+	}
+	if e := svc.KafkaProducers[0]; !e.Resolved || e.Confidence != model.Likely {
+		t.Errorf("edge = %+v, want resolved/likely", e)
+	}
+}

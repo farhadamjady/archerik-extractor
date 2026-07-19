@@ -72,7 +72,34 @@ func (kafkaDetector) onInvocation(mc *provider.MatchContext) {
 		group := fmt.Sprintf("%s:%d:kafka-sp", mc.File.Path(), topic.StartByte())
 		emitKafkaTopic(mc, resolveNode(mc, topic), true, group, nil)
 
+	case "aggregateType", "setAggregateType":
+		// Debezium outbox producer (IMPROVEMENTS #28): the service writes an
+		// OutBox row whose aggregate type routes the topic in the connector's
+		// EventRouter config — set through the builder (`.aggregateType(X)`) or
+		// the setter (`outbox.setAggregateType(X)`). Gated on outbox connector
+		// JSONs existing in the repo, so unrelated methods never fire.
+		if len(mc.Index.OutboxRoutes) == 0 || !topic.Valid() || args.NamedChildCount() != 1 {
+			return
+		}
+		argVS := resolveNode(mc, topic)
+		for i, route := range mc.Index.OutboxRoutes {
+			group := fmt.Sprintf("%s:%d:kafka-ob%d", mc.File.Path(), topic.StartByte(), i)
+			emitKafkaTopic(mc, capTopicLikely(outboxTopic(route, argVS)), true, group, nil)
+		}
 	}
+}
+
+// outboxTopic instantiates an EventRouter route pattern with the aggregate-type
+// value: "${routedByValue}.events" + ORDER -> ORDER.events. An unresolved
+// aggregate type flows through as a hole (template -> uncertain edge).
+func outboxTopic(route string, aggType resolve.ValueSet) resolve.ValueSet {
+	prefix, suffix, found := strings.Cut(route, "${routedByValue}")
+	if !found {
+		return resolve.NewExact(model.Confirmed, route)
+	}
+	vs := resolve.NewExact(model.Confirmed, prefix)
+	vs = resolve.Concat(vs, aggType)
+	return resolve.Concat(vs, resolve.NewExact(model.Confirmed, suffix))
 }
 
 // usesKafkaStreams reports whether the file imports the Kafka Streams API.
