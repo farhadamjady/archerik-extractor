@@ -12,9 +12,11 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -235,38 +237,31 @@ func sortedKeys(m map[string]provider.ParsedFile) []string {
 	return keys
 }
 
-// collectSharedModules finds SIBLING Maven modules of the scanned service
-// (a multi-module repo: ../pom.xml lists the service as a <module>) and parses
-// their main Java sources, so indexers can resolve shared DTOs and constants
-// that live in a common module (IMPROVEMENTS #6). Only types are read from
-// them — detectors never see these files. Returns nil when the service is not
-// part of a multi-module build.
+// collectSharedModules finds SIBLING modules of the scanned service that hold
+// shared types, and parses their main Java sources so indexers can resolve
+// shared DTOs and constants. Only types are read from them — detectors never see
+// these files. Three repo layouts qualify a sibling:
+//
+//   - Maven reactor module (IMPROVEMENTS #6): ../pom.xml lists the service under
+//     <modules> — every sibling module is shared;
+//   - Maven GAV-matched library (IMPROVEMENTS #25): no aggregator pom — the
+//     sibling is a standalone project whose groupId:artifactId the service's own
+//     pom declares as a <dependency>;
+//   - Gradle project dependency (IMPROVEMENTS #29): ../settings.gradle includes
+//     the service, and the service's build.gradle depends on `project(':x')`.
+//
+// A qualifying Maven sibling that is ITSELF an aggregator (a nested module tree
+// like common-lib/common-kafka, IMPROVEMENTS #27) is expanded one level into its
+// listed <modules>. Returns nil when no layout applies.
 func collectSharedModules(root string, p provider.Provider) map[string]provider.ParsedFile {
-	parentPom, err := os.ReadFile(filepath.Join(root, "..", "pom.xml"))
-	if err != nil || !strings.Contains(string(parentPom), "<modules>") ||
-		!strings.Contains(string(parentPom), filepath.Base(root)) {
-		return nil
-	}
 	javaParser, ok := p.Parsers()[provider.KindJava]
 	if !ok {
 		return nil
 	}
-
-	parentDir := filepath.Dir(root)
-	entries, err := os.ReadDir(parentDir)
-	if err != nil {
-		return nil
-	}
 	shared := map[string]provider.ParsedFile{}
-	for _, e := range entries {
-		if !e.IsDir() || e.Name() == filepath.Base(root) {
-			continue
-		}
-		modDir := filepath.Join(parentDir, e.Name())
-		if _, err := os.Stat(filepath.Join(modDir, "pom.xml")); err != nil {
-			continue // not a module
-		}
-		modTree := scan.NewOSFileTree(modDir, nil)
+	for _, dir := range append(mavenSharedDirs(root), gradleSharedDirs(root)...) {
+		modTree := scan.NewOSFileTree(dir, nil)
+		rootRel, _ := filepath.Rel(filepath.Dir(root), dir)
 		for _, rel := range modTree.Glob("src/main/java/**/*.java") {
 			src, err := modTree.Read(rel)
 			if err != nil {
@@ -276,13 +271,210 @@ func collectSharedModules(root string, p provider.Provider) map[string]provider.
 			if err != nil {
 				continue
 			}
-			shared["../"+e.Name()+"/"+rel] = pf
+			shared["../"+filepath.ToSlash(rootRel)+"/"+rel] = pf
 		}
 	}
 	if len(shared) == 0 {
 		return nil
 	}
 	return shared
+}
+
+// mavenSharedDirs lists the source directories of qualifying Maven siblings
+// (reactor + GAV layouts), expanding nested aggregators one level (#27).
+func mavenSharedDirs(root string) []string {
+	parentDir := filepath.Dir(root)
+	entries, err := os.ReadDir(parentDir)
+	if err != nil {
+		return nil
+	}
+	reactor := isReactorModule(root)
+	deps := pomDependencies(filepath.Join(root, "pom.xml"))
+	if !reactor && len(deps) == 0 {
+		return nil
+	}
+	var dirs []string
+	for _, e := range entries {
+		if !e.IsDir() || e.Name() == filepath.Base(root) {
+			continue
+		}
+		modDir := filepath.Join(parentDir, e.Name())
+		pomPath := filepath.Join(modDir, "pom.xml")
+		if _, err := os.Stat(pomPath); err != nil {
+			continue // not a Maven project
+		}
+		dirs = append(dirs, sharedSourceDirs(reactor, deps, modDir, pomPath)...)
+	}
+	return dirs
+}
+
+// sharedSourceDirs qualifies one Maven sibling and returns its source dirs. A
+// leaf sibling yields itself; an aggregator sibling (pom with <modules>) yields
+// its listed submodule dirs — all of them under a reactor, only the GAV-matched
+// ones otherwise (the service may depend on common-lib/common-kafka, not on the
+// aggregator).
+func sharedSourceDirs(reactor bool, deps []mavenGAV, modDir, pomPath string) []string {
+	subs := pomModules(pomPath)
+	if reactor {
+		if len(subs) == 0 {
+			return []string{modDir}
+		}
+		dirs := make([]string, 0, len(subs))
+		for _, m := range subs {
+			dirs = append(dirs, filepath.Join(modDir, filepath.FromSlash(m)))
+		}
+		return dirs
+	}
+	if len(subs) == 0 {
+		if dependsOn(deps, pomPath) {
+			return []string{modDir}
+		}
+		return nil
+	}
+	aggMatch := dependsOn(deps, pomPath)
+	var dirs []string
+	for _, m := range subs {
+		subDir := filepath.Join(modDir, filepath.FromSlash(m))
+		if aggMatch || dependsOn(deps, filepath.Join(subDir, "pom.xml")) {
+			dirs = append(dirs, subDir)
+		}
+	}
+	return dirs
+}
+
+// gradleProjectDepRe matches `project(':shared-lib')` / `project(":a:b")`
+// dependency references in a build.gradle(.kts).
+var gradleProjectDepRe = regexp.MustCompile(`project\(\s*['"]:?([^'")]+)['"]\s*\)`)
+
+// gradleSharedDirs lists sibling module dirs a Gradle service depends on
+// (IMPROVEMENTS #29): ../settings.gradle(.kts) must include the service, and
+// each `project(':x')` reference in the service's build.gradle(.kts) names a
+// shared module (`:a:b` maps to the a/b directory). Text-parse only — Gradle is
+// never executed.
+func gradleSharedDirs(root string) []string {
+	parentDir := filepath.Dir(root)
+	settings := readFirst(parentDir, "settings.gradle", "settings.gradle.kts")
+	if settings == nil || !strings.Contains(string(settings), filepath.Base(root)) {
+		return nil
+	}
+	build := readFirst(root, "build.gradle", "build.gradle.kts")
+	if build == nil {
+		return nil
+	}
+	var dirs []string
+	seen := map[string]bool{}
+	for _, m := range gradleProjectDepRe.FindAllStringSubmatch(string(build), -1) {
+		mod := strings.ReplaceAll(m[1], ":", "/")
+		if mod == "" || seen[mod] {
+			continue
+		}
+		seen[mod] = true
+		dir := filepath.Join(parentDir, filepath.FromSlash(mod))
+		if dir == root {
+			continue
+		}
+		if st, err := os.Stat(dir); err == nil && st.IsDir() {
+			dirs = append(dirs, dir)
+		}
+	}
+	return dirs
+}
+
+// readFirst returns the contents of the first existing file among names in dir.
+func readFirst(dir string, names ...string) []byte {
+	for _, n := range names {
+		if b, err := os.ReadFile(filepath.Join(dir, n)); err == nil {
+			return b
+		}
+	}
+	return nil
+}
+
+// isReactorModule reports whether the service is listed as a <module> of an
+// aggregator pom one directory up (the IMPROVEMENTS #6 layout).
+func isReactorModule(root string) bool {
+	parentPom, err := os.ReadFile(filepath.Join(root, "..", "pom.xml"))
+	return err == nil && strings.Contains(string(parentPom), "<modules>") &&
+		strings.Contains(string(parentPom), filepath.Base(root))
+}
+
+// pomModel is the minimal slice of a pom.xml we read: the project's own
+// coordinates (groupId may be inherited from <parent>) and its direct
+// dependencies. <dependencyManagement> and plugin dependencies nest deeper and
+// are deliberately not matched.
+type pomModel struct {
+	GroupID    string `xml:"groupId"`
+	ArtifactID string `xml:"artifactId"`
+	Parent     struct {
+		GroupID string `xml:"groupId"`
+	} `xml:"parent"`
+	Dependencies struct {
+		Dependency []mavenGAV `xml:"dependency"`
+	} `xml:"dependencies"`
+	Modules struct {
+		Module []string `xml:"module"`
+	} `xml:"modules"`
+}
+
+type mavenGAV struct {
+	GroupID    string `xml:"groupId"`
+	ArtifactID string `xml:"artifactId"`
+}
+
+// pomDependencies returns the <dependencies> declared in a pom.xml, nil on any
+// read/parse problem (shared-module discovery is best-effort, never fatal).
+func pomDependencies(path string) []mavenGAV {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var pom pomModel
+	if xml.Unmarshal(b, &pom) != nil {
+		return nil
+	}
+	return pom.Dependencies.Dependency
+}
+
+// pomModules returns the <modules> listed in a pom.xml (empty for a leaf).
+func pomModules(path string) []string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var pom pomModel
+	if xml.Unmarshal(b, &pom) != nil {
+		return nil
+	}
+	return pom.Modules.Module
+}
+
+// dependsOn reports whether a sibling project's own coordinates match one of the
+// service's declared dependencies. artifactId must match exactly; groupId must
+// match too unless either side is unresolvable statically (empty or a ${...}
+// property), in which case the artifactId match decides.
+func dependsOn(deps []mavenGAV, siblingPom string) bool {
+	b, err := os.ReadFile(siblingPom)
+	if err != nil {
+		return false
+	}
+	var pom pomModel
+	if xml.Unmarshal(b, &pom) != nil || pom.ArtifactID == "" {
+		return false
+	}
+	group := pom.GroupID
+	if group == "" {
+		group = pom.Parent.GroupID
+	}
+	for _, d := range deps {
+		if d.ArtifactID != pom.ArtifactID {
+			continue
+		}
+		if d.GroupID == group || d.GroupID == "" || group == "" ||
+			strings.Contains(d.GroupID, "${") || strings.Contains(group, "${") {
+			return true
+		}
+	}
+	return false
 }
 
 // collectConfigDeps surfaces the config keys touched during detection as

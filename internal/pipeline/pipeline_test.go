@@ -149,6 +149,61 @@ func TestSharedModuleTypes(t *testing.T) {
 	}
 }
 
+// TestSharedLibraryByGAV (IMPROVEMENTS #25): no aggregator pom — the shared lib
+// is a standalone sibling project the service consumes as a versioned Maven
+// dependency (published artifact). Its types must still feed the schema pass; a
+// sibling the service does NOT depend on must stay invisible.
+func TestSharedLibraryByGAV(t *testing.T) {
+	repo := t.TempDir()
+	// the shared lib: own GAV, no reactor
+	write(t, repo, "common-lib/pom.xml",
+		"<project><groupId>io.acme</groupId><artifactId>common-lib</artifactId><version>1.0.7</version></project>")
+	write(t, repo, "common-lib/src/main/java/OrderEvent.java",
+		"public class OrderEvent { private String orderId; private int total; }")
+	// a sibling project that is NOT a dependency — must not be indexed
+	write(t, repo, "unrelated-lib/pom.xml",
+		"<project><groupId>io.acme</groupId><artifactId>unrelated-lib</artifactId></project>")
+	write(t, repo, "unrelated-lib/src/main/java/StockEvent.java",
+		"public class StockEvent { private String sku; }")
+	// the scanned service depends on common-lib by GAV
+	root := filepath.Join(repo, "order-service")
+	write(t, repo, "order-service/pom.xml",
+		`<project><artifactId>order-service</artifactId><dependencies>
+			<dependency><groupId>io.acme</groupId><artifactId>common-lib</artifactId><version>1.0.7</version></dependency>
+			<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter</artifactId></dependency>
+		</dependencies></project>`)
+	write(t, repo, "order-service/src/main/java/App.java", "@SpringBootApplication public class App {}")
+	write(t, repo, "order-service/src/main/java/Pub.java",
+		"class Pub { KafkaTemplate<String, OrderEvent> kt; KafkaTemplate<String, StockEvent> kt2;"+
+			" void m() { kt.send(\"orders\", null); kt2.send(\"stock\", null); } }")
+
+	svc, err := Run(context.Background(), Options{Root: root, APIKey: testKey})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(svc.KafkaProducers) != 2 {
+		t.Fatalf("producers = %+v, want 2", svc.KafkaProducers)
+	}
+	var orders, stock *model.KafkaEdge
+	for i := range svc.KafkaProducers {
+		switch svc.KafkaProducers[i].Topic {
+		case "orders":
+			orders = &svc.KafkaProducers[i]
+		case "stock":
+			stock = &svc.KafkaProducers[i]
+		}
+	}
+	if orders == nil || orders.Schema == nil || orders.Schema.Type != "OrderEvent" {
+		t.Fatalf("orders schema = %+v, want OrderEvent (resolved from the GAV sibling)", orders)
+	}
+	if len(orders.Schema.Nested) != 2 {
+		t.Errorf("OrderEvent fields = %+v, want 2", orders.Schema.Nested)
+	}
+	if stock == nil || stock.Schema != nil {
+		t.Errorf("stock schema = %+v, want nil (unrelated-lib is not a dependency)", stock)
+	}
+}
+
 // TestOpenAPIIngestion (IMPROVEMENTS #1): when the build generates controllers
 // from openapi.yml (openapi-generator in pom.xml), spec endpoints are ingested
 // at likely; without the generator plugin, the spec is ignored (docs drift).
@@ -236,5 +291,63 @@ func TestConfigRepo(t *testing.T) {
 	svc2, _ := Run(context.Background(), Options{Root: root, APIKey: testKey})
 	if len(svc2.OutboundDependencies) != 1 || svc2.OutboundDependencies[0].Resolved {
 		t.Errorf("without config repo = %+v, want unresolved", svc2.OutboundDependencies)
+	}
+}
+
+// TestNestedAggregatorSharedModule (IMPROVEMENTS #27): the shared lib listed in
+// the reactor is ITSELF an aggregator — sources live one level down
+// (common-lib/common-kafka/src/...). The walk must expand its <modules>.
+func TestNestedAggregatorSharedModule(t *testing.T) {
+	repo := t.TempDir()
+	write(t, repo, "pom.xml", "<project><modules><module>common-lib</module><module>order-service</module></modules></project>")
+	write(t, repo, "common-lib/pom.xml", "<project><artifactId>common-lib</artifactId><modules><module>common-kafka</module></modules></project>")
+	write(t, repo, "common-lib/common-kafka/pom.xml", "<project><artifactId>common-kafka</artifactId></project>")
+	write(t, repo, "common-lib/common-kafka/src/main/java/OrderEvent.java",
+		"public class OrderEvent { private String orderId; private int total; }")
+	root := filepath.Join(repo, "order-service")
+	write(t, repo, "order-service/pom.xml", "<project><artifactId>spring-boot-starter</artifactId></project>")
+	write(t, repo, "order-service/src/main/java/App.java", "@SpringBootApplication public class App {}")
+	write(t, repo, "order-service/src/main/java/Pub.java",
+		"class Pub { KafkaTemplate<String, OrderEvent> kt; void m() { kt.send(\"orders\", null); } }")
+
+	svc, err := Run(context.Background(), Options{Root: root, APIKey: testKey})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(svc.KafkaProducers) != 1 {
+		t.Fatalf("producers = %+v, want 1", svc.KafkaProducers)
+	}
+	sc := svc.KafkaProducers[0].Schema
+	if sc == nil || sc.Type != "OrderEvent" || len(sc.Nested) != 2 {
+		t.Fatalf("schema = %+v, want OrderEvent with 2 fields (from the nested submodule)", sc)
+	}
+}
+
+// TestGradleSharedModule (IMPROVEMENTS #29): a Gradle repo — no pom anywhere.
+// settings.gradle includes the service; its build.gradle depends on
+// project(':shared-lib'), whose types must feed the schema pass.
+func TestGradleSharedModule(t *testing.T) {
+	repo := t.TempDir()
+	write(t, repo, "settings.gradle", "include \"shared-lib\"\ninclude \"order-service\"\n")
+	write(t, repo, "shared-lib/build.gradle", "apply plugin: 'java'\n")
+	write(t, repo, "shared-lib/src/main/java/OrderEvent.java",
+		"public class OrderEvent { private String orderId; private int total; }")
+	root := filepath.Join(repo, "order-service")
+	write(t, repo, "order-service/build.gradle",
+		"dependencies { implementation project(':shared-lib')\n implementation 'org.springframework.boot:spring-boot-starter' }\n")
+	write(t, repo, "order-service/src/main/java/App.java", "@SpringBootApplication public class App {}")
+	write(t, repo, "order-service/src/main/java/Pub.java",
+		"class Pub { KafkaTemplate<String, OrderEvent> kt; void m() { kt.send(\"orders\", null); } }")
+
+	svc, err := Run(context.Background(), Options{Root: root, APIKey: testKey})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(svc.KafkaProducers) != 1 {
+		t.Fatalf("producers = %+v, want 1", svc.KafkaProducers)
+	}
+	sc := svc.KafkaProducers[0].Schema
+	if sc == nil || sc.Type != "OrderEvent" || len(sc.Nested) != 2 {
+		t.Fatalf("schema = %+v, want OrderEvent with 2 fields (from the Gradle project dep)", sc)
 	}
 }
