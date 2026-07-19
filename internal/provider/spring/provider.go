@@ -117,6 +117,7 @@ func (*Provider) Indexers() []provider.Indexer {
 		typeIndexer{},
 		schemaSourceIndexer{},
 		adapterIndexer{},
+		kafkaTopicIndexer{},
 	}
 }
 

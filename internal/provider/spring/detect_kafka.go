@@ -56,7 +56,7 @@ func (kafkaDetector) onInvocation(mc *provider.MatchContext) {
 			return
 		}
 		group := fmt.Sprintf("%s:%d:kafka-p", mc.File.Path(), topic.StartByte())
-		emitKafkaTopic(mc, resolveNode(mc, topic), true, group, kafkaSchema(mc, valueType))
+		emitKafkaTopic(mc, producerTopic(mc, args), true, group, kafkaSchema(mc, valueType))
 
 	case "stream", "table", "globalTable":
 		if !usesKafkaStreams(mc.File) || !topic.Valid() {
@@ -71,6 +71,7 @@ func (kafkaDetector) onInvocation(mc *provider.MatchContext) {
 		}
 		group := fmt.Sprintf("%s:%d:kafka-sp", mc.File.Path(), topic.StartByte())
 		emitKafkaTopic(mc, resolveNode(mc, topic), true, group, nil)
+
 	}
 }
 
@@ -147,6 +148,181 @@ func resolvedValuesToVS(cands []provider.ResolvedValue) resolve.ValueSet {
 		vals[i] = resolve.Value{S: c.Value, Conf: c.Conf}
 	}
 	return resolve.ExactValues(vals...)
+}
+
+// producerTopic resolves the destination topic of a KafkaTemplate.send(...) call
+// across its overloads. send(topic, data) / send(topic, key, data) carry the
+// topic as the first argument (resolved as before). send(Message) hides it: the
+// idiomatic Spring form sets the topic in a KafkaHeaders.TOPIC header, usually
+// `topic.name()` on an injected NewTopic bean (IMPROVEMENTS #24). An
+// unresolvable topic stays Unknown — an honest uncertain edge, never dropped.
+func producerTopic(mc *provider.MatchContext, args java.Node) resolve.ValueSet {
+	arg0 := args.NamedChild(0)
+	if args.NamedChildCount() >= 2 {
+		return resolveNode(mc, arg0) // topic-first overloads
+	}
+	if expr := messageTopicExpr(arg0); expr.Valid() {
+		return resolveTopicExpr(mc, expr)
+	}
+	return resolve.NewUnknown() // Message/ProducerRecord we can't trace
+}
+
+// messageTopicExpr finds the KafkaHeaders.TOPIC header expression for a single
+// Message argument to send(): the argument is either the MessageBuilder chain
+// itself or a local variable holding it.
+func messageTopicExpr(arg java.Node) java.Node {
+	chain := arg
+	if arg.Type() == "identifier" {
+		chain = localVarInit(arg, arg.Text())
+	}
+	if !chain.Valid() {
+		return java.Node{}
+	}
+	return topicHeaderArg(chain)
+}
+
+// localVarInit returns the initializer expression of a local variable `name`
+// declared before `use` in the same method (last such definition wins).
+func localVarInit(use java.Node, name string) java.Node {
+	method := enclosingOfTypes(use, "method_declaration", "constructor_declaration")
+	if !method.Valid() {
+		return java.Node{}
+	}
+	before := use.StartByte()
+	var val java.Node
+	method.Walk(func(m java.Node) bool {
+		if m.Type() != "local_variable_declaration" {
+			return true
+		}
+		for _, d := range namedChildren(m) {
+			if d.Type() == "variable_declarator" && d.ChildByFieldName("name").Text() == name {
+				if v := d.ChildByFieldName("value"); v.Valid() && v.StartByte() < before {
+					val = v
+				}
+			}
+		}
+		return true
+	})
+	return val
+}
+
+// topicHeaderArg scans a MessageBuilder chain for
+// .setHeader(KafkaHeaders.TOPIC, <expr>) and returns <expr>.
+func topicHeaderArg(chain java.Node) java.Node {
+	var out java.Node
+	chain.Walk(func(n java.Node) bool {
+		if out.Valid() {
+			return false
+		}
+		if n.Type() == "method_invocation" && n.ChildByFieldName("name").Text() == "setHeader" {
+			a := n.ChildByFieldName("arguments")
+			if isKafkaTopicHeaderKey(a.NamedChild(0)) {
+				if v := a.NamedChild(1); v.Valid() {
+					out = v
+				}
+			}
+		}
+		return true
+	})
+	return out
+}
+
+// isKafkaTopicHeaderKey matches the header key that names the destination topic:
+// the KafkaHeaders.TOPIC constant or its literal value "kafka_topic".
+func isKafkaTopicHeaderKey(n java.Node) bool {
+	switch n.Type() {
+	case "field_access":
+		return n.ChildByFieldName("object").Text() == "KafkaHeaders" &&
+			n.ChildByFieldName("field").Text() == "TOPIC"
+	case "string_literal":
+		return unquote(n.Text()) == "kafka_topic"
+	}
+	return false
+}
+
+// resolveTopicExpr resolves a topic header value. `<newTopic>.name()` on an
+// injected NewTopic bean resolves through the indexed TopicBeans (and thence the
+// config layer); anything else goes through the ordinary value evaluator.
+func resolveTopicExpr(mc *provider.MatchContext, expr java.Node) resolve.ValueSet {
+	if expr.Type() == "method_invocation" &&
+		expr.ChildByFieldName("name").Text() == "name" &&
+		!expr.ChildByFieldName("arguments").NamedChild(0).Valid() &&
+		receiverIsNewTopic(expr, expr.ChildByFieldName("object")) {
+		if vs, ok := resolveTopicBean(mc); ok {
+			return vs
+		}
+		return resolve.NewUnknown()
+	}
+	return resolveNode(mc, expr)
+}
+
+// resolveTopicBean resolves the topic name(s) declared by the service's Kafka
+// NewTopic bean(s) through the config layer, capped at likely (the value reaches
+// the send call through a bean + header indirection). Multiple beans union into
+// conditional candidates.
+func resolveTopicBean(mc *provider.MatchContext) (resolve.ValueSet, bool) {
+	if mc.Index == nil || len(mc.Index.TopicBeans) == 0 {
+		return resolve.ValueSet{}, false
+	}
+	result := resolve.NewUnknown()
+	for _, b := range mc.Index.TopicBeans {
+		if arg, ok := b.NameArg.(java.Node); ok {
+			result = resolve.Union(result, resolveNode(mc, arg))
+		}
+	}
+	if result.Kind == resolve.Unknown {
+		return resolve.ValueSet{}, false
+	}
+	return capTopicLikely(result), true
+}
+
+// capTopicLikely lowers confirmed values to likely: a topic reached through a
+// NewTopic bean and a Message header is one indirection removed from a literal.
+func capTopicLikely(vs resolve.ValueSet) resolve.ValueSet {
+	if vs.Kind != resolve.Exact {
+		return vs
+	}
+	vals := make([]resolve.Value, len(vs.Values))
+	for i, v := range vs.Values {
+		if v.Conf == model.Confirmed {
+			v.Conf = model.Likely
+		}
+		vals[i] = v
+	}
+	return resolve.ExactValues(vals...)
+}
+
+// receiverIsNewTopic reports whether `recv` (an identifier or this.field) is
+// declared with type NewTopic in the enclosing method's parameters or class
+// fields — the guard that keeps `x.name()` from matching non-topic receivers.
+func receiverIsNewTopic(ctx, recv java.Node) bool {
+	name := recv.Text()
+	if recv.Type() == "field_access" && recv.ChildByFieldName("object").Text() == "this" {
+		name = recv.ChildByFieldName("field").Text()
+	}
+	if m := enclosingOfTypes(ctx, "method_declaration", "constructor_declaration"); m.Valid() {
+		if params := childByType(m, "formal_parameters"); params.Valid() {
+			for _, p := range namedChildren(params) {
+				if p.Type() == "formal_parameter" && p.ChildByFieldName("name").Text() == name {
+					return isNewTopicType(p.ChildByFieldName("type").Text())
+				}
+			}
+		}
+	}
+	if cls := enclosingOfTypes(ctx, "class_declaration"); cls.Valid() {
+		body := cls.ChildByFieldName("body")
+		for _, fd := range namedChildren(body) {
+			if fd.Type() != "field_declaration" {
+				continue
+			}
+			for _, d := range namedChildren(fd) {
+				if d.Type() == "variable_declarator" && d.ChildByFieldName("name").Text() == name {
+					return isNewTopicType(fd.ChildByFieldName("type").Text())
+				}
+			}
+		}
+	}
+	return false
 }
 
 // emitKafkaTopic appends a topic edge to the producer or consumer slice. Like

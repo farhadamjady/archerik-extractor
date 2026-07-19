@@ -117,6 +117,22 @@ type Index struct {
 	// platformClient.call("payment-service", ...) that no generic detector can
 	// recognize. Each entry names a method and which argument is the target.
 	Adapters []AdapterSpec
+
+	// TopicBeans are Kafka `@Bean NewTopic` methods built via TopicBuilder.name(x)
+	// (IMPROVEMENTS #24). Big-company producers rarely pass a literal topic to
+	// KafkaTemplate.send: they inject the NewTopic bean and set the destination
+	// through a Message header (KafkaHeaders.TOPIC, topic.name()). Indexing each
+	// bean's name-argument lets the producer detector resolve that topic through
+	// the existing config layer instead of emitting an anonymous uncertain edge.
+	TopicBeans []TopicBean}
+
+// TopicBean is one Kafka `@Bean NewTopic` declaration: the bean/method name and
+// the TopicBuilder.name(<arg>) argument expression, resolved lazily by the
+// producer detector (NameArg is a lang/java.Node, kept opaque here so this
+// package does not depend on the language layer).
+type TopicBean struct {
+	Name    string  // @Bean method name (= Spring bean name)
+	NameArg ASTNode // the TopicBuilder.name(<arg>) argument expression
 }
 
 // AdapterSpec declares one wrapper-method pattern.

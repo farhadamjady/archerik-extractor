@@ -26,6 +26,9 @@ func kafkaScan(t *testing.T, cfg provider.ConfigResolver, srcs ...string) *model
 		parsed[name] = pf
 	}
 	idx := &provider.Index{Symbols: java.IndexSymbols(files), Config: cfg}
+	// Populate the NewTopic-bean index so producer topic resolution (IMPROVEMENTS
+	// #24) has the same inputs it gets from the real pipeline.
+	_ = kafkaTopicIndexer{}.Index(&provider.IndexContext{Parsed: parsed}, idx)
 	res := java.NewEvaluator(idx)
 	svc := model.NewService("s", "s", "")
 	for _, p := range sortedJavaPaths(parsed) {
@@ -169,3 +172,61 @@ func TestNoStreamsImportNoMatch(t *testing.T) {
 		t.Errorf("non-streams file must not emit kafka edges: %+v %+v", svc.KafkaConsumers, svc.KafkaProducers)
 	}
 }
+
+// TestKafkaProducerNewTopicBeanHeader reproduces IMPROVEMENTS #24: the idiomatic
+// Spring producer injects a NewTopic bean and sends a Message whose
+// KafkaHeaders.TOPIC header is `topic.name()` — the destination is never a
+// literal at the send() call site. The topic must resolve through the bean's
+// TopicBuilder.name(@Value) and the config layer, at likely confidence.
+func TestKafkaProducerNewTopicBeanHeader(t *testing.T) {
+	cfg := buildStore(t, nil, map[string]string{
+		"application.properties": "spring.kafka.topic.name=order_topics\n",
+	})
+	svc := kafkaScan(t, cfg,
+		`class OrderProducer {
+			private NewTopic topic;
+			private KafkaTemplate<String, OrderEvent> kafkaTemplate;
+			public OrderProducer(NewTopic topic, KafkaTemplate<String, OrderEvent> kafkaTemplate) {
+				this.topic = topic;
+				this.kafkaTemplate = kafkaTemplate;
+			}
+			void sendMessage(OrderEvent e) {
+				Message<OrderEvent> message = MessageBuilder.withPayload(e)
+					.setHeader(KafkaHeaders.TOPIC, topic.name())
+					.build();
+				kafkaTemplate.send(message);
+			}
+		}`,
+		`@Configuration class KafkaTopicConfig {
+			@Value("${spring.kafka.topic.name}") private String orderTopic;
+			@Bean public NewTopic orderTopic() { return TopicBuilder.name(orderTopic).build(); }
+		}`)
+	if got := topics(svc.KafkaProducers); len(got) != 1 || got[0] != "order_topics" {
+		t.Fatalf("producer topic = %v, want [order_topics]", got)
+	}
+	if e := svc.KafkaProducers[0]; !e.Resolved || e.Confidence != model.Likely {
+		t.Errorf("producer edge = %+v, want resolved/likely", e)
+	}
+}
+
+// TestKafkaProducerMessageNoBeanUncertain: the same Message form, but no NewTopic
+// bean to resolve — the producer edge is still emitted, honestly uncertain
+// (never dropped), rather than fabricated.
+func TestKafkaProducerMessageNoBeanUncertain(t *testing.T) {
+	svc := kafkaScan(t, nil, `class P {
+		private NewTopic topic;
+		private KafkaTemplate<String, String> kt;
+		void m() {
+			Message<String> message = MessageBuilder.withPayload("x")
+				.setHeader(KafkaHeaders.TOPIC, topic.name()).build();
+			kt.send(message);
+		}
+	}`)
+	if len(svc.KafkaProducers) != 1 {
+		t.Fatalf("producers = %+v, want 1 (honest uncertain) edge", svc.KafkaProducers)
+	}
+	if e := svc.KafkaProducers[0]; e.Resolved || e.Topic != "" || e.Confidence != model.Uncertain {
+		t.Errorf("edge = %+v, want unresolved/empty/uncertain", e)
+	}
+}
+
