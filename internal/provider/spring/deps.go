@@ -14,21 +14,25 @@ import (
 // value evaluator and appends outbound dependency edges, shared by the
 // RestTemplate and WebClient detectors:
 //
-//   - Exact, one value  -> one edge, resolved, at the value's confidence.
+//   - Exact absolute URL -> one edge, resolved; target_name is the URL's
+//     AUTHORITY (host[:port]) so every path variant of one service shares a
+//     single backend node, with the full value kept in url.
+//   - Exact bare path ("/orders", host supplied by a baseUrl bean elsewhere) ->
+//     one anonymous uncertain edge, path in url: this call site names no service.
 //   - Exact, many values -> one edge per candidate (conditional/switch/overlay),
 //     Conditional + a shared CandidateGroup, capped likely.
-//   - Template (holes)  -> host known: one resolved edge keeping the shape
-//     (http://svc/x/{?}); host a runtime hole: one uncertain edge with the
-//     partial shape in url and an EMPTY target_name.
+//   - Template (holes)  -> host known: one resolved edge, target_name = host,
+//     shape (http://svc/x/{?}) in url; host a runtime hole: one uncertain edge
+//     with the partial shape in url and an EMPTY target_name.
 //   - Unknown           -> one uncertain edge with no url and no target_name
 //     (an outbound call was made but the endpoint is a runtime value).
 //
 // target_name is a call TARGET (host / logical service name), never the source
-// identifier holding the URL: a variable/bean name like `path` or `client` is
-// not a resolvable target, so an unresolvable value stays empty rather than
-// polluting the graph with a meaningless node label (the backend renders the
-// empty case as a runtime-unknown node). Unresolved deps are still emitted
-// (CLAUDE.md); they are just anonymous, which is honest.
+// identifier holding the URL nor a per-call-site path: a variable/bean name like
+// `path`, or a bare "/orders", is not a resolvable target, so it stays empty
+// rather than polluting the graph with a meaningless or duplicate node label
+// (the backend renders the empty case as a runtime-unknown node). Unresolved
+// deps are still emitted (CLAUDE.md); they are just anonymous, which is honest.
 func emitTargets(mc *provider.MatchContext, expr java.Node, detection model.DetectionMethod, protocol model.Protocol) {
 	group := fmt.Sprintf("%s:%d:%s", mc.File.Path(), expr.StartByte(), detection)
 	emitValueSet(mc, resolveNode(mc, expr), detection, protocol, group)
@@ -51,14 +55,24 @@ func emitValueSet(mc *provider.MatchContext, vs resolve.ValueSet, detection mode
 	case resolve.Exact:
 		if len(vs.Values) == 1 {
 			v := vs.Values[0]
-			base.TargetName, base.URL, base.Resolved, base.Confidence = v.S, v.S, true, v.Conf
+			if host, ok := targetHost(v.S); ok {
+				base.TargetName, base.URL, base.Resolved, base.Confidence = host, v.S, true, v.Conf
+			} else {
+				// Bare path / opaque value: an outbound call, but this site names
+				// no service — keep it in url, stay anonymous and uncertain.
+				base.URL, base.Resolved, base.Confidence = v.S, false, model.Uncertain
+			}
 			mc.Out.OutboundDependencies = append(mc.Out.OutboundDependencies, base)
 			return
 		}
 		for _, v := range vs.Values {
 			d := base
-			d.TargetName, d.URL, d.Resolved = v.S, v.S, true
-			d.Confidence, d.Conditional, d.CandidateGroup = model.Likely, true, group
+			d.URL, d.Conditional, d.CandidateGroup = v.S, true, group
+			if host, ok := targetHost(v.S); ok {
+				d.TargetName, d.Resolved, d.Confidence = host, true, model.Likely
+			} else {
+				d.Resolved, d.Confidence = false, model.Uncertain
+			}
 			mc.Out.OutboundDependencies = append(mc.Out.OutboundDependencies, d)
 		}
 
@@ -68,8 +82,10 @@ func emitValueSet(mc *provider.MatchContext, vs resolve.ValueSet, detection mode
 			// The hole is only in the path/query AFTER a complete host — the
 			// TARGET SERVICE is known, like a path variable on an endpoint.
 			// (HTTP-only reasoning: a partial Kafka topic stays uncertain,
-			// because the topic name itself is the identity.)
-			base.TargetName, base.URL = shape, shape
+			// because the topic name itself is the identity.) target_name is the
+			// host alone; the templated path stays in url.
+			host, _ := targetHost(shape) // host is complete before the first hole
+			base.TargetName, base.URL = host, shape
 			base.Resolved, base.Confidence = true, model.Likely
 		} else {
 			// The host itself is (partly) a runtime hole — the target service is
@@ -105,6 +121,33 @@ func templateHostKnown(segs []resolve.Segment) bool {
 		return false
 	}
 	return strings.Contains(segs[0].Literal[i+3:], "/")
+}
+
+// targetHost derives the target_name for a resolved HTTP endpoint value. An
+// absolute URL collapses to its AUTHORITY (host[:port], scheme and path
+// dropped) so all path variants of one service share a node; the raw host casing
+// is preserved (the backend lowercases/strips the port when mapping name ->
+// service_id). ok=false means the value carries no resolvable target:
+//   - a bare path ("/orders") — the host lives elsewhere (a baseUrl bean), so
+//     this call site alone names no service;
+//   - an absolute URL whose authority is or contains a runtime hole.
+// A non-URL, non-path value (a logical host like "payment-service" resolved from
+// a property) is returned as-is.
+func targetHost(value string) (host string, ok bool) {
+	if i := strings.Index(value, "://"); i >= 0 {
+		authority := value[i+3:]
+		if j := strings.IndexByte(authority, '/'); j >= 0 {
+			authority = authority[:j]
+		}
+		if authority == "" || strings.Contains(authority, "{?}") {
+			return "", false // host itself is a runtime hole
+		}
+		return authority, true
+	}
+	if strings.HasPrefix(value, "/") {
+		return "", false // bare path — host supplied elsewhere
+	}
+	return value, true
 }
 
 // looksLikeURL reports whether a value set contains an absolute URL (has a

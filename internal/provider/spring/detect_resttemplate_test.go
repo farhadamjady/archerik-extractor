@@ -81,8 +81,45 @@ func TestRestTemplateKnownHostTemplate(t *testing.T) {
 	if !d.Resolved || d.Confidence != model.Likely {
 		t.Errorf("templated = %+v, want resolved/likely (host known)", d)
 	}
-	if d.TargetName != "http://svc/users/{?}" {
-		t.Errorf("target = %q, want http://svc/users/{?}", d.TargetName)
+	if d.TargetName != "svc" {
+		t.Errorf("target = %q, want host-only svc", d.TargetName)
+	}
+	if d.URL != "http://svc/users/{?}" {
+		t.Errorf("url = %q, want the templated shape http://svc/users/{?}", d.URL)
+	}
+}
+
+// An absolute-URL target collapses to its authority so every path variant of one
+// service shares a node; the full URL stays in url. Mirrors the real
+// SelimHorri/hoangtien2k3 RestTemplate shape (http://USER-SERVICE/user-service/
+// api/users/{id}) that was fanning out into a node per path.
+func TestRestTemplateURLTargetIsHostOnly(t *testing.T) {
+	d := rtDep(t, `class C { RestTemplate rt; void m(String id) {
+		rt.getForObject("http://AUTH-SERVICE:8088/api/manager/user/1", String.class);
+	} }`)
+	if d.TargetName != "AUTH-SERVICE:8088" {
+		t.Errorf("target = %q, want authority AUTH-SERVICE:8088 (raw casing, port kept)", d.TargetName)
+	}
+	if d.URL != "http://AUTH-SERVICE:8088/api/manager/user/1" || !d.Resolved {
+		t.Errorf("url/resolved = {url:%q resolved:%v}, want full URL resolved", d.URL, d.Resolved)
+	}
+}
+
+// A bare path ("/orders" — host set by a WebClient baseUrl bean elsewhere) is
+// NOT a target: the call is emitted but anonymous, with the path in url, so it
+// never leaks in as a phantom "/orders" service node.
+func TestRestTemplateBarePathIsAnonymous(t *testing.T) {
+	d := rtDep(t, `class C { RestTemplate rt; void m() {
+		rt.getForObject("/orders", String.class);
+	} }`)
+	if d.Resolved || d.Confidence != model.Uncertain {
+		t.Errorf("bare path = %+v, want unresolved/uncertain", d)
+	}
+	if d.TargetName != "" {
+		t.Errorf("target_name = %q, want empty (a path names no service)", d.TargetName)
+	}
+	if d.URL != "/orders" {
+		t.Errorf("url = %q, want the bare path /orders", d.URL)
 	}
 }
 
