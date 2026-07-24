@@ -400,3 +400,15 @@ Java` with its one REST endpoint. Full gate green; real-engine detector tests ov
 Round 1 scope is endpoints; the Kotlin value evaluator, DTO/schema source, and client/Kafka detectors
 (and Kotlin-Micronaut/Quarkus providers, which would reuse this layer) are the next rounds — this
 round proves the language layer end-to-end.
+
+### Quarkus messaging — full-mesh validation (correction to round 3)
+A final full-benchmark sweep found the messaging detector also (correctly) emits the Kafka edges in
+the OTHER MossabTN services, which round 3's spot-check hadn't labeled: customer-service produces
+`notification` (`@Channel("notification")`), order-service produces `product` (`@Channel("product")`),
+product-service consumes `product` (`@Incoming("input")` → `mp.messaging.incoming.input.topic=product`).
+Labels updated; all resolve via config at `smallrye-kafka`. The four services form a consistent event
+mesh (customer→notification→notification-svc; order→product→product-svc) — end-to-end evidence the
+channel→topic config resolution and connector gating are correct across a whole repo, not one service.
+Final tally: **all 19 new-provider benchmark services score zero-missed / zero-wrong** on every
+category with truth (the only non-perfect cells are documented honest-uncertain/gap items — the
+elastichealth `${}` client and the programmatic-RestClientBuilder villain client).
