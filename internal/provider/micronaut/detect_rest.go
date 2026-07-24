@@ -66,6 +66,47 @@ func (restDetector) onController(mc *provider.MatchContext) {
 		req, resp := methodSchemas(walker, m)
 		appendMethodEndpoints(mc.Out, m, bases, req, resp)
 	}
+
+	// API-interface pattern: the @Controller may `implements` (or `extends`) a
+	// type whose methods carry the mappings — usually in a sibling *-api module
+	// the detector never scans. The contract indexer captured those method nodes
+	// (from Parsed + Shared); compose each with the controller base path. Identical
+	// endpoints (a method annotated on both class and interface) collapse in dedup.
+	for _, iface := range implementedTypes(class) {
+		for _, node := range mc.Index.HTTPContracts[iface] {
+			m, ok := node.(java.Node)
+			if !ok || !m.Valid() {
+				continue
+			}
+			req, resp := methodSchemas(walker, m)
+			appendMethodEndpoints(mc.Out, m, bases, req, resp)
+		}
+	}
+}
+
+// implementedTypes returns the simple names of the interfaces a class implements
+// plus its superclass — the types whose declarative HTTP mappings a @Controller
+// inherits. tree-sitter models these as super_interfaces (an interface list) and
+// superclass children of the class_declaration.
+func implementedTypes(class java.Node) []string {
+	var out []string
+	if si := java.ChildByType(class, "super_interfaces"); si.Valid() {
+		si.Walk(func(n java.Node) bool {
+			if n.Type() == "type_identifier" {
+				out = append(out, n.Text())
+			}
+			return true
+		})
+	}
+	if sc := java.ChildByType(class, "superclass"); sc.Valid() {
+		sc.Walk(func(n java.Node) bool {
+			if n.Type() == "type_identifier" {
+				out = append(out, n.Text())
+			}
+			return true
+		})
+	}
+	return out
 }
 
 // controllerBasePaths is the path prefix(es) from @Controller — the positional

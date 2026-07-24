@@ -20,10 +20,16 @@ func scanSrc(t *testing.T, src string, dets ...provider.Detector) *model.Service
 		t.Fatalf("parse: %v", err)
 	}
 	idx := &provider.Index{}
-	// Build the type/symbol index over this single file so schemas resolve.
+	// Build the type/symbol/contract index over this single file so schemas
+	// resolve and the API-interface pattern (HTTPContracts) is exercised.
 	jf := f.(*java.File)
 	idx.Symbols = java.IndexSymbols([]*java.File{jf})
 	idx.Types = java.IndexTypes([]*java.File{jf}, nil)
+	contracts := map[string][]provider.ASTNode{}
+	indexContractsIn(jf, contracts)
+	if len(contracts) > 0 {
+		idx.HTTPContracts = contracts
+	}
 	svc := model.NewService("s", "s", "")
 	if err := query.New().Run(f, dets, idx, java.NewEvaluator(idx), svc); err != nil {
 		t.Fatalf("run: %v", err)
@@ -81,6 +87,25 @@ func TestRESTEndpoints(t *testing.T) {
 					@Get("/x") String s() { return null; }
 				}`,
 			want: nil,
+		},
+		{
+			// API-interface pattern (#41): mappings on the interface, controller
+			// has only bare @Override methods. Endpoints must still resolve,
+			// composed with the controller base path.
+			name: "controller implements API interface (mappings on interface)",
+			src: `import io.micronaut.http.annotation.*;
+				interface PolicyOperations {
+					@Get("/{policyNumber}") String get(String policyNumber);
+					@Post CreateResult create(@Body CreateCommand cmd);
+					@Post("/terminate") String terminate(@Body TerminateCommand cmd);
+				}
+				@Controller("/policies")
+				class PolicyController implements PolicyOperations {
+					@Override public String get(String policyNumber) { return null; }
+					@Override public CreateResult create(CreateCommand cmd) { return null; }
+					@Override public String terminate(TerminateCommand cmd) { return null; }
+				}`,
+			want: []string{"GET /policies/{policyNumber}", "POST /policies", "POST /policies/terminate"},
 		},
 	}
 	for _, tc := range cases {

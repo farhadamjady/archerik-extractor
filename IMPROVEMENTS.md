@@ -44,6 +44,9 @@ to do.
 | 38 | **Functional `RouterFunction` `.path(prefix, builder → builder.GET(...))` prefix not composed + dedup collapse** (correctness — emits WRONG paths, not just misses) — the #20 router detector finds the inner `.GET("/current")`/`.PUT(...)` verbs but ignores the enclosing `route().path("/accounts", b → …)` (and `nest(...)`) prefix. api-gateway declares 7 endpoints across three `.path()` groups (`/accounts/*`, `/notifications/*`, `/statistics/*`); we emit 3 prefix-stripped paths (`GET /current`, `GET /demo`, `PUT /current`) which then COLLIDE across groups and dedup — so `/accounts/current`, `/notifications/current`, `/statistics/current` become one wrong `GET /current`. 0/7 recall, 3 false positives. #20 flagged "nest()/path() prefixes not composed yet"; this is the concrete, high-value case. | round-12 / `galleog/piggymetrics-k8s` @ `ff2128a` (api-gateway `RouterConfig`) | In the router detector, track the enclosing `path("<prefix>", …)` / `nest(<pred>, …)` lambda(s) and prepend the prefix(es) to each inner verb path before emitting (compose, like class `@RequestMapping` + method mapping). The builder receiver flows into the lambda, so walk up from the verb call to its enclosing `path(...)` argument list. | high | |
 | 39 | **Reactive Kafka (`ReactiveKafkaProducerTemplate` / `ReactiveKafkaConsumerTemplate`, reactor-kafka) not detected** — the whole event choreography is invisible: producers call `producerTemplate.send(SenderRecord.create(new ProducerRecord<>(topic, key, event), …))` (topic = `@Value("${spring.kafka.producer.topic}")`), consumers are `@Component class …Consumer implements Function<Flux<ConsumerRecord<K,V>>, Mono<Void>>` wired to a `ReactiveKafkaConsumerTemplate` whose subscription is `spring.kafka.consumer.subscribeTopics`. We only model `KafkaTemplate.send` / `@KafkaListener` / Streams / Cloud Stream → 0 producers, 0 consumers across account/statistics/notification (account→`account-events`→statistics; keycloak→`user-events`→account+notification). Standard Spring reactive Kafka, growing fast. | round-12 / `galleog/piggymetrics-k8s` @ `ff2128a` (all services + `pgm-autoconfigure`) | New reactor-kafka detector: producer = `ReactiveKafkaProducerTemplate.send(...)` — follow the arg to the `new ProducerRecord<>(<topicExpr>, …)` (through `SenderRecord.create`) and resolve `<topicExpr>` via the value+config layer; consumer topic = read `spring.kafka.consumer.subscribeTopics` for a service that has a `ReactiveKafkaConsumerTemplate<K,V>` + a `Function<Flux<ConsumerRecord<K,V>>,…>` bean, payload = V (unwrap `Flux<ConsumerRecord<K,V>>`). Payloads here are protobuf types (schema via #6/#29 shared-module + `.proto`). | high | |
 | 40 | **gRPC sync mesh entirely invisible** (deferred milestone, per CLAUDE.md scope) — galleog is ~100% gRPC for synchronous calls: `@GrpcService` servers (AccountService/StatisticsService/RecipientService) and `@GrpcClient` stubs (api-gateway → account/statistics/notification; notification → account). None of the sync inter-service edges nor the gRPC "endpoints" are seen; the graph is 4 disconnected nodes. Not a bug — gRPC is explicitly out of MVP scope — but a strong, popular real-world argument for prioritizing the gRPC milestone (proto service/rpc defs are right there in `*/src/main/proto`, and `@GrpcClient("NAME")` carries the logical target like Feign). | round-12 / `galleog/piggymetrics-k8s` @ `ff2128a` | When the gRPC milestone lands: `@GrpcService` on a class implementing `<Svc>Grpc.<Svc>ImplBase` = inbound gRPC surface (protocol grpc); `@GrpcClient("NAME")` field / injected stub = outbound edge, target = the raw channel name (backend maps it); messages/rpcs from the `.proto` (already parseable). | low (deferred) | |
+| 41 | **Micronaut API-interface controllers** (the #33 pattern, in Micronaut, where it is the DOMINANT style): the `@Controller` class carries only bare `@Override` methods; the HTTP mappings (`@Get`/`@Post` + path + `@Body`) live on a hand-written interface (`PolicyOperations`, `OfferOperations`) in a sibling `*-api` Maven module the detector never scans. Round-1 Micronaut found only 2 of 6 endpoints in `policy-service` (just the one non-interface `HelloController`). | round-1-java-micronaut / `asc-lab/micronaut-microservices-poc` @ `9871a2e` (policy-service, dashboard-service, policy-search-service — all controllers) | Added neutral `Index.HTTPContracts` (interface simple-name → its HTTP-mapped method nodes) built by a contract indexer that sees `Parsed` + sibling `Shared` modules; the REST detector reads the controller's `implements`/`extends` list and composes each inherited interface method with the controller base path. Machinery is framework-neutral — **this now also unblocks #33 for Spring** (wire Spring's rest detector to consume `HTTPContracts`). | high | ✅ implemented (Micronaut) |
+| 42 | **Kotlin Micronaut services out of scope**: `documents-service` is written in Kotlin (`src/main/kotlin/*.kt`, `@Controller`+`@KafkaListener`) — the Java provider parses only `**/*.java`, so it emits an empty graph while still matching (build file has `io.micronaut`). Honest but incomplete; the service's real endpoints/consumer are invisible. | round-1-java-micronaut / `asc-lab/micronaut-microservices-poc` @ `9871a2e` (documents-service) | Needs a Kotlin language layer (GUIDELINE Recipe B): a `lang/kotlin` tree-sitter parser + evaluator + type source, then a Kotlin-Micronaut provider reusing the same detectors (annotations are identical). Larger effort; deferred. Meanwhile a Kotlin-only service should arguably score lower/not match so detection can fail loud rather than emit empty. | medium (deferred) | |
+| 43 | **Micronaut config placeholder resolution** — `@Client("${elastichealth.endpoint}")`, `@Topic("${...}")` and `@Controller("${...}")` stay honest-uncertain because round-1 Micronaut ships without a config resolver (`Index.Config` nil). Micronaut uses the SAME `application.yml`/`.properties` + `${}` model as Spring, so the Spring config/deploy layer is directly reusable. | round-1-java-micronaut / `asc-lab/micronaut-microservices-poc` @ `9871a2e` (dashboard-service ElasticHealthCheck) | Promote Spring's `configIndexer`/`deployIndexer`/`springConfig` resolver out of `provider/spring` into a neutral JVM-config package (GUIDELINE §2.4) and wire it into the Micronaut provider's `Indexers()`; the `${}` resolver, relaxed binding and deploy layer are all framework-free. | medium | |
 
 ## How to add a new entry
 When a benchmark tier finds a miss: add a row here with the repo + commit SHA,
@@ -261,3 +264,37 @@ treated as a non-default (feature) branch → every scan reports "(first scan)",
 written, and the panel's main-branch graph stays empty. (Also the graph would be 4 disconnected
 nodes — every edge is a #39/#40 miss.) Minor CLI/backend gap worth a `--default-branch` flag
 (or auto-detecting the repo's default branch), separate from the detection findings above.
+
+## Micronaut round 1-2 (2026-07-24) — NEW FRAMEWORK: Micronaut (JVM, Recipe A); benchmark-driven, 100% in-scope
+First non-Spring provider. `internal/provider/micronaut/` reuses the `lang/java` layer verbatim
+(parser, value evaluator, symbol/type/schema indexers) and adds three detectors:
+`micronaut.rest` (@Controller + @Get/@Post/@Put/@Delete/@Patch/... path composition),
+`micronaut.client` (@Client declarative HTTP client — polymorphic value: service-id / URL / path /
+${placeholder}, or explicit `id=`), `micronaut.kafka` (@KafkaClient producer + @KafkaListener
+consumer, both via method/param @Topic; payload = the non-metadata body parameter). New
+`model.DetectMicronautClient`. Match keys on `io.micronaut` in build files + `import io.micronaut`
+(scores 0 on Spring, beats Spring's bare-pom score on a Micronaut repo). Registered as the second
+provider; detection stays fail-loud on ties.
+
+Benchmark: `asc-lab/micronaut-microservices-poc` @ `9871a2e` (497★, real insurance-domain
+microservices), 4 Java services hand-labeled in `round-1-java-micronaut/_bench/`:
+
+| service | endpoints | outbound | producers | consumers |
+|---|---|---|---|---|
+| policy-service | 6/6 | 1/1 (pricing-service) | 2/2 | — |
+| dashboard-service | 3/3 | 0 (+1 honest-uncertain elastic ${}) | — | 1/1 |
+| agent-portal-gateway | 12/12 | 6/6 | — | — |
+| policy-search-service | 1/1 | — | — | 2/2 |
+
+**100% precision AND recall on every in-scope category** (22 endpoints, 7 clients, 2 producers,
+3 consumers). Round 1→2 finding: **#41** — the API-interface controller pattern (bare `@Override`
+methods, mappings on a sibling-module interface) missed 4/6 endpoints in policy-service; fixed with
+the neutral `Index.HTTPContracts` + contract indexer (also unblocks Spring #33). Gaps recorded as
+labels: **#42** Kotlin `documents-service` (out of scope — needs a Kotlin layer), **#43** the
+`${elastichealth.endpoint}` client placeholder (honest-uncertain until the Spring config layer is
+promoted to a neutral package and wired in).
+
+Regression: baseline binary (`8fc899c`, pre-Micronaut) vs current produce **byte-identical** output
+on all 12 Spring roots the harness flagged (the flags/code-drift differences vs the committed
+snapshots are not mine) — zero regressions across tier-1…5 + round-10…12. Full gate green
+(build/vet/gofmt/test ./...); real-engine detector tests for all three detectors.

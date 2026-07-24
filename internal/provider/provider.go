@@ -133,6 +133,17 @@ type Index struct {
 	// the producer detector joins these patterns with the aggregate-type values
 	// found in the service's builder calls.
 	OutboxRoutes []string
+
+	// HTTPContracts map an API interface / abstract-type simple name to the
+	// declarative HTTP handler-method nodes it declares. Under the API-interface
+	// pattern (dominant in Micronaut, common in Quarkus/JAX-RS and Spring), a
+	// @Controller implements an interface whose methods carry the mapping
+	// annotations (@Get/@Post/@Path/...) — and that interface usually lives in a
+	// sibling *-api module the detector never scans. Indexers see sibling modules
+	// (IndexContext.Shared), so a contract indexer stores the mapped method nodes
+	// here; the REST detector composes them with the implementing controller's
+	// base path. Values are lang/java.Node kept opaque (like TopicBeans.NameArg).
+	HTTPContracts map[string][]ASTNode
 }
 
 // TopicBean is one Kafka `@Bean NewTopic` declaration: the bean/method name and

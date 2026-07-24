@@ -11,8 +11,8 @@ graph across commits. It is **paid/gated**: a run validates a per-user API key
 before scanning and submits results to an ingest API.
 
 > Part of an Engineering Knowledge Graph MVP: static architecture intelligence
-> from source code. Scope is intentionally narrow — **Spring Boot + Kafka** —
-> with Micronaut planned as the next framework.
+> from source code. Scope is intentionally narrow — **Spring Boot + Kafka**, with
+> **Micronaut (Java)** now supported as the second framework.
 
 ---
 
@@ -215,6 +215,11 @@ is bypassable). When no `--api-url` is set, the startup gate is presence-only.
 · Kafka producers/consumers · layered config + Helm/K8s/`.env` resolution ·
 in-code value resolution · code-derived schemas (Java DTOs) · Kafka contract
 files (Avro/Proto/JSON-Schema) · the paid gate.
+**Also in: Micronaut (Java)** — `@Controller`+`@Get/@Post/...` REST endpoints
+(including the API-interface pattern where mappings live on an implemented
+interface in a sibling module), `@Client` declarative HTTP clients, and
+`@KafkaClient`/`@KafkaListener` producers/consumers. Reuses the shared Java
+language layer; config-placeholder resolution for Micronaut is pending.
 
 **Deferred / cut** (documented, never silent — unresolved cases become
 `uncertain` nodes, which is correct behavior): DB detection (JPA/JDBC) · OpenAPI
