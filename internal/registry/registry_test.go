@@ -2,14 +2,27 @@ package registry
 
 import "testing"
 
-// TestDefault pins the registered provider set: Spring only in the MVP.
-// Adding Micronaut later must extend this table, not surprise it.
+// TestDefault pins the registered provider set. Adding a framework must extend
+// this table, not surprise it.
 func TestDefault(t *testing.T) {
-	ps := Default()
-	if len(ps) != 1 {
-		t.Fatalf("got %d providers, want 1", len(ps))
+	want := map[string]bool{
+		"spring-boot-java": false,
+		"micronaut-java":   false,
 	}
-	if got := ps[0].Name(); got != "spring-boot-java" {
-		t.Errorf("provider = %q, want %q", got, "spring-boot-java")
+	ps := Default()
+	if len(ps) != len(want) {
+		t.Fatalf("got %d providers, want %d", len(ps), len(want))
+	}
+	for _, p := range ps {
+		if _, ok := want[p.Name()]; !ok {
+			t.Errorf("unexpected provider %q", p.Name())
+			continue
+		}
+		want[p.Name()] = true
+	}
+	for name, seen := range want {
+		if !seen {
+			t.Errorf("provider %q not registered", name)
+		}
 	}
 }
