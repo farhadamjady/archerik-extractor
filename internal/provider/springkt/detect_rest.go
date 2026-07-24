@@ -1,0 +1,176 @@
+package springkt
+
+import (
+	"strings"
+
+	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/service-discovery/internal/provider/lang/kotlin"
+)
+
+// restDetector extracts REST endpoints from @RestController classes written in
+// Kotlin. Mirrors the Java Spring REST detector's semantics (class
+// @RequestMapping + method mapping = composed path, verb kept, path variables
+// preserved) but over the tree-sitter-kotlin AST: class_declaration >
+// class_body > function_declaration, with annotations under `modifiers`.
+type restDetector struct{}
+
+func (restDetector) Name() string             { return "springkt.rest" }
+func (restDetector) Protocol() model.Protocol { return model.ProtoREST }
+
+// controllerQuery captures any class with at least one annotation; the handler
+// decides whether it is a controller.
+const controllerQuery = `(class_declaration (modifiers (annotation)) ) @class`
+
+func (d restDetector) Rules() []provider.Rule {
+	return []provider.Rule{{Query: controllerQuery, OnMatch: d.onController}}
+}
+
+var mappingVerb = map[string]string{
+	"GetMapping":    "GET",
+	"PostMapping":   "POST",
+	"PutMapping":    "PUT",
+	"DeleteMapping": "DELETE",
+	"PatchMapping":  "PATCH",
+}
+
+func (restDetector) onController(mc *provider.MatchContext) {
+	class, ok := mc.Captures["class"].(kotlin.Node)
+	if !ok || !class.Valid() {
+		return
+	}
+	mods := kotlin.Modifiers(class)
+	isCtrl, needResponseBody := controllerKind(mods)
+	if !isCtrl {
+		return
+	}
+	bases := classBasePaths(mods)
+	body := kotlin.ChildByType(class, "class_body")
+	if !body.Valid() {
+		return
+	}
+	for _, fn := range kotlin.NamedChildren(body) {
+		if fn.Type() != "function_declaration" {
+			continue
+		}
+		fmods := kotlin.Modifiers(fn)
+		if needResponseBody && !kotlin.FindAnnotation(fmods, "ResponseBody").Valid() {
+			continue
+		}
+		appendMethodEndpoints(mc.Out, fmods, bases)
+	}
+}
+
+// controllerKind classifies the class: @RestController (every mapped method is
+// REST), @Controller + class-level @ResponseBody (same), or plain @Controller
+// (only @ResponseBody methods are REST — the classic style).
+func controllerKind(mods kotlin.Node) (isController, needResponseBody bool) {
+	if !mods.Valid() {
+		return false, false
+	}
+	plain := false
+	for _, a := range kotlin.AnnotationsOf(mods) {
+		switch kotlin.AnnotationName(a) {
+		case "RestController":
+			return true, false
+		case "Controller":
+			plain = true
+		}
+	}
+	if !plain {
+		return false, false
+	}
+	if kotlin.FindAnnotation(mods, "ResponseBody").Valid() {
+		return true, false
+	}
+	return true, true
+}
+
+// classBasePaths is the class-level @RequestMapping path(s), or [""] when absent.
+func classBasePaths(mods kotlin.Node) []string {
+	if ann := kotlin.FindAnnotation(mods, "RequestMapping"); ann.Valid() {
+		if paths, _, ok := kotlin.AnnotationStringValues(ann, "value", "path"); ok && len(paths) > 0 {
+			return paths
+		}
+	}
+	return []string{""}
+}
+
+// appendMethodEndpoints emits the endpoints for one handler function: its first
+// mapping annotation, across the product of class base paths × method paths × verbs.
+func appendMethodEndpoints(out *model.Service, fmods kotlin.Node, bases []string) {
+	if !fmods.Valid() {
+		return
+	}
+	for _, ann := range kotlin.AnnotationsOf(fmods) {
+		name := kotlin.AnnotationName(ann)
+		var verbs []string
+		switch {
+		case mappingVerb[name] != "":
+			verbs = []string{mappingVerb[name]}
+		case name == "RequestMapping":
+			verbs = requestMappingVerbs(ann)
+		default:
+			continue
+		}
+
+		subs, literal, ok := kotlin.AnnotationStringValues(ann, "value", "path")
+		if !ok || len(subs) == 0 {
+			subs = []string{""}
+		}
+		conf := model.Confirmed
+		if !literal {
+			conf = model.Uncertain
+		}
+		for _, base := range bases {
+			for _, sub := range subs {
+				path := joinPath(base, sub)
+				for _, v := range verbs {
+					out.Endpoints = append(out.Endpoints, model.Endpoint{
+						Method:     v,
+						Path:       path,
+						Protocol:   model.ProtoREST,
+						Detection:  model.DetectAnnotation,
+						Confidence: conf,
+					})
+				}
+			}
+		}
+		return // one mapping annotation per handler
+	}
+}
+
+// requestMappingVerbs reads method = [RequestMethod.X] from a @RequestMapping, or
+// "*" (any verb) when absent.
+func requestMappingVerbs(ann kotlin.Node) []string {
+	var out []string
+	ann.Walk(func(n kotlin.Node) bool {
+		if n.Type() == "simple_identifier" {
+			switch t := n.Text(); t {
+			case "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "TRACE":
+				out = append(out, t)
+			}
+		}
+		return true
+	})
+	if len(out) == 0 {
+		return []string{"*"}
+	}
+	return out
+}
+
+// joinPath composes a class base path with a method sub-path.
+func joinPath(base, sub string) string {
+	b := strings.Trim(base, "/")
+	s := strings.Trim(sub, "/")
+	switch {
+	case b == "" && s == "":
+		return "/"
+	case b == "":
+		return "/" + s
+	case s == "":
+		return "/" + b
+	default:
+		return "/" + b + "/" + s
+	}
+}

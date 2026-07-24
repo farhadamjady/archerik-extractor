@@ -8,6 +8,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/provider/micronaut"
 	"github.com/farhadamjady/service-discovery/internal/provider/quarkus"
 	"github.com/farhadamjady/service-discovery/internal/provider/spring"
+	"github.com/farhadamjady/service-discovery/internal/provider/springkt"
 )
 
 // Default returns every registered provider. Detection picks the single winner
@@ -17,5 +18,6 @@ func Default() []provider.Provider {
 		spring.New(),
 		micronaut.New(),
 		quarkus.New(),
+		springkt.New(),
 	}
 }
