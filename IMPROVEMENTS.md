@@ -306,3 +306,13 @@ producers, 7 `@KafkaListener` consumers, across `orders`/`trips`/`drivers`) + or
 endpoints (`@Controller("orders")` with no leading slash composed to `/orders`). Validates the Kafka
 detector on the producer-interface (`@KafkaClient` + method `@Topic`) form end-to-end. Micronaut now
 100% across **8 services in two real repos**; remaining gaps are the documented #42/#43.
+
+Micronaut round 4 (2026-07-24) — third repo, HTTP-client mesh: `piomin/sample-micronaut-microservices`
+@ `8547313` (department/employee/organization services, Consul discovery;
+`round-1-java-micronaut/_bench_piomin_http/`). **100% precision AND recall, no new findings**: 16
+endpoints (multi-`@Get` controllers, path variables, deep sub-paths like
+`/organizations/{id}/with-departments-and-employees`) + 3 declarative-client edges
+(`@Client(id="…", path="…")` → employee/department targets). Micronaut final tally: **100% across 11
+services in three real repos** (asc-lab + two piomin), covering REST (incl. the API-interface
+pattern), `@Client` in all four value forms, and both Kafka directions. Provider considered done for
+the in-scope surface; open items are the deferred #42 (Kotlin) and #43 (config placeholders).
