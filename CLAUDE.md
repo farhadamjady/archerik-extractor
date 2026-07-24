@@ -9,7 +9,11 @@ Part of an Engineering Knowledge Graph MVP: static architecture intelligence fro
 requires a per-user **API key** and network — see "Access & licensing" below.
 
 ## Scope
-- Languages/frameworks: **Spring Boot (Java), Kafka.** Nothing else. (Micronaut planned next framework.)
+- Languages/frameworks: **Spring Boot, Micronaut, and Quarkus (all Java), Kafka.**
+  Micronaut (`@Controller`/`@Client`/`@KafkaClient`) and Quarkus (JAX-RS
+  `@Path`/`@RegisterRestClient`/reactive-messaging) landed as Recipe-A providers,
+  benchmarked to ~100% on their in-scope surface. Kotlin (a Recipe-B language
+  layer) is the next planned step — it's the main gap on the Micronaut/Quarkus repos.
 - gRPC: later milestone, not now.
 - **Externalized deployment config IS in scope** as a placeholder-resolution SOURCE (static,
   best-effort): Helm (`values*.yaml` + chart-template `env:` blocks), rendered K8s manifests

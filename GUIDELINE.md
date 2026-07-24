@@ -35,6 +35,12 @@ work, they are tested, and you will almost never touch them.
 - `MatchContext` gives you: captures, `Index`, `Resolver` (the value
   evaluator), and `Out *model.Service` to append edges to.
 
+> Worked examples now in-tree: `internal/provider/micronaut/` (Micronaut —
+> `@Controller`/`@Client`/`@KafkaClient`) and `internal/provider/quarkus/`
+> (Quarkus — JAX-RS `@Path`+separate-verb, `@RegisterRestClient`, reactive
+> messaging with a flat config resolver). Both reuse `lang/java` verbatim and the
+> neutral `Index.HTTPContracts` for the API-interface pattern. Copy their shape.
+
 ## 2. Recipe A — add a JVM framework (e.g. Micronaut). Cost: small.
 
 1. Create `internal/provider/micronaut/` with a `Provider` struct.
