@@ -233,6 +233,44 @@ class WebConfig {
 	}
 }
 
+// IMPROVEMENTS #38: the route().path("/prefix", builder → builder.GET(...))
+// builder style. The prefix must compose onto each verb, and same-named paths
+// under different prefixes must NOT dedup-collapse. Mirrors galleog RouterConfig.
+func TestRouterFunctionPathPrefixComposed(t *testing.T) {
+	svc := scanWith(t, routerDetector{}, nil, nil, `
+import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+class RouterConfig {
+	public RouterFunction<ServerResponse> routeAccountRequests(AccountHandler handler) {
+		return route().path("/accounts", builder ->
+			builder.GET("/demo", request -> handler.getDemoAccount())
+				.GET("/current", handler::getCurrentAccount)
+				.PUT("/current", contentType(MediaType.APPLICATION_JSON), handler::updateCurrentAccount)
+		).build();
+	}
+	public RouterFunction<ServerResponse> routeNotificationRequests(NotificationHandler handler) {
+		return route().path("/notifications", builder ->
+			builder.GET("/current", handler::getCurrentNotificationsSettings)
+		).build();
+	}
+}`)
+	got := map[string]bool{}
+	for _, e := range svc.Endpoints {
+		got[e.Method+" "+e.Path] = true
+	}
+	for _, want := range []string{
+		"GET /accounts/demo", "GET /accounts/current", "PUT /accounts/current",
+		"GET /notifications/current",
+	} {
+		if !got[want] {
+			t.Errorf("missing %s; got %+v", want, svc.Endpoints)
+		}
+	}
+	// /accounts/current and /notifications/current must both survive (no collapse).
+	if len(svc.Endpoints) != 4 {
+		t.Errorf("endpoints = %d, want 4 (no prefix-stripped dedup): %+v", len(svc.Endpoints), svc.Endpoints)
+	}
+}
+
 func TestRouterGateNoImportNoMatch(t *testing.T) {
 	svc := scanWith(t, routerDetector{}, nil, nil, `
 class C { void m() { GET("/not-a-route"); } }`)

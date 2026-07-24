@@ -36,6 +36,14 @@ to do.
 | 28 | **Debezium outbox producers invisible**: services "produce" by inserting an `OutBox` row — zero `KafkaTemplate` in the repo. The topic materializes in repo-root Kafka-Connect configs: `outbox_*_connector.json` has `transforms.outbox.route.topic.replacement = ${routedByValue}.events` routed by `aggregate_type`, and the aggregate types ARE static in code (`.aggregateType(ORDER)` constants). Consumers were found (cloudstream #14) but all producer edges are missing → the graph has consumers of `ORDER.events` with no producer. | round-9 / `uuhnaut69/saga-pattern-microservices` @ `41da497` (order/customer/inventory) | Parse repo-root `*connector*.json` Kafka-Connect configs: outbox SMT route pattern + route-by field → join with `aggregateType(<literal/constant>)` values found in the service's builder calls → one producer edge per aggregate type (`ORDER.events`), likely; unresolvable route values → uncertain edge per connector. | medium | ✅ implemented |
 | 29 | **Gradle multi-module repos have no shared-type discovery**: FTGO has no pom.xml anywhere — `settings.gradle` lists 29 modules; sibling `*-service-api` modules hold the channel constants (`OrderServiceChannels.COMMAND_CHANNEL = "orderService"`) and DTOs. Our shared-module walk is pom-only → Symbols/Types never see them → messaging channels unresolvable, schemas nil. Gradle is roughly half of enterprise Java. | round-9 / `microservices-patterns/ftgo-application` @ `558dfc5` | Parse `settings.gradle(.kts)` `include` lines for the module list; read the service's `build.gradle` `project(':x')` dependencies for the GAV-equivalent filter; feed qualifying siblings to the same types-only indexing. No Gradle execution — text-parse only, mirroring the pom paths. | high | ✅ implemented |
 | 30 | **Eventuate Tram messaging** (`DomainEventPublisher.publish(...)`, `MessageConsumer`/saga channels): 101 publish + 53 consume sites in FTGO, all invisible — the framework hides Kafka entirely. Channels are constants in `*-api` modules (needs #29 first). | round-9 / `microservices-patterns/ftgo-application` @ `558dfc5` | After #29: a small Eventuate detector — `DomainEventPublisher.publish(aggregateType, …)` = producer edge on the aggregate channel; `DomainEventHandlersBuilder.forAggregateType("x")` = consumer edge. Or leave to the `.ekg-adapters.json` mechanism (#15) and document the recipe. | low | |
+| 33 | **REST mappings live on an implemented interface in a sibling module** — the `@RestController` class carries NO mapping annotations; it `implements` a hand-written Java interface (`ProductService`, `ProductCompositeService`) in the shared `:api` Gradle module, and THAT interface's methods hold `@GetMapping`/`@PostMapping`/`@DeleteMapping` + `@PathVariable`/`@RequestParam`/`@RequestBody`. The endpoint detector only reads annotations on the controller class itself → **0 endpoints found** across all 4 core services. Distinct from #1 (OpenAPI-generated iface, read from `openapi.yml`) and #17 (meta-annotations): here the annotations are ordinary Spring, on a real interface that is IN the source (a shared module #29 already indexes for types). This "server-side interface = API contract" style is idiomatic Spring and very common. | round-10 / `PacktPublishing/Microservices-with-Spring-Boot-and-Spring-Cloud-Third-Edition` @ `e4820dd` (Chapter15, all 4 microservices) | When a `@RestController`/`@Controller` class implements one or more interfaces, resolve those interface types (in-service first, then shared modules already in the type index) and MERGE their class-level `@RequestMapping` + method-level mapping annotations onto the implementing methods (match by name+erased params). Path composition/verb/schema logic is unchanged once the annotations are found. | high | |
+| 34 | **`StreamBridge.send(binding, msg)` producer not detected** — the imperative Spring Cloud Stream producer API. #14 detects `@Bean Supplier/Function`; StreamBridge is the other (more common for ad-hoc event publishing) half and is invisible → composite's 3 producer edges (`products`/`recommendations`/`reviews`) all missed. Binding→destination resolution is identical to #14. | round-10 / magnus `product-composite-service` (`ProductCompositeIntegration.sendMessage` → `streamBridge.send("products-out-0", msg)`) | Detect `StreamBridge.send(<arg0>, …)`: resolve arg0 (a binding name, often a literal or built from a constant) → `spring.cloud.stream.bindings.<binding>.destination` (default = binding name with the `-out-0` suffix stripped per Spring rules); emit a producer edge, payload schema from the `Message`/payload generic. Gate on spring.cloud.stream being on the classpath/config, same as #14. | high | |
+| 35 | **Config-repo not scoped by `spring.application.name`** (correctness — emits WRONG edges, not just misses) — `addConfigRepo` flattens EVERY yml/properties file in the `--config-repo` checkout into one fallback map with first-writer-wins by sorted filename. But a Spring Cloud Config repo is keyed by application: service `recommendation` must read `recommendation.yml` (+ shared `application.yml`), NEVER `product.yml`. Every core service names its consumer bean `messageProcessor` (binding `messageProcessor-in-0`), so the shared key resolves to `product.yml`'s `products` for ALL of them → recommendation-service and review-service emit consumer topic **`products`** instead of `recommendations`/`reviews`, at `likely`. Silent cross-service contamination. | round-10 / magnus `recommendation-service` + `review-service` (both wrong via `config-repo/{product,recommendation,review}.yml`) | Scope config-repo file selection to the scanned service: read its `spring.application.name` (from in-repo config), then from the config repo load only `application.{yml,properties}` (shared, lowest precedence) + `<app-name>[-<profile>].{yml,properties}` (specific, higher), applying Spring precedence within that set. Ignore every other service's files. | high | |
+| 36 | **WebClient `.uri(URI)` built via `UriComponentsBuilder.fromUriString(HOST_CONST + "/path…").build(args)`** — the host is a `static final String` (`"http://product"`), fully resolvable, but it flows through `UriComponentsBuilder` into a local `URI` variable, and `.uri(...)` takes that `URI` (not a String). The WebClient detector doesn't model `UriComponentsBuilder`/`.uri(URI)` → composite's 3 outbound REST edges (product/recommendation/review) collapse to a single anonymous `uncertain`. | round-10 / magnus `product-composite-service` (`ProductCompositeIntegration.getProduct/getRecommendations/getReviews`) | Model `UriComponentsBuilder.fromUriString(x)....build(...)` as carrying x's string value; follow a local `URI`/`String` var into `.uri(var)`; the `CONST + "/path"` concatenation already folds via the existing evaluator, so the host resolves and the `{productId}` etc. stay as `{?}` holes (known-host template, #10) → `likely`. | medium | |
+| 37 | **`EurekaClient.getApplication(@Value applicationName)` discovery target not resolved** — auth-service calls profile-service by asking Netflix Eureka for the instance (`client.getApplication(applicationName)` where `applicationName = @Value("${com.amdocs.external.application.name}")` = `PROFILE-SERVICE`), then builds `"http://" + instanceInfo.getHostName() + ":" + port + "/profile"` and `restTemplate.exchange(url,…)`. The host/port are runtime method returns → we emit `http://{?}:{?}/profile` uncertain and lose the logical target. Like #4 (`DiscoveryClient.getInstances("literal")`) but the API is `EurekaClient.getApplication(...)` AND the arg is a `@Value` config property, not a literal. | round-11 / `omkarnikam24/springboot-microservices-kafka` @ `2d9e4b1` (auth-service `DelegationController`) | Special-case `EurekaClient.getApplication(<arg>)` / `.getNextServerFromEureka(<arg>)` as a service-name source (mirror #4): resolve `<arg>` through the value+config layer (here `${com.amdocs.external.application.name}` → `PROFILE-SERVICE`) and emit that as the outbound `target_name` (logical Eureka name, raw — backend maps it), `likely`; keep the `/profile` path. Unresolvable arg → uncertain, as today. | medium | ✅ implemented (Option A) |
+| 38 | **Functional `RouterFunction` `.path(prefix, builder → builder.GET(...))` prefix not composed + dedup collapse** (correctness — emits WRONG paths, not just misses) — the #20 router detector finds the inner `.GET("/current")`/`.PUT(...)` verbs but ignores the enclosing `route().path("/accounts", b → …)` (and `nest(...)`) prefix. api-gateway declares 7 endpoints across three `.path()` groups (`/accounts/*`, `/notifications/*`, `/statistics/*`); we emit 3 prefix-stripped paths (`GET /current`, `GET /demo`, `PUT /current`) which then COLLIDE across groups and dedup — so `/accounts/current`, `/notifications/current`, `/statistics/current` become one wrong `GET /current`. 0/7 recall, 3 false positives. #20 flagged "nest()/path() prefixes not composed yet"; this is the concrete, high-value case. | round-12 / `galleog/piggymetrics-k8s` @ `ff2128a` (api-gateway `RouterConfig`) | In the router detector, track the enclosing `path("<prefix>", …)` / `nest(<pred>, …)` lambda(s) and prepend the prefix(es) to each inner verb path before emitting (compose, like class `@RequestMapping` + method mapping). The builder receiver flows into the lambda, so walk up from the verb call to its enclosing `path(...)` argument list. | high | |
+| 39 | **Reactive Kafka (`ReactiveKafkaProducerTemplate` / `ReactiveKafkaConsumerTemplate`, reactor-kafka) not detected** — the whole event choreography is invisible: producers call `producerTemplate.send(SenderRecord.create(new ProducerRecord<>(topic, key, event), …))` (topic = `@Value("${spring.kafka.producer.topic}")`), consumers are `@Component class …Consumer implements Function<Flux<ConsumerRecord<K,V>>, Mono<Void>>` wired to a `ReactiveKafkaConsumerTemplate` whose subscription is `spring.kafka.consumer.subscribeTopics`. We only model `KafkaTemplate.send` / `@KafkaListener` / Streams / Cloud Stream → 0 producers, 0 consumers across account/statistics/notification (account→`account-events`→statistics; keycloak→`user-events`→account+notification). Standard Spring reactive Kafka, growing fast. | round-12 / `galleog/piggymetrics-k8s` @ `ff2128a` (all services + `pgm-autoconfigure`) | New reactor-kafka detector: producer = `ReactiveKafkaProducerTemplate.send(...)` — follow the arg to the `new ProducerRecord<>(<topicExpr>, …)` (through `SenderRecord.create`) and resolve `<topicExpr>` via the value+config layer; consumer topic = read `spring.kafka.consumer.subscribeTopics` for a service that has a `ReactiveKafkaConsumerTemplate<K,V>` + a `Function<Flux<ConsumerRecord<K,V>>,…>` bean, payload = V (unwrap `Flux<ConsumerRecord<K,V>>`). Payloads here are protobuf types (schema via #6/#29 shared-module + `.proto`). | high | |
+| 40 | **gRPC sync mesh entirely invisible** (deferred milestone, per CLAUDE.md scope) — galleog is ~100% gRPC for synchronous calls: `@GrpcService` servers (AccountService/StatisticsService/RecipientService) and `@GrpcClient` stubs (api-gateway → account/statistics/notification; notification → account). None of the sync inter-service edges nor the gRPC "endpoints" are seen; the graph is 4 disconnected nodes. Not a bug — gRPC is explicitly out of MVP scope — but a strong, popular real-world argument for prioritizing the gRPC milestone (proto service/rpc defs are right there in `*/src/main/proto`, and `@GrpcClient("NAME")` carries the logical target like Feign). | round-12 / `galleog/piggymetrics-k8s` @ `ff2128a` | When the gRPC milestone lands: `@GrpcService` on a class implementing `<Svc>Grpc.<Svc>ImplBase` = inbound gRPC surface (protocol grpc); `@GrpcClient("NAME")` field / injected stub = outbound edge, target = the raw channel name (backend maps it); messages/rpcs from the `.proto` (already parseable). | low (deferred) | |
 
 ## How to add a new entry
 When a benchmark tier finds a miss: add a row here with the repo + commit SHA,
@@ -168,3 +176,88 @@ Backend note: live re-submits exposed that the ingest backend keys baselines by
 service_id ONLY — order-service from different repos overwrite each other
 (round-8 haphong463 vs round-9 repos). Backend-side fix needed: scope the
 baseline by (repository, service_id).
+
+## Round 10 result (2026-07-21) — two new repos, reactive + interface-contract stressors; scans only, fixes pending
+Targets (9 services, all exit 0), bench artifacts in `service-discovery-repos/round-10/_bench/`:
+`piomin/sample-spring-microservices-new` @ `e6437b4` (Feign+Eureka+Gateway mesh, tier-2) and
+`PacktPublishing/Microservices-with-Spring-Boot-and-Spring-Cloud-Third-Edition` @ `e4820dd`
+(SB3.2 **Chapter15** — WebFlux + Spring Cloud Stream + Config Server + Gateway, tier-5).
+What VALIDATED on new real code: piomin is a clean **positive control** — endpoints
+5/5 · 5/5 · 6/6 and Feign 0/1/2 all 100%/100%, and client-side `@GetMapping` on the
+`@FeignClient` interfaces correctly NOT emitted as the service's own endpoints; #14
+Cloud Stream functional-consumer detection fires on the magnus book code once config is
+present; #16 `--config-repo` + #29 Gradle shared-module discovery both exercised end to end.
+New findings, all from the magnus reactive stack:
+#33 (interface-hosted REST mappings — the `@RestController` implements an `:api`-module
+interface that owns the annotations → **0 endpoints** on all 4 core services),
+#34 (`StreamBridge.send` producer invisible → composite's 3 producer edges missed),
+#35 (config-repo not scoped by `spring.application.name` → recommendation/review emit the
+WRONG consumer topic `products` — a correctness bug, not just a miss),
+#36 (WebClient `.uri(URI)` via `UriComponentsBuilder.fromUriString(CONST+path)` → composite's
+3 outbound edges collapse to one anonymous uncertain).
+Also re-seen: Spring Cloud **Gateway static routes** (`spring.cloud.gateway.routes[].uri:
+lb://…` in magnus `config-repo/gateway.yml` → `product-composite`, `auth-server`) still not
+parsed (the round-8 open question). Low urgency here: in magnus the same targets are already
+covered by coded `HealthCheckConfiguration` WebClient calls (`/actuator/health`, found 5/5),
+and piomin's gateway uses the discovery-locator (no static route edges — 0 is correct). Scope
+decision still open.
+
+## Round 11 result (2026-07-22) — Kafka + Eureka mesh, run against the LIVE backend
+Target: `omkarnikam24/springboot-microservices-kafka` @ `2d9e4b1` (3 modules: auth-service,
+profile-service, eureka-service). Ran the full authenticated pipeline against a live `ekgd`
+(`--api-url` + key): validate → ingest → per-commit diff, artifacts in `round-11/_bench/`.
+Clean recall on everything we model: auth-service endpoints 3/3 (`POST|PUT|DELETE
+/assignement/profile`) + Kafka producer `profile-topic` `likely` (resolved via
+`@Value("${com.amdocs.kafka.topic-name}")`); profile-service endpoint 1/1 (`POST /profile`) +
+consumer `profile-topic` `confirmed` (`@KafkaListener(topics=TOPIC_NAME)` literal). The
+producer and consumer connect on `profile-topic`, both carrying schema `ProfileDTO` — the
+async graph closes. eureka-service = 0 edges (negative control, correct).
+**Live backend verified end to end**: three services ingested → three baselines stored
+(`auth-service.json`, `profile-service.json`, `eureka-service.json`); first submit returned the
+PR-comment diff (auth 5 added / profile 2 added / eureka none); a re-submit of auth-service
+returned **zero churn** (no comment) — byte-stable determinism holds against the live diff
+engine. New finding #37 (`EurekaClient.getApplication(@Value applicationName)` discovery target
+— the only miss: auth→profile emits `http://{?}:{?}/profile` uncertain instead of the logical
+name `PROFILE-SERVICE`). Note: auth-service's `service_id` is `auth-service` (dir) though its
+`spring.application.name` is `auth-server` — worth confirming which the backend should key on,
+related to the round-9 (repository, service_id) baseline note.
+
+## Round 11 fix result (2026-07-22) — #37 implemented (Option A), verified on the live backend
+Implemented in the outbound-target emit path (`spring/discovery.go` + `emitTargets` in
+`deps.go`): when a RestTemplate/WebClient URL resolves to no host (Unknown, or a Template whose
+host is a runtime hole), we look in the SAME method for a registry lookup
+(`EurekaClient.getApplication(<arg>)` / `getNextServerFromEureka(<arg>)`, the former gated on a
+`com.netflix.discovery` import so the generic name can't false-positive), resolve `<arg>`
+through the value+config layer, and emit that logical name as the target — replacing (not
+duplicating) the anonymous uncertain edge. Confidence `likely` (registry indirection); arg
+unresolvable → falls through to today's honest uncertain. Tests: `TestRestTemplateEurekaDiscovery
+Target` (positive, `@Value`→config→`PROFILE-SERVICE`) + `TestRestTemplateGetApplicationUngated
+WithoutEureka` (negative, no import → stays anonymous); full suite green, zero regressions.
+Live re-submit to the backend: auth-service diffed **1 added · 1 removed** — `PROFILE-SERVICE`
+(resttemplate, likely) replaces `http://{?}:{?}/profile` (uncertain); profile/eureka zero churn.
+The backend mapped `PROFILE-SERVICE` → the `profile-service` node, so the panel graph now shows
+the `unknown-target` node gone and TWO resolved `auth-service → profile-service` edges (REST
+likely + Kafka confirmed) — the sync and async paths both land on the real service.
+Deferred (Option B, if we want the path back): keep the `/profile` shape on the edge by tracking
+that an `InstanceInfo` from `getApplication(X)` carries `X` as its host identity.
+
+## Round 12 result (2026-07-22) — gRPC + reactive-Kafka repo; near-zero coverage, three findings; scans only
+Target: `galleog/piggymetrics-k8s` @ `ff2128a` (a full rewrite of piggymetrics — Gradle, WebFlux
+functional, gRPC for sync, reactor-kafka for async, Helm/k8s). 4 Spring services scanned, all exit 0;
+artifacts in `round-12/_bench/`. This repo is a deliberate stressor and it stressed hard — the
+extractor sees almost nothing here, which is itself the signal.
+What the tool got: api-gateway's functional routes fire the #20 detector — but WRONG (see #38):
+7 real endpoints (`/accounts/*`, `/notifications/*`, `/statistics/*`) collapse to 3 prefix-stripped,
+deduped paths → 0/7 recall + 3 false positives. Everything else is empty.
+New findings: #38 (RouterFunction `.path(prefix,…)` prefix not composed + dedup collapse — a
+correctness bug, emits wrong paths), #39 (reactive Kafka / reactor-kafka `ReactiveKafka*Template`
+producers + consumers — the entire account/statistics/notification event choreography invisible),
+#40 (the gRPC sync mesh — deferred milestone, but galleog is a strong prioritization argument:
+`@GrpcService`/`@GrpcClient` + `.proto` defs all present and Feign-shaped).
+Live backend: all 4 submitted (exit 0) under `github.com/galleog/piggymetrics-k8s`, but they don't
+surface in the panel — galleog's default branch is `master` while the extractor has no
+`--default-branch` flag, so the backend defaults to `main`; branch `master` ≠ default `main` is
+treated as a non-default (feature) branch → every scan reports "(first scan)", no `main` baseline is
+written, and the panel's main-branch graph stays empty. (Also the graph would be 4 disconnected
+nodes — every edge is a #39/#40 miss.) Minor CLI/backend gap worth a `--default-branch` flag
+(or auto-detecting the repo's default branch), separate from the detection findings above.

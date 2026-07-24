@@ -35,7 +35,38 @@ import (
 // deps are still emitted (CLAUDE.md); they are just anonymous, which is honest.
 func emitTargets(mc *provider.MatchContext, expr java.Node, detection model.DetectionMethod, protocol model.Protocol) {
 	group := fmt.Sprintf("%s:%d:%s", mc.File.Path(), expr.StartByte(), detection)
-	emitValueSet(mc, resolveNode(mc, expr), detection, protocol, group)
+	vs := resolveNode(mc, expr)
+	// IMPROVEMENTS #37: when the URL names no host (a runtime registry
+	// instance host/port), the target service may still be known statically —
+	// it is the argument to a service-registry lookup in the same method
+	// (EurekaClient.getApplication(name) / getNextServerFromEureka(name)).
+	// Emit that logical name as a resolved edge INSTEAD of the anonymous
+	// uncertain one emitValueSet would otherwise produce (one edge, not two).
+	if hostUnresolved(vs) {
+		if name, ok := discoveryTarget(mc, expr); ok {
+			mc.Out.OutboundDependencies = append(mc.Out.OutboundDependencies, model.Dependency{
+				TargetName: name, Protocol: protocol, Detection: detection,
+				Resolved: true, Confidence: model.Likely,
+			})
+			return
+		}
+	}
+	emitValueSet(mc, vs, detection, protocol, group)
+}
+
+// hostUnresolved reports whether a resolved target value names no host: a fully
+// opaque value (Unknown), or a template whose host is itself a hole. These are
+// exactly the cases emitValueSet renders as an anonymous uncertain edge, and so
+// the only ones a registry-lookup fallback (#37) should try to rescue.
+func hostUnresolved(vs resolve.ValueSet) bool {
+	switch vs.Kind {
+	case resolve.Unknown:
+		return true
+	case resolve.Template:
+		return !templateHostKnown(vs.Segments)
+	default:
+		return false
+	}
 }
 
 // resolveNode evaluates an expression node, tolerating a nil resolver.

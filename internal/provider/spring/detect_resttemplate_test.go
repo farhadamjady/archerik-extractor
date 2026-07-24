@@ -195,6 +195,60 @@ func TestRestTemplateValueField(t *testing.T) {
 	}
 }
 
+// IMPROVEMENTS #37: the URL host is a runtime Eureka instance host/port, so the
+// URL alone resolves only to an anonymous uncertain edge — but the target service
+// is statically known: the getApplication argument, a @Value field resolved via
+// config. We emit that logical name (like a service-discovery @FeignClient),
+// resolved/likely, and NOT the anonymous edge.
+func TestRestTemplateEurekaDiscoveryTarget(t *testing.T) {
+	cfg := buildStore(t, nil, map[string]string{
+		"application.yml": "com:\n  amdocs:\n    external:\n      application:\n        name: PROFILE-SERVICE\n",
+	})
+	src := `import com.netflix.discovery.EurekaClient;
+	class C {
+		@Value("${com.amdocs.external.application.name}") String applicationName;
+		EurekaClient client;
+		RestTemplate rt;
+		void m() {
+			InstanceInfo instanceInfo = client.getApplication(applicationName).getInstances().get(0);
+			String url = "http://" + instanceInfo.getHostName() + ":" + instanceInfo.getPort() + "/profile";
+			rt.exchange(url, null, null, Object.class);
+		}
+	}`
+	deps := httpDeps(t, restTemplateDetector{}, cfg, src)
+	if len(deps) != 1 {
+		t.Fatalf("got %d deps, want 1: %+v", len(deps), deps)
+	}
+	d := deps[0]
+	if d.TargetName != "PROFILE-SERVICE" || !d.Resolved || d.Confidence != model.Likely {
+		t.Errorf("discovery target = %+v, want PROFILE-SERVICE resolved/likely", d)
+	}
+	if d.Protocol != model.ProtoREST || d.Detection != model.DetectRestTemplate {
+		t.Errorf("edge fields = (%s,%s)", d.Protocol, d.Detection)
+	}
+	if d.URL != "" {
+		t.Errorf("url = %q, want empty (logical-name edge, backend maps it)", d.URL)
+	}
+}
+
+// getApplication is a generic method name; without the Netflix discovery import
+// it must NOT be treated as a registry lookup — the edge stays an honest
+// anonymous uncertain (host is a runtime hole), never a phantom "X" target.
+func TestRestTemplateGetApplicationUngatedWithoutEureka(t *testing.T) {
+	d := rtDep(t, `class C {
+		Repo client;
+		RestTemplate rt;
+		void m() {
+			Thing instanceInfo = client.getApplication("X").getInstances().get(0);
+			String url = "http://" + instanceInfo.getHostName() + "/profile";
+			rt.exchange(url, null, null, Object.class);
+		}
+	}`)
+	if d.Resolved || d.Confidence != model.Uncertain || d.TargetName != "" {
+		t.Errorf("ungated getApplication = %+v, want anonymous uncertain", d)
+	}
+}
+
 func TestNonRestTemplateMethodIgnored(t *testing.T) {
 	deps := httpDeps(t, restTemplateDetector{}, nil, `class C { java.util.Map m; void f() {
 		m.put("key", "value");

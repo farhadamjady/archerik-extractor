@@ -132,6 +132,7 @@ func (*Provider) Detectors() []provider.Detector {
 		restTemplateDetector{},
 		webClientDetector{},
 		kafkaDetector{},
+		reactiveKafkaDetector{},
 		httpExchangeDetector{},
 		cloudStreamDetector{},
 		adapterDetector{},
