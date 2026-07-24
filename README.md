@@ -11,8 +11,8 @@ graph across commits. It is **paid/gated**: a run validates a per-user API key
 before scanning and submits results to an ingest API.
 
 > Part of an Engineering Knowledge Graph MVP: static architecture intelligence
-> from source code. Scope is intentionally narrow — **Spring Boot + Kafka**, with
-> **Micronaut (Java)** now supported as the second framework.
+> from source code. Scope started narrow — **Spring Boot + Kafka** — and now also
+> covers **Micronaut** and **Quarkus** (Java) as second and third frameworks.
 
 ---
 
@@ -220,6 +220,10 @@ files (Avro/Proto/JSON-Schema) · the paid gate.
 interface in a sibling module), `@Client` declarative HTTP clients, and
 `@KafkaClient`/`@KafkaListener` producers/consumers. Reuses the shared Java
 language layer; config-placeholder resolution for Micronaut is pending.
+**Also in: Quarkus (Java)** — JAX-RS REST endpoints (`@Path` + `@GET`/`@POST`/…,
+verb and path as separate annotations, incl. the API-interface pattern) and
+`@RegisterRestClient` MicroProfile REST clients. Reactive-messaging
+(`@Incoming`/`@Outgoing`/`@Channel`) and OpenAPI-generated resources are pending.
 
 **Deferred / cut** (documented, never silent — unresolved cases become
 `uncertain` nodes, which is correct behavior): DB detection (JPA/JDBC) · OpenAPI
