@@ -36,6 +36,7 @@ const (
 	DetectAdapter         DetectionMethod = "adapter"          // company wrapper declared in .ekg-adapters.json
 	DetectRouter          DetectionMethod = "router"           // WebFlux/WebMvc.fn functional routing (RouterFunction)
 	DetectMicronautClient DetectionMethod = "micronaut-client" // Micronaut @Client declarative HTTP client
+	DetectMPRestClient    DetectionMethod = "mp-rest-client"   // MicroProfile @RegisterRestClient (Quarkus)
 )
 
 // Protocol is the communication protocol of an edge — a FIRST-CLASS field, kept

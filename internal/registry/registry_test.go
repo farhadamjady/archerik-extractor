@@ -8,6 +8,7 @@ func TestDefault(t *testing.T) {
 	want := map[string]bool{
 		"spring-boot-java": false,
 		"micronaut-java":   false,
+		"quarkus-java":     false,
 	}
 	ps := Default()
 	if len(ps) != len(want) {

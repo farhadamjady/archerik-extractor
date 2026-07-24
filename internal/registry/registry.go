@@ -6,6 +6,7 @@ package registry
 import (
 	"github.com/farhadamjady/service-discovery/internal/provider"
 	"github.com/farhadamjady/service-discovery/internal/provider/micronaut"
+	"github.com/farhadamjady/service-discovery/internal/provider/quarkus"
 	"github.com/farhadamjady/service-discovery/internal/provider/spring"
 )
 
@@ -15,5 +16,6 @@ func Default() []provider.Provider {
 	return []provider.Provider{
 		spring.New(),
 		micronaut.New(),
+		quarkus.New(),
 	}
 }
