@@ -298,3 +298,11 @@ Regression: baseline binary (`8fc899c`, pre-Micronaut) vs current produce **byte
 on all 12 Spring roots the harness flagged (the flags/code-drift differences vs the committed
 snapshots are not mine) — zero regressions across tier-1…5 + round-10…12. Full gate green
 (build/vet/gofmt/test ./...); real-engine detector tests for all three detectors.
+
+Micronaut round 3 (2026-07-24) — second repo, Kafka-heavy: `piomin/sample-kafka-micronaut-microservices`
+@ `ff75f5b` (4 Java services, a taxi-domain event mesh; `round-1-java-micronaut/_bench_piomin/`).
+**100% precision AND recall, no new findings**: all 12 in-scope Kafka edges (5 `@KafkaClient`
+producers, 7 `@KafkaListener` consumers, across `orders`/`trips`/`drivers`) + order-service's 2
+endpoints (`@Controller("orders")` with no leading slash composed to `/orders`). Validates the Kafka
+detector on the producer-interface (`@KafkaClient` + method `@Topic`) form end-to-end. Micronaut now
+100% across **8 services in two real repos**; remaining gaps are the documented #42/#43.
