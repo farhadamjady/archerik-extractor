@@ -33,15 +33,16 @@ func TestParsersCoverFileSpec(t *testing.T) {
 // detector stamped with its protocol (protocol is first-class on every edge).
 func TestDetectors(t *testing.T) {
 	want := map[string]model.Protocol{
-		"spring.rest":         model.ProtoREST,
-		"spring.feign":        model.ProtoREST,
-		"spring.resttemplate": model.ProtoREST,
-		"spring.webclient":    model.ProtoREST,
-		"spring.kafka":        model.ProtoKafka,
-		"spring.httpexchange": model.ProtoREST,
-		"spring.cloudstream":  model.ProtoKafka,
-		"spring.adapter":      model.ProtoREST,
-		"spring.router":       model.ProtoREST,
+		"spring.rest":          model.ProtoREST,
+		"spring.feign":         model.ProtoREST,
+		"spring.resttemplate":  model.ProtoREST,
+		"spring.webclient":     model.ProtoREST,
+		"spring.kafka":         model.ProtoKafka,
+		"spring.reactivekafka": model.ProtoKafka,
+		"spring.httpexchange":  model.ProtoREST,
+		"spring.cloudstream":   model.ProtoKafka,
+		"spring.adapter":       model.ProtoREST,
+		"spring.router":        model.ProtoREST,
 	}
 
 	dets := New().Detectors()

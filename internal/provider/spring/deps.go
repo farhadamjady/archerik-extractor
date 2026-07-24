@@ -162,6 +162,7 @@ func templateHostKnown(segs []resolve.Segment) bool {
 //   - a bare path ("/orders") — the host lives elsewhere (a baseUrl bean), so
 //     this call site alone names no service;
 //   - an absolute URL whose authority is or contains a runtime hole.
+//
 // A non-URL, non-path value (a logical host like "payment-service" resolved from
 // a property) is returned as-is.
 func targetHost(value string) (host string, ok bool) {

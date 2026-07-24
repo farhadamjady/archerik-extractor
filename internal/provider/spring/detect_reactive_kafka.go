@@ -15,12 +15,12 @@ import (
 // WebFlux services — neither KafkaTemplate nor @KafkaListener nor Cloud Stream:
 //
 //   - Producer: producerTemplate.send(SenderRecord.create(
-//         new ProducerRecord<>(topic, key, value), meta)). The topic is arg0 of
+//     new ProducerRecord<>(topic, key, value), meta)). The topic is arg0 of
 //     the ProducerRecord constructor (here a @Value-backed field). We key off the
 //     ProducerRecord construction itself, which also covers a raw Kafka
 //     Producer.send(new ProducerRecord<>(...)).
 //   - Consumer: a bean class implementing
-//         Function<Flux<ConsumerRecord<K, V>>, Mono<Void>> (or Consumer<Flux<…>>),
+//     Function<Flux<ConsumerRecord<K, V>>, Mono<Void>> (or Consumer<Flux<…>>),
 //     wired to a ReactiveKafkaConsumerTemplate whose subscription is the config
 //     property spring.kafka.consumer.subscribeTopics. The payload is V.
 type reactiveKafkaDetector struct{}
@@ -29,7 +29,7 @@ func (reactiveKafkaDetector) Name() string             { return "spring.reactive
 func (reactiveKafkaDetector) Protocol() model.Protocol { return model.ProtoKafka }
 
 const (
-	producerRecordQuery = `(object_creation_expression) @new`
+	producerRecordQuery   = `(object_creation_expression) @new`
 	reactiveConsumerQuery = `(class_declaration) @class`
 )
 
