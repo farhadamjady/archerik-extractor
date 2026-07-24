@@ -158,3 +158,80 @@ func TestRestClient(t *testing.T) {
 		})
 	}
 }
+
+// scanMessaging runs the messaging detector with a config store built from a
+// properties string, exercising channel→topic mapping + connector gating.
+func scanMessaging(t *testing.T, src, props string) *model.Service {
+	t.Helper()
+	f, err := java.NewParser().Parse("C.java", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	jf := f.(*java.File)
+	idx := &provider.Index{}
+	idx.Symbols = java.IndexSymbols([]*java.File{jf})
+	idx.Types = java.IndexTypes([]*java.File{jf}, nil)
+	cfg := &flatConfig{values: map[string]string{}}
+	parseProperties([]byte(props), cfg.values)
+	idx.Config = cfg
+	svc := model.NewService("s", "s", "")
+	if err := query.New().Run(f, []provider.Detector{messagingDetector{}}, idx, java.NewEvaluator(idx), svc); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	model.Sort(svc)
+	return svc
+}
+
+func TestMessaging(t *testing.T) {
+	// @Incoming channel "input" maps to topic "notification" via config; the
+	// @Channel Emitter "notification" is a Kafka producer; an in-memory channel
+	// (no connector) must NOT become a Kafka edge.
+	src := `import org.eclipse.microprofile.reactive.messaging.*;
+		class NotificationService {
+			public NotificationService(@Channel("notification") Emitter<NotifDTO> emitter) {}
+			@Incoming("input") public void consume(NotifDTO n) {}
+			@Outgoing("ui-updates") public String toUi() { return null; }
+		}`
+	props := "" +
+		"mp.messaging.outgoing.notification.connector=smallrye-kafka\n" +
+		"mp.messaging.outgoing.notification.topic=notification\n" +
+		"mp.messaging.incoming.input.connector=smallrye-kafka\n" +
+		"mp.messaging.incoming.input.topic=notification\n"
+	// ui-updates has no connector -> in-memory -> skipped.
+	svc := scanMessaging(t, src, props)
+
+	gotP := topics(svc.KafkaProducers)
+	gotC := topics(svc.KafkaConsumers)
+	if len(gotP) != 1 || gotP[0] != "notification" {
+		t.Errorf("producers = %v, want [notification]", gotP)
+	}
+	if len(gotC) != 1 || gotC[0] != "notification" {
+		t.Errorf("consumers = %v, want [notification] (input channel -> notification topic)", gotC)
+	}
+	for _, e := range append(svc.KafkaProducers, svc.KafkaConsumers...) {
+		if e.Detection != model.DetectReactiveMessaging || e.Protocol != model.ProtoKafka {
+			t.Errorf("edge detection/protocol = %q/%q", e.Detection, e.Protocol)
+		}
+	}
+}
+
+func TestMessagingChannelConstant(t *testing.T) {
+	// Channel name is a static-final constant; topic defaults to the channel.
+	src := `class SuperStats {
+			static final String FIGHTS = "fights";
+			@Incoming(FIGHTS) public void consume(Fight f) {}
+		}`
+	props := "mp.messaging.incoming.fights.connector=smallrye-kafka\n"
+	svc := scanMessaging(t, src, props)
+	if got := topics(svc.KafkaConsumers); len(got) != 1 || got[0] != "fights" {
+		t.Errorf("consumers = %v, want [fights]", got)
+	}
+}
+
+func topics(edges []model.KafkaEdge) []string {
+	var out []string
+	for _, e := range edges {
+		out = append(out, e.Topic)
+	}
+	return out
+}

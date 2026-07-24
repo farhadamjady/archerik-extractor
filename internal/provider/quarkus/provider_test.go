@@ -29,6 +29,7 @@ func TestDetectors(t *testing.T) {
 	want := map[string]model.Protocol{
 		"quarkus.rest":       model.ProtoREST,
 		"quarkus.restclient": model.ProtoREST,
+		"quarkus.messaging":  model.ProtoKafka,
 	}
 	dets := New().Detectors()
 	if len(dets) != len(want) {

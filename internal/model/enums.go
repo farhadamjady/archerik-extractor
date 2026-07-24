@@ -24,19 +24,20 @@ const (
 type DetectionMethod string
 
 const (
-	DetectFeign           DetectionMethod = "feign"
-	DetectRestTemplate    DetectionMethod = "resttemplate"
-	DetectWebClient       DetectionMethod = "webclient"
-	DetectKafka           DetectionMethod = "kafka"
-	DetectConfig          DetectionMethod = "config"
-	DetectAnnotation      DetectionMethod = "annotation"       // @RestController + mapping annotations
-	DetectOpenAPI         DetectionMethod = "openapi"          // read from an OpenAPI spec the build generates code from
-	DetectHTTPExchange    DetectionMethod = "httpexchange"     // Spring 6 @HttpExchange declarative client
-	DetectCloudStream     DetectionMethod = "cloudstream"      // Spring Cloud Stream functional binding
-	DetectAdapter         DetectionMethod = "adapter"          // company wrapper declared in .ekg-adapters.json
-	DetectRouter          DetectionMethod = "router"           // WebFlux/WebMvc.fn functional routing (RouterFunction)
-	DetectMicronautClient DetectionMethod = "micronaut-client" // Micronaut @Client declarative HTTP client
-	DetectMPRestClient    DetectionMethod = "mp-rest-client"   // MicroProfile @RegisterRestClient (Quarkus)
+	DetectFeign             DetectionMethod = "feign"
+	DetectRestTemplate      DetectionMethod = "resttemplate"
+	DetectWebClient         DetectionMethod = "webclient"
+	DetectKafka             DetectionMethod = "kafka"
+	DetectConfig            DetectionMethod = "config"
+	DetectAnnotation        DetectionMethod = "annotation"         // @RestController + mapping annotations
+	DetectOpenAPI           DetectionMethod = "openapi"            // read from an OpenAPI spec the build generates code from
+	DetectHTTPExchange      DetectionMethod = "httpexchange"       // Spring 6 @HttpExchange declarative client
+	DetectCloudStream       DetectionMethod = "cloudstream"        // Spring Cloud Stream functional binding
+	DetectAdapter           DetectionMethod = "adapter"            // company wrapper declared in .ekg-adapters.json
+	DetectRouter            DetectionMethod = "router"             // WebFlux/WebMvc.fn functional routing (RouterFunction)
+	DetectMicronautClient   DetectionMethod = "micronaut-client"   // Micronaut @Client declarative HTTP client
+	DetectMPRestClient      DetectionMethod = "mp-rest-client"     // MicroProfile @RegisterRestClient (Quarkus)
+	DetectReactiveMessaging DetectionMethod = "reactive-messaging" // MicroProfile Reactive Messaging @Incoming/@Outgoing/@Channel
 )
 
 // Protocol is the communication protocol of an edge — a FIRST-CLASS field, kept

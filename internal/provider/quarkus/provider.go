@@ -103,17 +103,19 @@ func (*Provider) Indexers() []provider.Indexer {
 		typeIndexer{},
 		schemaSourceIndexer{},
 		contractIndexer{},
+		configIndexer{},
 	}
 }
 
-// Detectors: REST endpoints (@Path + @GET/@POST/...) and the MicroProfile REST
-// client (@RegisterRestClient). Reactive-messaging (@Incoming/@Outgoing/@Channel)
-// is deferred to a config-aware round — its channel→topic mapping and the
-// Kafka-vs-in-memory connector distinction both live in application.properties.
+// Detectors: REST endpoints (@Path + @GET/@POST/...), the MicroProfile REST
+// client (@RegisterRestClient), and MicroProfile Reactive Messaging
+// (@Incoming/@Outgoing/@Channel), whose channel→topic mapping and Kafka-vs-in-
+// memory connector distinction are read from the parsed application config.
 func (*Provider) Detectors() []provider.Detector {
 	return []provider.Detector{
 		restDetector{},
 		restClientDetector{},
+		messagingDetector{},
 	}
 }
 
