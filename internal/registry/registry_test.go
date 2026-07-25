@@ -10,6 +10,7 @@ func TestDefault(t *testing.T) {
 		"micronaut-java":     false,
 		"quarkus-java":       false,
 		"spring-boot-kotlin": false,
+		"nestjs-typescript":  false,
 	}
 	ps := Default()
 	if len(ps) != len(want) {

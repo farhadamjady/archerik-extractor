@@ -12,7 +12,7 @@ before scanning and submits results to an ingest API.
 
 > Part of an Engineering Knowledge Graph MVP: static architecture intelligence
 > from source code. Scope started narrow — **Spring Boot + Kafka** — and now also
-> covers **Micronaut** and **Quarkus** (Java), and **Spring Boot (Kotlin)** — the first non-Java language, on a new tree-sitter-kotlin language layer.
+> covers **Micronaut** and **Quarkus** (Java), and **Spring Boot (Kotlin)** and **NestJS (Node.js/TypeScript)** — spanning JVM and Node stacks on per-language tree-sitter layers.
 
 ---
 
