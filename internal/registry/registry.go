@@ -5,6 +5,7 @@ package registry
 
 import (
 	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/service-discovery/internal/provider/express"
 	"github.com/farhadamjady/service-discovery/internal/provider/micronaut"
 	"github.com/farhadamjady/service-discovery/internal/provider/nestjs"
 	"github.com/farhadamjady/service-discovery/internal/provider/quarkus"
@@ -21,5 +22,6 @@ func Default() []provider.Provider {
 		quarkus.New(),
 		springkt.New(),
 		nestjs.New(),
+		express.New(),
 	}
 }

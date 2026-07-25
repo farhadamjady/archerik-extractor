@@ -11,6 +11,7 @@ func TestDefault(t *testing.T) {
 		"quarkus-java":       false,
 		"spring-boot-kotlin": false,
 		"nestjs-typescript":  false,
+		"express-node":       false,
 	}
 	ps := Default()
 	if len(ps) != len(want) {
