@@ -520,3 +520,18 @@ absolute URLs collapse to their authority as `target_name` (`catalog-service`, `
 dynamic URLs emit the honest anonymous `uncertain` edge, non-`http` receivers and non-net/http files
 are excluded. Unit tests cover all four shapes + the false-positive guards; full gate green, all Go
 benches re-scored clean. Go now models both directions of the sync mesh at the std-lib level.
+
+## New-language round 2 — consolidated result (2026-07-25)
+Second benchmark-driven round across all four new stacks, per the loop (predict → benchmark → fix →
+re-benchmark). Four capability fixes landed, each provoked by a real repo:
+
+| stack | fix | provoked by | bench after |
+|---|---|---|---|
+| Express | #50 cross-file `app.use` mount composition (require/import resolution, nested) | express-rest-boilerplate `/v1`→`/users` | 15/15 + 10/10 at FULL paths |
+| ASP.NET | #54 Minimal APIs (`MapGet`/`MapGroup`, incl. fluent-chain group declarations) | learning-…-minimal-apis (`PUT /{id}` bug caught) | 8/8 + conduit 19/19 |
+| NestJS | #55 `setGlobalPrefix('api')` composition (literal form) | nestjs-realworld (all paths missing `/api`) | 21/21 + 22/22 + 9/9 |
+| Go | #57 outbound `http.Get`/`NewRequest` client edges (authority target, honest-uncertain dynamic) | round-1 documented gap | 3/3 new repo; 5/5 + 4/4 unchanged |
+
+**11/11 new-language benchmark services now perfect (117 endpoints, zero missed / zero wrong)**; all
+older stacks (Spring/Micronaut/Quarkus/Kotlin) re-verified unchanged. New open findings: #56 (NestJS
+config-driven prefix + URI versioning — needs a tsjs value evaluator/config layer). Full gate green.
