@@ -134,6 +134,16 @@ type Index struct {
 	// found in the service's builder calls.
 	OutboxRoutes []string
 
+	// MountPrefixes maps a source file (repo-relative path) to the URL prefix(es)
+	// its routes are mounted under. Express composes routes across files —
+	// app.use('/v1', routes) in one file mounts a router module defined in
+	// another (often NESTED: '/v1' -> '/users' -> the route file, IMPROVEMENTS
+	// #50) — so a mount indexer resolves the require/import graph and stores the
+	// composed prefixes here; the route detector prepends them. A file absent
+	// from the map (or an empty list) is unmounted: its routes are emitted at
+	// their declared paths.
+	MountPrefixes map[string][]string
+
 	// HTTPContracts map an API interface / abstract-type simple name to the
 	// declarative HTTP handler-method nodes it declares. Under the API-interface
 	// pattern (dominant in Micronaut, common in Quarkus/JAX-RS and Spring), a

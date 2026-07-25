@@ -73,14 +73,25 @@ func (routeDetector) onCall(mc *provider.MatchContext) {
 	emitRoute(mc, verb, raw)
 }
 
+// emitRoute appends the endpoint(s) for one route declaration, prepending the
+// file's composed mount prefix(es) from the mount indexer (#50). An unmounted
+// file emits at the declared path; a file mounted at several places emits one
+// endpoint per prefix.
 func emitRoute(mc *provider.MatchContext, verb, raw string) {
-	mc.Out.Endpoints = append(mc.Out.Endpoints, model.Endpoint{
-		Method:     verb,
-		Path:       normalizePath("/" + strings.Trim(raw, "/")),
-		Protocol:   model.ProtoREST,
-		Detection:  model.DetectRouter,
-		Confidence: model.Confirmed,
-	})
+	prefixes := []string{""}
+	if ps := mc.Index.MountPrefixes[mc.File.Path()]; len(ps) > 0 {
+		prefixes = ps
+	}
+	for _, pre := range prefixes {
+		full := strings.TrimSuffix(pre, "/") + "/" + strings.Trim(raw, "/")
+		mc.Out.Endpoints = append(mc.Out.Endpoints, model.Endpoint{
+			Method:     verb,
+			Path:       normalizePath("/" + strings.Trim(full, "/")),
+			Protocol:   model.ProtoREST,
+			Detection:  model.DetectRouter,
+			Confidence: model.Confirmed,
+		})
+	}
 }
 
 // chainRoutePath walks a call receiver chain looking for a `.route('/path')`

@@ -466,3 +466,22 @@ go-native-router-example` (5, users CRUD) and `ntchjb/example-go-rest-api` (4, i
 pure std-lib (no gorilla/chi/gin), predicted from source before running. Detection emits `language:
 "Go"`; no regressions (Match needs a net/http import). Full gate green; real-engine detector tests
 cover Go 1.22 method patterns, trailing wildcards, `{$}` anchor, host stripping, and the import gate.
+
+## Node.js / Express round 2 (2026-07-25) — #50 implemented: cross-file mount-prefix composition; FULL paths 100%
+Added `express.mounts` (a mount indexer) + neutral `Index.MountPrefixes`: for every parsed file it
+maps local identifiers to their `require('./x')` / `import x from './x'` specifiers, resolves
+relative specs Node-style against the parsed set (`spec`, `+.js/.ts`, `/index.js|.ts`), records each
+`X.use('/prefix', <importedRouter>)` as a mount edge (middleware args skipped; non-file targets like
+`express.static(...)` ignored), and composes the transitive prefixes per file (cycle-guarded, depth 6,
+multi-mount fan-out kept). The route detector prepends the composed prefix(es).
+
+Bench (`round-5-node-express/_bench/`), labels now at FULL mounted paths:
+
+| repo | endpoints | nesting exercised |
+|---|---|---|
+| `danielfsousa/express-rest-boilerplate` | **15/15** | `app.use('/v1')` → `router.use('/users'/'/auth')` → chained `.route()` files |
+| `maitraysuthar/rest-api-nodejs-mongodb` | **10/10** | `app.use('/api/')` → `use('/auth/'/'/book/')` + root `app.use('/', indexRouter)` |
+
+**100% precision AND recall at real HTTP paths** (`POST /v1/auth/login`, `GET /api/book/{id}`) — the
+round-1 module-relative limitation is gone. Multi-file unit test locks the 2-level composition
+through the real indexer + query engine. Full gate green; no regressions elsewhere.

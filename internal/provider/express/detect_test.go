@@ -103,3 +103,41 @@ func writeFile(t *testing.T, root, rel, content string) {
 		t.Fatal(err)
 	}
 }
+
+// TestMountComposition locks IMPROVEMENTS #50: routes declared in a router file
+// are emitted under the composed cross-file app.use/router.use prefixes.
+func TestMountComposition(t *testing.T) {
+	sources := map[string]string{
+		"config/express.js":           `const routes = require('../api/routes/v1'); app.use('/v1', routes);`,
+		"api/routes/v1/index.js":      `const userRoutes = require('./user.route'); router.use('/users', userRoutes); router.get('/status', h);`,
+		"api/routes/v1/user.route.js": `router.route('/:userId').get(h).put(h);`,
+	}
+	parsed := map[string]provider.ParsedFile{}
+	for p, src := range sources {
+		f, err := tsjs.NewParser().Parse(p, []byte(src))
+		if err != nil {
+			t.Fatalf("parse %s: %v", p, err)
+		}
+		parsed[p] = f
+	}
+	idx := &provider.Index{}
+	if err := (mountIndexer{}).Index(&provider.IndexContext{Parsed: parsed}, idx); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	svc := model.NewService("s", "s", "")
+	for _, p := range []string{"api/routes/v1/index.js", "api/routes/v1/user.route.js", "config/express.js"} {
+		if err := query.New().Run(parsed[p], []provider.Detector{routeDetector{}}, idx, nil, svc); err != nil {
+			t.Fatalf("run %s: %v", p, err)
+		}
+	}
+	model.Sort(svc)
+	var got []string
+	for _, e := range svc.Endpoints {
+		got = append(got, e.Method+" "+e.Path)
+	}
+	sort.Strings(got)
+	want := []string{"GET /v1/status", "GET /v1/users/{userId}", "PUT /v1/users/{userId}"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

@@ -77,7 +77,11 @@ func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 	}
 }
 
-func (*Provider) Indexers() []provider.Indexer { return nil }
+// Indexers: the mount indexer resolves the cross-file app.use/router.use graph
+// so routes are emitted at their FULL mounted paths (IMPROVEMENTS #50).
+func (*Provider) Indexers() []provider.Indexer {
+	return []provider.Indexer{mountIndexer{}}
+}
 
 // Detectors: route calls (app/router.get/post/...). Outbound axios/fetch/got
 // clients are a later round.
