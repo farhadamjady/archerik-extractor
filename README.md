@@ -12,7 +12,7 @@ before scanning and submits results to an ingest API.
 
 > Part of an Engineering Knowledge Graph MVP: static architecture intelligence
 > from source code. Scope started narrow — **Spring Boot + Kafka** — and now also
-> covers **Micronaut** and **Quarkus** (Java), and **Spring Boot (Kotlin)** and **NestJS + Express (Node.js)** and **ASP.NET Core (.NET/C#)** — spanning JVM, Node, and .NET stacks on per-language tree-sitter layers.
+> covers **Micronaut** and **Quarkus** (Java), and **Spring Boot (Kotlin)** and **NestJS + Express (Node.js)** **ASP.NET Core (.NET/C#)**, and **Go net/http** (no framework) — spanning JVM, Node, .NET, and Go stacks on per-language tree-sitter layers.
 
 ---
 

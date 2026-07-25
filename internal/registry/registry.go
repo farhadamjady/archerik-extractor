@@ -9,6 +9,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/provider/express"
 	"github.com/farhadamjady/service-discovery/internal/provider/micronaut"
 	"github.com/farhadamjady/service-discovery/internal/provider/nestjs"
+	"github.com/farhadamjady/service-discovery/internal/provider/nethttp"
 	"github.com/farhadamjady/service-discovery/internal/provider/quarkus"
 	"github.com/farhadamjady/service-discovery/internal/provider/spring"
 	"github.com/farhadamjady/service-discovery/internal/provider/springkt"
@@ -25,5 +26,6 @@ func Default() []provider.Provider {
 		nestjs.New(),
 		express.New(),
 		aspnet.New(),
+		nethttp.New(),
 	}
 }

@@ -13,6 +13,7 @@ func TestDefault(t *testing.T) {
 		"nestjs-typescript":  false,
 		"express-node":       false,
 		"aspnet-core-csharp": false,
+		"go-nethttp":         false,
 	}
 	ps := Default()
 	if len(ps) != len(want) {

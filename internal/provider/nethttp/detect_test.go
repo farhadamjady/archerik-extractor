@@ -1,0 +1,121 @@
+package nethttp
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"testing"
+
+	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/service-discovery/internal/provider/lang/golang"
+	"github.com/farhadamjady/service-discovery/internal/query"
+	"github.com/farhadamjady/service-discovery/internal/scan"
+)
+
+var _ provider.Provider = (*Provider)(nil)
+
+func endpoints(t *testing.T, src string) []string {
+	t.Helper()
+	f, err := golang.NewParser().Parse("srv.go", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	svc := model.NewService("s", "s", "")
+	if err := query.New().Run(f, []provider.Detector{routeDetector{}}, &provider.Index{}, nil, svc); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	model.Sort(svc)
+	var out []string
+	for _, e := range svc.Endpoints {
+		out = append(out, fmt.Sprintf("%s %s", e.Method, e.Path))
+	}
+	sort.Strings(out)
+	return out
+}
+
+func TestRoutes(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{
+			name: "Go 1.22 method patterns + wildcards, method-less -> *",
+			src: `package main
+				import "net/http"
+				func main() {
+					mux := http.NewServeMux()
+					mux.HandleFunc("GET /items/{id}", getItem)
+					mux.HandleFunc("POST /items", createItem)
+					mux.HandleFunc("/health", health)
+					http.Handle("/static/", fs)
+				}`,
+			// net/http keeps the trailing slash meaningful: "/static/" is a
+			// subtree (prefix) route, distinct from an exact "/static".
+			want: []string{"* /health", "* /static/", "GET /items/{id}", "POST /items"},
+		},
+		{
+			name: "trailing wildcard normalized, {$} dropped, host stripped",
+			src: `package main
+				import "net/http"
+				func main() {
+					mux.HandleFunc("GET /files/{path...}", serve)
+					mux.HandleFunc("GET example.com/exact/{$}", exact)
+				}`,
+			want: []string{"GET /exact", "GET /files/{path}"},
+		},
+		{
+			name: "no net/http import -> nothing (avoids foreign .Handle/.HandleFunc)",
+			src: `package main
+				func main() {
+					bus.HandleFunc("/not-a-route", h)
+					queue.Handle("/x", h)
+				}`,
+			want: nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := endpoints(t, tc.src)
+			if fmt.Sprint(got) != fmt.Sprint(tc.want) {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDetectors(t *testing.T) {
+	dets := New().Detectors()
+	if len(dets) != 1 || dets[0].Name() != "nethttp.route" || dets[0].Protocol() != model.ProtoREST {
+		t.Fatalf("unexpected detectors: %+v", dets)
+	}
+}
+
+func TestMatch(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/svc\n\ngo 1.22")
+	writeFile(t, root, "main.go", "package main\nimport \"net/http\"\nfunc main(){ http.HandleFunc(\"/x\", h); http.ListenAndServe(\":8080\", nil) }")
+	m, score := New().Match(root, scan.NewOSFileTree(root, nil))
+	if !m || score != 6 { // go(1) + net/http import(3) + routing call(2)
+		t.Fatalf("matched=%v score=%d, want true/6", m, score)
+	}
+	// A Go repo that never imports net/http must not match.
+	other := t.TempDir()
+	writeFile(t, other, "main.go", "package main\nfunc main(){}")
+	if m, _ := New().Match(other, scan.NewOSFileTree(other, nil)); m {
+		t.Error("must not match a non-net/http Go repo")
+	}
+}
+
+func writeFile(t *testing.T, root, rel, content string) {
+	t.Helper()
+	p := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
