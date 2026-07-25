@@ -77,10 +77,12 @@ func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 // outbound edges and DTO schemas are next rounds.
 func (*Provider) Indexers() []provider.Indexer { return nil }
 
-// Detectors: REST endpoints from attribute-routed controllers.
+// Detectors: REST endpoints from attribute-routed controllers and from
+// Minimal APIs (app.MapGet/MapPost/... incl. MapGroup prefixes).
 func (*Provider) Detectors() []provider.Detector {
 	return []provider.Detector{
 		restDetector{},
+		minimalDetector{},
 	}
 }
 

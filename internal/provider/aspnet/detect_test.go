@@ -90,9 +90,18 @@ func TestRESTEndpoints(t *testing.T) {
 }
 
 func TestDetectors(t *testing.T) {
+	want := map[string]model.Protocol{
+		"aspnet.rest":    model.ProtoREST,
+		"aspnet.minimal": model.ProtoREST,
+	}
 	dets := New().Detectors()
-	if len(dets) != 1 || dets[0].Name() != "aspnet.rest" || dets[0].Protocol() != model.ProtoREST {
-		t.Fatalf("unexpected detectors: %+v", dets)
+	if len(dets) != len(want) {
+		t.Fatalf("got %d detectors, want %d", len(dets), len(want))
+	}
+	for _, d := range dets {
+		if want[d.Name()] != d.Protocol() {
+			t.Errorf("detector %q protocol %q", d.Name(), d.Protocol())
+		}
 	}
 }
 
@@ -119,5 +128,82 @@ func writeFile(t *testing.T, root, rel, content string) {
 	}
 	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func minimalEndpoints(t *testing.T, src string) []string {
+	t.Helper()
+	f, err := csharp.NewParser().Parse("Program.cs", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	svc := model.NewService("s", "s", "")
+	if err := query.New().Run(f, []provider.Detector{minimalDetector{}}, &provider.Index{}, nil, svc); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	model.Sort(svc)
+	var out []string
+	for _, e := range svc.Endpoints {
+		out = append(out, fmt.Sprintf("%s %s", e.Method, e.Path))
+	}
+	sort.Strings(out)
+	return out
+}
+
+func TestMinimalAPIs(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{
+			name: "direct MapGet/MapPost on the app",
+			src: `var app = builder.Build();
+				app.MapGet("/todos", () => repo.All());
+				app.MapPost("/todos", (Todo t) => repo.Add(t));`,
+			want: []string{"GET /todos", "POST /todos"},
+		},
+		{
+			name: "MapGroup prefix + constraint stripping",
+			src: `var app = builder.Build();
+				var group = app.MapGroup("/api/items");
+				group.MapGet("/{id:int}", GetItem);
+				group.MapDelete("/{id}", DeleteItem);`,
+			want: []string{"DELETE /api/items/{id}", "GET /api/items/{id}"},
+		},
+		{
+			name: "nested groups compose",
+			src: `var api = app.MapGroup("/api");
+				var todos = api.MapGroup("/todos");
+				todos.MapGet("/{id}", h);`,
+			want: []string{"GET /api/todos/{id}"},
+		},
+		{
+			name: "chained group without a variable",
+			src:  `app.MapGroup("/v1").MapGet("/ping", h);`,
+			want: []string{"GET /v1/ping"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := minimalEndpoints(t, tc.src)
+			if fmt.Sprint(got) != fmt.Sprint(tc.want) {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMinimalGroupThroughBuilderChain(t *testing.T) {
+	// The group variable is declared through a fluent chain — the MapGroup sits
+	// deeper in the receiver chain (real pattern: filters/auth on the group).
+	src := `var g = app.MapGroup("/api/contacts")
+			.AddEndpointFilter(new F(2))
+			.AddEndpointFilter(new F(3));
+		g.MapPut("{id:int}", h);`
+	got := minimalEndpoints(t, src)
+	want := []string{"PUT /api/contacts/{id}"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
