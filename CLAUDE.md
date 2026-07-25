@@ -9,11 +9,17 @@ Part of an Engineering Knowledge Graph MVP: static architecture intelligence fro
 requires a per-user **API key** and network — see "Access & licensing" below.
 
 ## Scope
-- Languages/frameworks: **Spring Boot, Micronaut, and Quarkus (all Java), Kafka.**
-  Micronaut (`@Controller`/`@Client`/`@KafkaClient`) and Quarkus (JAX-RS
-  `@Path`/`@RegisterRestClient`/reactive-messaging) landed as Recipe-A providers,
-  benchmarked to ~100% on their in-scope surface. Kotlin (a Recipe-B language
-  layer) is the next planned step — it's the main gap on the Micronaut/Quarkus repos.
+- Languages/frameworks (all benchmarked to ~100% on their in-scope REST surface):
+  - **JVM:** Spring Boot, Micronaut, Quarkus (Java) + Spring Boot (Kotlin) — REST,
+    HTTP clients (Feign/`@Client`/`@RegisterRestClient`), and Kafka
+    (`@KafkaListener`/`@KafkaClient`/reactive-messaging).
+  - **Node.js:** NestJS (`@Controller`/`@Get`) and Express (call-based routing), TypeScript/JS.
+  - **.NET:** ASP.NET Core (`[Route]`/`[HttpGet]` attribute controllers), C#.
+  - **Go:** the `net/http` standard library (no framework) — `HandleFunc`/`Handle`
+    routing incl. Go 1.22 method patterns.
+  Each non-JVM stack has its own Recipe-B tree-sitter language layer under
+  `internal/provider/lang/` and a framework provider on top. Clients/messaging for
+  the non-JVM stacks and richer schemas are the next rounds (see IMPROVEMENTS.md).
 - gRPC: later milestone, not now.
 - **Externalized deployment config IS in scope** as a placeholder-resolution SOURCE (static,
   best-effort): Helm (`values*.yaml` + chart-template `env:` blocks), rendered K8s manifests
