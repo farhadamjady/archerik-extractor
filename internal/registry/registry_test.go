@@ -12,6 +12,7 @@ func TestDefault(t *testing.T) {
 		"spring-boot-kotlin": false,
 		"nestjs-typescript":  false,
 		"express-node":       false,
+		"aspnet-core-csharp": false,
 	}
 	ps := Default()
 	if len(ps) != len(want) {
