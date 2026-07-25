@@ -123,3 +123,36 @@ func writeFile(t *testing.T, root, rel, content string) {
 		t.Fatal(err)
 	}
 }
+
+// TestGlobalPrefix locks the setGlobalPrefix('api') composition: every
+// controller route gains the app-wide prefix (the "*" MountPrefixes slot).
+func TestGlobalPrefix(t *testing.T) {
+	sources := map[string]string{
+		"src/main.ts": `const app = await NestFactory.create(AppModule);
+			app.setGlobalPrefix('api');`,
+		"src/tag.controller.ts": `@Controller('tags')
+			export class TagController {
+				@Get() findAll() {}
+			}`,
+	}
+	parsed := map[string]provider.ParsedFile{}
+	for p, src := range sources {
+		f, err := tsjs.NewParser().Parse(p, []byte(src))
+		if err != nil {
+			t.Fatalf("parse %s: %v", p, err)
+		}
+		parsed[p] = f
+	}
+	idx := &provider.Index{}
+	if err := (globalPrefixIndexer{}).Index(&provider.IndexContext{Parsed: parsed}, idx); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	svc := model.NewService("s", "s", "")
+	if err := query.New().Run(parsed["src/tag.controller.ts"], []provider.Detector{restDetector{}}, idx, nil, svc); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	model.Sort(svc)
+	if len(svc.Endpoints) != 1 || svc.Endpoints[0].Path != "/api/tags" {
+		t.Errorf("endpoints = %+v, want GET /api/tags", svc.Endpoints)
+	}
+}

@@ -71,9 +71,12 @@ func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 	}
 }
 
-// Indexers: none yet — round 1 is REST endpoints. HttpService clients,
+// Indexers: the global-prefix indexer resolves app.setGlobalPrefix('api') so
+// endpoints carry their real leading segment. HttpService clients,
 // @MessagePattern/@EventPattern microservice edges, and DTO schemas are next.
-func (*Provider) Indexers() []provider.Indexer { return nil }
+func (*Provider) Indexers() []provider.Indexer {
+	return []provider.Indexer{globalPrefixIndexer{}}
+}
 
 // Detectors: REST endpoints from @Controller classes.
 func (*Provider) Detectors() []provider.Detector {

@@ -42,6 +42,12 @@ func (restDetector) onController(mc *provider.MatchContext) {
 		return
 	}
 	base := controllerBase(ctrl)
+	// setGlobalPrefix('api') applies to every controller (the "*" slot of
+	// MountPrefixes, filled by the global-prefix indexer).
+	globals := []string{""}
+	if gp := mc.Index.MountPrefixes["*"]; len(gp) > 0 {
+		globals = gp
+	}
 
 	body := tsjs.ChildByType(class, "class_body")
 	if !body.Valid() {
@@ -51,7 +57,7 @@ func (restDetector) onController(mc *provider.MatchContext) {
 		if m.Type() != "method_definition" {
 			continue
 		}
-		appendMethodEndpoints(mc.Out, m, base)
+		appendMethodEndpoints(mc.Out, m, base, globals)
 	}
 }
 
@@ -69,8 +75,8 @@ func controllerBase(ctrl tsjs.Node) string {
 }
 
 // appendMethodEndpoints emits the endpoint for a method that carries an HTTP-verb
-// decorator, composing its path with the controller base path.
-func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string) {
+// decorator, composing global prefix + controller base + method path.
+func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string, globals []string) {
 	decs := tsjs.PrecedingDecorators(method)
 	for _, dec := range decs {
 		verb, isVerb := verbDecorator[tsjs.DecoratorName(dec)]
@@ -84,13 +90,15 @@ func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string) {
 		} else if !literal {
 			conf = model.Uncertain // computed path
 		}
-		out.Endpoints = append(out.Endpoints, model.Endpoint{
-			Method:     verb,
-			Path:       normalizePath(joinPath(base, sub)),
-			Protocol:   model.ProtoREST,
-			Detection:  model.DetectAnnotation,
-			Confidence: conf,
-		})
+		for _, g := range globals {
+			out.Endpoints = append(out.Endpoints, model.Endpoint{
+				Method:     verb,
+				Path:       normalizePath(joinPath(strings.Trim(g, "/")+"/"+strings.Trim(base, "/"), sub)),
+				Protocol:   model.ProtoREST,
+				Detection:  model.DetectAnnotation,
+				Confidence: conf,
+			})
+		}
 		return // one verb decorator per method
 	}
 }
