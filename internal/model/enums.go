@@ -38,6 +38,7 @@ const (
 	DetectMicronautClient   DetectionMethod = "micronaut-client"   // Micronaut @Client declarative HTTP client
 	DetectMPRestClient      DetectionMethod = "mp-rest-client"     // MicroProfile @RegisterRestClient (Quarkus)
 	DetectReactiveMessaging DetectionMethod = "reactive-messaging" // MicroProfile Reactive Messaging @Incoming/@Outgoing/@Channel
+	DetectHTTPClient        DetectionMethod = "http-client"        // std-lib HTTP client call (Go http.Get/NewRequest)
 )
 
 // Protocol is the communication protocol of an edge — a FIRST-CLASS field, kept

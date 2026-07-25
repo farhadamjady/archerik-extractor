@@ -83,10 +83,12 @@ func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 // edges and request/response schemas are next rounds.
 func (*Provider) Indexers() []provider.Indexer { return nil }
 
-// Detectors: server routes from HandleFunc/Handle registrations.
+// Detectors: server routes from HandleFunc/Handle registrations, and outbound
+// edges from std-lib client calls (http.Get / http.NewRequest).
 func (*Provider) Detectors() []provider.Detector {
 	return []provider.Detector{
 		routeDetector{},
+		clientDetector{},
 	}
 }
 

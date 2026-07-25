@@ -87,9 +87,18 @@ func TestRoutes(t *testing.T) {
 }
 
 func TestDetectors(t *testing.T) {
+	want := map[string]model.Protocol{
+		"nethttp.route":  model.ProtoREST,
+		"nethttp.client": model.ProtoREST,
+	}
 	dets := New().Detectors()
-	if len(dets) != 1 || dets[0].Name() != "nethttp.route" || dets[0].Protocol() != model.ProtoREST {
-		t.Fatalf("unexpected detectors: %+v", dets)
+	if len(dets) != len(want) {
+		t.Fatalf("got %d detectors, want %d", len(dets), len(want))
+	}
+	for _, d := range dets {
+		if want[d.Name()] != d.Protocol() {
+			t.Errorf("detector %q protocol %q", d.Name(), d.Protocol())
+		}
 	}
 }
 
@@ -117,5 +126,65 @@ func writeFile(t *testing.T, root, rel, content string) {
 	}
 	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func outbound(t *testing.T, src string) []model.Dependency {
+	t.Helper()
+	f, err := golang.NewParser().Parse("client.go", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	svc := model.NewService("s", "s", "")
+	if err := query.New().Run(f, []provider.Detector{clientDetector{}}, &provider.Index{}, nil, svc); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	model.Sort(svc)
+	return svc.OutboundDependencies
+}
+
+func TestOutboundClient(t *testing.T) {
+	src := `package main
+		import "net/http"
+		func call() {
+			http.Get("http://catalog-service/items")
+			http.Post("http://payment:9000/charge", "application/json", body)
+			req, _ := http.NewRequest("DELETE", "http://inventory/items/1", nil)
+			http.Get(dynamicURL)
+		}`
+	deps := outbound(t, src)
+	if len(deps) != 4 {
+		t.Fatalf("got %d deps, want 4: %+v", len(deps), deps)
+	}
+	byTarget := map[string]model.Dependency{}
+	uncertain := 0
+	for _, d := range deps {
+		if d.TargetName != "" {
+			byTarget[d.TargetName] = d
+		} else {
+			uncertain++
+		}
+		if d.Detection != model.DetectHTTPClient || d.Protocol != model.ProtoREST {
+			t.Errorf("detection/protocol = %q/%q", d.Detection, d.Protocol)
+		}
+	}
+	for _, want := range []string{"catalog-service", "payment:9000", "inventory"} {
+		if d, ok := byTarget[want]; !ok || !d.Resolved || d.Confidence != model.Confirmed {
+			t.Errorf("target %q missing or not confirmed: %+v", want, byTarget[want])
+		}
+	}
+	if uncertain != 1 {
+		t.Errorf("dynamic URL should yield 1 anonymous uncertain edge, got %d", uncertain)
+	}
+}
+
+func TestOutboundIgnoresNonHTTPReceiver(t *testing.T) {
+	// mypkg.Get(...) must not become an edge; nor should calls in files that
+	// never import net/http.
+	deps := outbound(t, `package main
+		import "net/http"
+		func x() { cache.Get("key") ; storage.Post("x", nil, nil) }`)
+	if len(deps) != 0 {
+		t.Errorf("expected no deps, got %+v", deps)
 	}
 }
