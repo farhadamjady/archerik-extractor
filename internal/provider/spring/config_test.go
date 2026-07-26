@@ -30,7 +30,7 @@ func buildStore(t *testing.T, profiles []string, files map[string]string) provid
 // form detectors actually pass to the resolver.
 func mustResolve(t *testing.T, c provider.ConfigResolver, key string) string {
 	t.Helper()
-	v, _, ok := c.Resolve("${" + key + "}")
+	v, _, _, ok := c.Resolve("${" + key + "}")
 	if !ok {
 		t.Fatalf("key %q did not resolve", key)
 	}
@@ -138,7 +138,7 @@ func TestCandidatesProvenance(t *testing.T) {
 
 func TestUnresolvedKey(t *testing.T) {
 	c := buildStore(t, nil, map[string]string{"application.yml": "a: 1\n"})
-	if _, _, ok := c.Resolve("${missing}"); ok {
+	if _, _, _, ok := c.Resolve("${missing}"); ok {
 		t.Error("missing key should not resolve")
 	}
 	if c.Candidates("${missing}") != nil {

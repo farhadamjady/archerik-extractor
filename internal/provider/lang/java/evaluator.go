@@ -705,8 +705,8 @@ func (c *evalCtx) resolveConfig(expr string) resolve.ValueSet {
 	if c.e.config == nil {
 		return resolve.NewUnknown()
 	}
-	if v, conf, ok := c.e.config.Resolve(expr); ok {
-		return resolve.ExactValues(resolve.Value{S: v, Conf: conf})
+	if v, conf, src, ok := c.e.config.Resolve(expr); ok {
+		return resolve.ExactValues(resolve.Value{S: v, Conf: conf, Source: src})
 	}
 	return resolve.NewUnknown()
 }

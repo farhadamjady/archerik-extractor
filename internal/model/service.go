@@ -70,6 +70,12 @@ type Dependency struct {
 	// alternatives together so the backend knows they are one-of-N, not all taken.
 	Conditional    bool   `json:"conditional,omitempty"`
 	CandidateGroup string `json:"candidate_group,omitempty"`
+	// ResolvedVia is the provenance behind Confidence=likely: which config source
+	// supplied the value (e.g. "application-prod.yml", "values-staging.yaml",
+	// ".env", "default"). Blank when the value is a literal (nothing to explain)
+	// or when it was assembled from more than one source (no single file to name
+	// honestly) — never guessed.
+	ResolvedVia string `json:"resolved_via,omitempty"`
 }
 
 // KafkaEdge is a produced or consumed topic. Direction is implied by which slice
@@ -86,6 +92,8 @@ type KafkaEdge struct {
 	// env overlays).
 	Conditional    bool   `json:"conditional,omitempty"`
 	CandidateGroup string `json:"candidate_group,omitempty"`
+	// ResolvedVia: as on Dependency — the config source behind a likely topic.
+	ResolvedVia string `json:"resolved_via,omitempty"`
 }
 
 // Database is a datastore this service uses (JPA entities/repositories, JDBC).
@@ -103,4 +111,8 @@ type ConfigDep struct {
 	Value      string     `json:"value,omitempty"`
 	Resolved   bool       `json:"resolved"`
 	Confidence Confidence `json:"confidence"`
+	// ResolvedVia is the file this key's value was read from (e.g.
+	// "application-prod.yml", "values-staging.yaml", ".env", "default"). Blank
+	// when unresolved.
+	ResolvedVia string `json:"resolved_via,omitempty"`
 }

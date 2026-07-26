@@ -76,19 +76,20 @@ func (d messagingDetector) emit(mc *provider.MatchContext, producer bool, dir st
 	if !isKafkaChannel(cfg, dir, channel) {
 		return // in-memory / non-Kafka connector — not a Kafka topic
 	}
-	topic := channel
+	topic, via := channel, ""
 	if t, ok := cfg.Lookup("mp.messaging." + dir + "." + channel + ".topic"); ok && t != "" {
-		topic = t
+		topic, via = t, "application"
 	}
 	sch := messagingSchema(mc, ann, producer)
 
 	edge := model.KafkaEdge{
-		Topic:      topic,
-		Resolved:   true,
-		Protocol:   model.ProtoKafka,
-		Detection:  model.DetectReactiveMessaging,
-		Confidence: model.Likely, // channel→topic is one config indirection
-		Schema:     sch,
+		Topic:       topic,
+		Resolved:    true,
+		Protocol:    model.ProtoKafka,
+		Detection:   model.DetectReactiveMessaging,
+		Confidence:  model.Likely, // channel→topic is one config indirection
+		Schema:      sch,
+		ResolvedVia: via,
 	}
 	if producer {
 		mc.Out.KafkaProducers = append(mc.Out.KafkaProducers, edge)

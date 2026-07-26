@@ -28,10 +28,14 @@ const (
 	Template
 )
 
-// Value is one concrete candidate string with its confidence.
+// Value is one concrete candidate string with its confidence. Source is
+// best-effort provenance (a config file name) when the value came from the
+// config/deploy layer; empty for literals and for values assembled from more
+// than one source (Concat), where no single file honestly explains it.
 type Value struct {
-	S    string
-	Conf model.Confidence
+	S      string
+	Conf   model.Confidence
+	Source string
 }
 
 // Segment is one piece of a Template: a literal run, or a hole.
@@ -88,12 +92,26 @@ func Concat(a, b ValueSet) ValueSet {
 		var out []Value
 		for _, x := range a.Values {
 			for _, y := range b.Values {
-				out = append(out, Value{S: x.S + y.S, Conf: minConf(x.Conf, y.Conf)})
+				out = append(out, Value{S: x.S + y.S, Conf: minConf(x.Conf, y.Conf), Source: mergeSource(x.Source, y.Source)})
 			}
 		}
 		return canonical(out)
 	}
 	return NewTemplate(append(asSegments(a), asSegments(b)...)...)
+}
+
+// mergeSource combines the provenance of two concatenated pieces: one empty
+// side (a literal) defers to the other; two different non-empty sources are
+// both named rather than picking one arbitrarily.
+func mergeSource(a, b string) string {
+	switch {
+	case a == "" || a == b:
+		return b
+	case b == "":
+		return a
+	default:
+		return a + "+" + b
+	}
 }
 
 // Union merges alternatives (ternary / switch / reaching definitions). Concrete

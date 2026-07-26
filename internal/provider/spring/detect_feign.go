@@ -101,6 +101,7 @@ func emitResolvedURL(mc *provider.MatchContext, base model.Dependency, urlStr, n
 		base.URL = cands[0].Value
 		base.Resolved = true
 		base.Confidence = cands[0].Conf
+		base.ResolvedVia = cands[0].Source
 		mc.Out.OutboundDependencies = append(mc.Out.OutboundDependencies, base)
 
 	default:
@@ -110,6 +111,7 @@ func emitResolvedURL(mc *provider.MatchContext, base model.Dependency, urlStr, n
 			d.URL = c.Value
 			d.Resolved = true
 			d.Confidence = model.Likely // one candidate is taken at runtime
+			d.ResolvedVia = c.Source
 			d.Conditional = true
 			d.CandidateGroup = group
 			mc.Out.OutboundDependencies = append(mc.Out.OutboundDependencies, d)

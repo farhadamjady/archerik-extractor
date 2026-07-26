@@ -43,24 +43,26 @@ type flatConfig struct{ values map[string]string }
 
 // Resolve accepts either a bare key ("mp.messaging.outgoing.x.topic") or a
 // ${...} placeholder, and expands nested ${...} references one level deep.
-func (c *flatConfig) Resolve(expr string) (string, model.Confidence, bool) {
+// Source is "application" for a key found in the merged config, "default" for
+// a ${x:default} fallback, "" when unresolved.
+func (c *flatConfig) Resolve(expr string) (string, model.Confidence, string, bool) {
 	key := expr
 	if strings.HasPrefix(expr, "${") && strings.HasSuffix(expr, "}") {
 		key = expr[2 : len(expr)-1]
 	}
 	key, def, hasDef := cutDefault(key)
 	if v, ok := c.values[key]; ok {
-		return c.expand(v), model.Likely, true
+		return c.expand(v), model.Likely, "application", true
 	}
 	if hasDef {
-		return c.expand(def), model.Likely, true
+		return c.expand(def), model.Likely, "default", true
 	}
-	return "", model.Uncertain, false
+	return "", model.Uncertain, "", false
 }
 
 func (c *flatConfig) Candidates(expr string) []provider.ResolvedValue {
-	if v, conf, ok := c.Resolve(expr); ok {
-		return []provider.ResolvedValue{{Value: v, Conf: conf, Source: "application"}}
+	if v, conf, src, ok := c.Resolve(expr); ok {
+		return []provider.ResolvedValue{{Value: v, Conf: conf, Source: src}}
 	}
 	return nil
 }

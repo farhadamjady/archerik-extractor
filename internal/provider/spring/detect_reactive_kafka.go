@@ -161,14 +161,14 @@ func subscribeTopicValues(mc *provider.MatchContext) []resolve.Value {
 	if cfg == nil {
 		return nil
 	}
-	v, conf, ok := cfg.Resolve("${spring.kafka.consumer.subscribeTopics}")
+	v, conf, src, ok := cfg.Resolve("${spring.kafka.consumer.subscribeTopics}")
 	if !ok || strings.TrimSpace(v) == "" {
 		return nil
 	}
 	var vals []resolve.Value
 	for _, p := range strings.Split(v, ",") {
 		if p = strings.TrimSpace(p); p != "" {
-			vals = append(vals, resolve.Value{S: p, Conf: conf})
+			vals = append(vals, resolve.Value{S: p, Conf: conf, Source: src})
 		}
 	}
 	return vals

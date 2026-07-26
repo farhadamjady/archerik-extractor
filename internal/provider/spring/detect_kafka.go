@@ -172,7 +172,7 @@ func resolvedValuesToVS(cands []provider.ResolvedValue) resolve.ValueSet {
 	}
 	vals := make([]resolve.Value, len(cands))
 	for i, c := range cands {
-		vals[i] = resolve.Value{S: c.Value, Conf: c.Conf}
+		vals[i] = resolve.Value{S: c.Value, Conf: c.Conf, Source: c.Source}
 	}
 	return resolve.ExactValues(vals...)
 }
@@ -368,13 +368,13 @@ func emitKafkaTopic(mc *provider.MatchContext, vs resolve.ValueSet, producer boo
 	switch vs.Kind {
 	case resolve.Exact:
 		if len(vs.Values) == 1 {
-			edge.Topic, edge.Resolved, edge.Confidence = vs.Values[0].S, true, vs.Values[0].Conf
+			edge.Topic, edge.Resolved, edge.Confidence, edge.ResolvedVia = vs.Values[0].S, true, vs.Values[0].Conf, vs.Values[0].Source
 			add(edge)
 			return
 		}
 		for _, v := range vs.Values {
 			e := edge
-			e.Topic, e.Resolved, e.Confidence = v.S, true, model.Likely
+			e.Topic, e.Resolved, e.Confidence, e.ResolvedVia = v.S, true, model.Likely, v.Source
 			e.Conditional, e.CandidateGroup = true, group
 			add(e)
 		}

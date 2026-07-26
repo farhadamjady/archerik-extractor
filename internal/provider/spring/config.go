@@ -90,15 +90,30 @@ func (c *springConfig) lookup(key string) (configVal, bool) {
 	return v, ok
 }
 
-// Resolve expands the placeholders in expr. Fully resolved → (value, likely).
-// Any placeholder left unresolved (unknown key with no default, cycle, or over
-// the depth cap) → (best-effort partial, uncertain, false).
-func (c *springConfig) Resolve(expr string) (string, model.Confidence, bool) {
+// Resolve expands the placeholders in expr. Fully resolved → (value, likely,
+// source). Any placeholder left unresolved (unknown key with no default,
+// cycle, or over the depth cap) → (best-effort partial, uncertain, "", false).
+func (c *springConfig) Resolve(expr string) (string, model.Confidence, string, bool) {
 	out, ok := c.expand(expr, 0, nil)
 	if !ok {
-		return out, model.Uncertain, false
+		return out, model.Uncertain, "", false
 	}
-	return out, model.Likely, true
+	return out, model.Likely, c.recordedSource(expr), true
+}
+
+// recordedSource returns the provenance recorded for expr's key when expr is a
+// lone ${key} placeholder (the common @Value("${x}") case) — read back from the
+// referenced-key bookkeeping expand() just updated. A mixed expression (several
+// keys, or a key alongside literal text) resolves to one string from several
+// origins, so it stays blank rather than picking one misleadingly.
+func (c *springConfig) recordedSource(expr string) string {
+	key, _, _, ok := singlePlaceholder(expr)
+	if !ok {
+		return ""
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.referenced[key].ResolvedVia
 }
 
 // Candidates resolves expr to one or more values. A lone ${key} whose value
@@ -121,43 +136,44 @@ func (c *springConfig) Candidates(expr string) []provider.ResolvedValue {
 		}
 		return nil
 	}
-	v, conf, ok := c.Resolve(expr)
+	v, conf, src, ok := c.Resolve(expr)
 	if !ok {
 		return nil
 	}
-	src, origin := c.provenance(expr)
-	return []provider.ResolvedValue{{Value: v, Conf: conf, Source: src, Origin: origin}}
+	return []provider.ResolvedValue{{Value: v, Conf: conf, Source: src}}
 }
 
 // deployLookup returns the single best deploy-layer value for a key (relaxed
-// binding). With an environment selected, the matching overlay wins; else the
-// base value, else the deterministically-first binding.
-func (c *springConfig) deployLookup(key string) (string, bool) {
+// binding) plus the file it came from. With an environment selected, the
+// matching overlay wins; else the base value, else the deterministically-first
+// binding.
+func (c *springConfig) deployLookup(key string) (value, source string, ok bool) {
 	if c.deploy == nil {
-		return "", false
+		return "", "", false
 	}
 	bs := c.deploy.Get(deployconfig.NormalizeKey(key))
 	if len(bs) == 0 {
-		return "", false
+		return "", "", false
 	}
-	return c.pickBinding(bs), true
+	v, src := c.pickBinding(bs)
+	return v, src, true
 }
 
-func (c *springConfig) pickBinding(bs []deployconfig.Binding) string {
+func (c *springConfig) pickBinding(bs []deployconfig.Binding) (value, source string) {
 	sorted := sortBindings(bs)
 	if c.env != "" {
 		for _, b := range sorted {
 			if b.Overlay == c.env {
-				return b.Value
+				return b.Value, b.Source
 			}
 		}
 	}
 	for _, b := range sorted {
 		if b.Overlay == "" {
-			return b.Value
+			return b.Value, b.Source
 		}
 	}
-	return sorted[0].Value
+	return sorted[0].Value, sorted[0].Source
 }
 
 // deployCandidates returns the deploy-layer candidates for a key. With an
@@ -172,9 +188,9 @@ func (c *springConfig) deployCandidates(key string) []provider.ResolvedValue {
 		return nil
 	}
 	if c.env != "" {
-		v := c.pickBinding(bs)
-		c.record(key, v, true)
-		return []provider.ResolvedValue{{Value: v, Conf: model.Likely, Source: "deploy", Origin: c.env}}
+		v, src := c.pickBinding(bs)
+		c.record(key, v, true, src)
+		return []provider.ResolvedValue{{Value: v, Conf: model.Likely, Source: src, Origin: c.env}}
 	}
 	var out []provider.ResolvedValue
 	seen := map[string]bool{}
@@ -190,7 +206,7 @@ func (c *springConfig) deployCandidates(key string) []provider.ResolvedValue {
 		}
 	}
 	if len(out) > 0 {
-		c.record(key, out[0].Value, true)
+		c.record(key, out[0].Value, true, out[0].Source)
 	}
 	return out
 }
@@ -253,46 +269,32 @@ func (c *springConfig) expand(s string, depth int, seen map[string]bool) (string
 		if v, ok := c.lookup(key); ok {
 			ev, ok2 := c.expand(v.value, depth+1, with(seen, key))
 			resolved = resolved && ok2
-			c.record(key, ev, ok2)
+			c.record(key, ev, ok2, v.source)
 			return ev
 		}
-		if dv, ok := c.deployLookup(key); ok {
+		if dv, src, ok := c.deployLookup(key); ok {
 			ev, ok2 := c.expand(dv, depth+1, with(seen, key))
 			resolved = resolved && ok2
-			c.record(key, ev, ok2)
+			c.record(key, ev, ok2, src)
 			return ev
 		}
 		if hasDef {
 			ev, ok2 := c.expand(def, depth+1, with(seen, key))
 			resolved = resolved && ok2
-			c.record(key, ev, ok2)
+			c.record(key, ev, ok2, "default")
 			return ev
 		}
 		resolved = false
-		c.record(key, "", false)
+		c.record(key, "", false, "")
 		return m
 	})
 	return out, resolved
 }
 
-// provenance returns the source file + profile when expr is a lone ${key}.
-func (c *springConfig) provenance(expr string) (source, profile string) {
-	if strings.HasPrefix(expr, "${") && strings.HasSuffix(expr, "}") {
-		inner := expr[2 : len(expr)-1]
-		if !strings.Contains(inner, "${") {
-			key, _, _ := cutDefault(inner)
-			if v, ok := c.lookup(key); ok {
-				return v.source, v.profile
-			}
-		}
-	}
-	return "", ""
-}
-
-// record notes a referenced key. Config indirection resolves at `likely`; an
-// unresolved reference is `uncertain`. A resolved record is not overwritten by a
-// later unresolved one for the same key.
-func (c *springConfig) record(key, value string, resolved bool) {
+// record notes a referenced key and where its value came from. Config
+// indirection resolves at `likely`; an unresolved reference is `uncertain`. A
+// resolved record is not overwritten by a later unresolved one for the same key.
+func (c *springConfig) record(key, value string, resolved bool, source string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if prev, ok := c.referenced[key]; ok && prev.Resolved && !resolved {
@@ -302,7 +304,7 @@ func (c *springConfig) record(key, value string, resolved bool) {
 	if resolved {
 		conf = model.Likely
 	}
-	c.referenced[key] = model.ConfigDep{Key: key, Value: value, Resolved: resolved, Confidence: conf}
+	c.referenced[key] = model.ConfigDep{Key: key, Value: value, Resolved: resolved, Confidence: conf, ResolvedVia: source}
 }
 
 // cutDefault splits ${key:default}; the first ':' separates, so a default may

@@ -206,7 +206,11 @@ type Indexer interface {
 // Candidates surfaces divergent env overlays (staging vs prod) so detectors
 // can emit one edge per candidate.
 type ConfigResolver interface {
-	Resolve(placeholder string) (value string, conf model.Confidence, ok bool)
+	// Resolve returns the single best value plus its provenance: source names
+	// the config file the value came from (e.g. "application-prod.yml",
+	// "values-staging.yaml", ".env", "default"), blank when placeholder isn't a
+	// lone ${key} (a mixed expression has no single honest source to name).
+	Resolve(placeholder string) (value string, conf model.Confidence, source string, ok bool)
 	Candidates(placeholder string) []ResolvedValue
 }
 

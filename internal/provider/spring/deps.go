@@ -43,10 +43,10 @@ func emitTargets(mc *provider.MatchContext, expr java.Node, detection model.Dete
 	// Emit that logical name as a resolved edge INSTEAD of the anonymous
 	// uncertain one emitValueSet would otherwise produce (one edge, not two).
 	if hostUnresolved(vs) {
-		if name, ok := discoveryTarget(mc, expr); ok {
+		if name, src, ok := discoveryTarget(mc, expr); ok {
 			mc.Out.OutboundDependencies = append(mc.Out.OutboundDependencies, model.Dependency{
 				TargetName: name, Protocol: protocol, Detection: detection,
-				Resolved: true, Confidence: model.Likely,
+				Resolved: true, Confidence: model.Likely, ResolvedVia: src,
 			})
 			return
 		}
@@ -88,6 +88,7 @@ func emitValueSet(mc *provider.MatchContext, vs resolve.ValueSet, detection mode
 			v := vs.Values[0]
 			if host, ok := targetHost(v.S); ok {
 				base.TargetName, base.URL, base.Resolved, base.Confidence = host, v.S, true, v.Conf
+				base.ResolvedVia = v.Source
 			} else {
 				// Bare path / opaque value: an outbound call, but this site names
 				// no service — keep it in url, stay anonymous and uncertain.
@@ -101,6 +102,7 @@ func emitValueSet(mc *provider.MatchContext, vs resolve.ValueSet, detection mode
 			d.URL, d.Conditional, d.CandidateGroup = v.S, true, group
 			if host, ok := targetHost(v.S); ok {
 				d.TargetName, d.Resolved, d.Confidence = host, true, model.Likely
+				d.ResolvedVia = v.Source
 			} else {
 				d.Resolved, d.Confidence = false, model.Uncertain
 			}

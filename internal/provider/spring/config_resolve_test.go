@@ -21,7 +21,8 @@ func store(t *testing.T, kv map[string]string) provider.ConfigResolver {
 
 func resolveExpr(t *testing.T, c provider.ConfigResolver, expr string) (string, model.Confidence, bool) {
 	t.Helper()
-	return c.Resolve(expr)
+	v, conf, _, ok := c.Resolve(expr)
+	return v, conf, ok
 }
 
 func TestResolveChain(t *testing.T) {
@@ -100,7 +101,7 @@ func TestNonActiveProfileResolvesLikely(t *testing.T) {
 		"application-staging.yml": "only.here: http://staging\n",
 	})
 	// Value lives only in a non-active profile; still resolvable, capped likely.
-	v, conf, ok := c.Resolve("${only.here}")
+	v, conf, _, ok := c.Resolve("${only.here}")
 	if !ok || v != "http://staging" {
 		t.Fatalf("fallback resolve = (%q, ok=%v)", v, ok)
 	}

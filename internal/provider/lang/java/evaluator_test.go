@@ -12,7 +12,7 @@ import (
 // fakeConfig is a minimal ConfigResolver for @Value tests.
 type fakeConfig map[string]string
 
-func (f fakeConfig) Resolve(expr string) (string, model.Confidence, bool) {
+func (f fakeConfig) Resolve(expr string) (string, model.Confidence, string, bool) {
 	// Substitute every ${key} like the real resolver does (mixed literals too).
 	out, ok := expr, false
 	for k, v := range f {
@@ -22,9 +22,9 @@ func (f fakeConfig) Resolve(expr string) (string, model.Confidence, bool) {
 		}
 	}
 	if strings.Contains(out, "${") {
-		return out, model.Uncertain, false
+		return out, model.Uncertain, "", false
 	}
-	return out, model.Likely, ok
+	return out, model.Likely, "fake", ok
 }
 func (f fakeConfig) Candidates(string) []provider.ResolvedValue { return nil }
 

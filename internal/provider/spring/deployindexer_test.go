@@ -51,7 +51,7 @@ func TestDeployResolvesWhenSpringMisses(t *testing.T) {
 
 	// Spring property PAYMENT_SERVICE_URL is not in application.yml; it resolves
 	// through the deploy layer (relaxed-bound: payment.service.url).
-	v, conf, ok := c.Resolve("${PAYMENT_SERVICE_URL}")
+	v, conf, _, ok := c.Resolve("${PAYMENT_SERVICE_URL}")
 	if !ok || v != "http://payment:8080" {
 		t.Fatalf("resolve = (%q, ok=%v), want http://payment:8080", v, ok)
 	}
@@ -66,7 +66,7 @@ func TestSpringWinsOverDeploy(t *testing.T) {
 		"application.properties": "payment.url=http://from-spring",
 		"values.yaml":            "payment:\n  url: http://from-helm\n",
 	})
-	if v, _, _ := c.Resolve("${payment.url}"); v != "http://from-spring" {
+	if v, _, _, _ := c.Resolve("${payment.url}"); v != "http://from-spring" {
 		t.Errorf("resolve = %q, want http://from-spring (Spring wins)", v)
 	}
 }
@@ -104,7 +104,7 @@ func TestEnvironmentCollapsesCandidates(t *testing.T) {
 	if len(cands) != 1 || cands[0].Value != "http://prod" {
 		t.Errorf("candidates = %v, want single http://prod", cands)
 	}
-	if v, _, _ := c.Resolve("${payment.url}"); v != "http://prod" {
+	if v, _, _, _ := c.Resolve("${payment.url}"); v != "http://prod" {
 		t.Errorf("resolve = %q, want http://prod", v)
 	}
 }
@@ -114,7 +114,7 @@ func TestDotenvResolves(t *testing.T) {
 	c := buildLayered(t, "", map[string]string{
 		"deploy/.env": "ORDERS_TOPIC=orders.v1\n",
 	})
-	if v, _, ok := c.Resolve("${ORDERS_TOPIC}"); !ok || v != "orders.v1" {
+	if v, _, _, ok := c.Resolve("${ORDERS_TOPIC}"); !ok || v != "orders.v1" {
 		t.Errorf("resolve = (%q, ok=%v), want orders.v1", v, ok)
 	}
 }
@@ -125,7 +125,7 @@ func TestUnresolvableStaysUncertain(t *testing.T) {
 	c := buildLayered(t, "", map[string]string{
 		"application.yml": "a: 1\n",
 	})
-	if _, conf, ok := c.Resolve("${config.server.only}"); ok || conf != model.Uncertain {
+	if _, conf, _, ok := c.Resolve("${config.server.only}"); ok || conf != model.Uncertain {
 		t.Errorf("resolve = (conf=%s, ok=%v), want (uncertain, false)", conf, ok)
 	}
 }

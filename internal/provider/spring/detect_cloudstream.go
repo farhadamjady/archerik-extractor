@@ -82,19 +82,20 @@ func functionalKind(ret string) (kind, inType, outType string) {
 // emitBinding resolves the binding's destination and emits the topic edge with
 // the payload schema (files-first, like the Kafka detector).
 func emitBinding(mc *provider.MatchContext, binding, payloadType string, producer bool) {
-	topic, conf := binding, model.Likely // Cloud Stream default: destination = binding name
+	topic, conf, via := binding, model.Likely, "" // Cloud Stream default: destination = binding name
 	if cfg := mc.Index.Config; cfg != nil {
-		if v, c, ok := cfg.Resolve("${spring.cloud.stream.bindings." + binding + ".destination}"); ok {
-			topic, conf = v, c
+		if v, c, src, ok := cfg.Resolve("${spring.cloud.stream.bindings." + binding + ".destination}"); ok {
+			topic, conf, via = v, c, src
 		}
 	}
 	edge := model.KafkaEdge{
-		Topic:      topic,
-		Resolved:   true,
-		Schema:     schema.ResolveKafka(payloadType, mc.Index.Schemas, mc.Index.Types),
-		Protocol:   model.ProtoKafka,
-		Detection:  model.DetectCloudStream,
-		Confidence: conf,
+		Topic:       topic,
+		Resolved:    true,
+		Schema:      schema.ResolveKafka(payloadType, mc.Index.Schemas, mc.Index.Types),
+		Protocol:    model.ProtoKafka,
+		Detection:   model.DetectCloudStream,
+		Confidence:  conf,
+		ResolvedVia: via,
 	}
 	if producer {
 		mc.Out.KafkaProducers = append(mc.Out.KafkaProducers, edge)

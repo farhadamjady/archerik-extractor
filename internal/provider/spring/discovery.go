@@ -26,19 +26,18 @@ import (
 // same "emit the raw name" contract as a service-discovery @FeignClient.
 //
 // Capped confidence is the caller's concern (registry indirection = likely).
-func discoveryTarget(mc *provider.MatchContext, urlExpr java.Node) (string, bool) {
+func discoveryTarget(mc *provider.MatchContext, urlExpr java.Node) (name, source string, ok bool) {
 	if mc.Resolver == nil {
-		return "", false
+		return "", "", false
 	}
 	method := enclosingMethod(urlExpr)
 	if !method.Valid() {
-		return "", false
+		return "", "", false
 	}
 	// getApplication is a generic name; gate it on the file actually using the
 	// Netflix discovery client. getNextServerFromEureka is unambiguous on its own.
 	eureka := fileImportsEureka(mc.File)
 
-	var name string
 	var found bool
 	method.Walk(func(n java.Node) bool {
 		if found || n.Type() != "method_invocation" {
@@ -52,13 +51,13 @@ func discoveryTarget(mc *provider.MatchContext, urlExpr java.Node) (string, bool
 		if !arg.Valid() {
 			return true
 		}
-		if v, ok := singleName(mc.Resolver.Resolve(arg)); ok {
-			name, found = v, true
+		if v, src, isName := singleName(mc.Resolver.Resolve(arg)); isName {
+			name, source, found = v, src, true
 			return false // stop the walk
 		}
 		return true
 	})
-	return name, found
+	return name, source, found
 }
 
 // enclosingMethod returns the method/constructor/lambda declaration containing n,
@@ -75,12 +74,14 @@ func enclosingMethod(n java.Node) java.Node {
 }
 
 // singleName returns the one resolved value of vs when it is a single exact
-// logical name (a host/service label — not a URL or a bare path), else ok=false.
-func singleName(vs resolve.ValueSet) (string, bool) {
+// logical name (a host/service label — not a URL or a bare path), plus its
+// config provenance, else ok=false.
+func singleName(vs resolve.ValueSet) (name, source string, ok bool) {
 	if vs.Kind != resolve.Exact || len(vs.Values) != 1 {
-		return "", false
+		return "", "", false
 	}
-	return targetHost(vs.Values[0].S)
+	host, ok := targetHost(vs.Values[0].S)
+	return host, vs.Values[0].Source, ok
 }
 
 // fileImportsEureka reports whether the file references the Netflix Eureka
