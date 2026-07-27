@@ -59,3 +59,47 @@ metadata:
 		t.Errorf("Marshal output missing trailing newline")
 	}
 }
+
+// TestRunLooseFileRefBaseNoDoubleCount is the regression for the loose-base
+// edge case: an overlay references an individual manifest FILE that lives
+// outside its own directory (../../base/service.yaml), and that base dir has
+// no kustomization.yaml of its own. Two things must hold: (1) the overlay
+// renders — LoadRestrictionsNone permits the out-of-tree file reference — so
+// the name-prefixed Service appears via Kustomize; (2) the base file is NOT
+// also picked up by the raw scanner, which would emit a spurious un-prefixed
+// entry for a manifest that is never deployed standalone.
+func TestRunLooseFileRefBaseNoDoubleCount(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "base/service.yaml", `apiVersion: v1
+kind: Service
+metadata:
+  name: orders-service
+  namespace: orders
+`)
+	write(t, root, "overlays/staging/kustomization.yaml", `namePrefix: staging-
+resources:
+- ../../base/service.yaml
+`)
+
+	im, errs, err := Run(context.Background(), Options{Root: root, APIKey: "k", DryRun: true})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(errs) != 0 {
+		t.Fatalf("render errs = %v (overlay should render under LoadRestrictionsNone)", errs)
+	}
+
+	bySource := map[string]string{} // service_name -> source
+	for _, e := range im.Entries {
+		bySource[e.ServiceName] = string(e.Source)
+	}
+	if bySource["staging-orders-service"] != "kustomize" {
+		t.Errorf("want staging-orders-service from kustomize, got entries = %+v", im.Entries)
+	}
+	if _, leaked := bySource["orders-service"]; leaked {
+		t.Errorf("un-prefixed base leaked into raw scan: %+v", im.Entries)
+	}
+	if len(im.Entries) != 1 {
+		t.Errorf("want exactly 1 entry, got %d: %+v", len(im.Entries), im.Entries)
+	}
+}

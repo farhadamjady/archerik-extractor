@@ -60,6 +60,7 @@ func Run(ctx context.Context, opt Options) (*model.IdentityMap, []RenderError, e
 	tree := scan.NewOSFileTree(root, deployRepoExclude)
 	var allErrs []RenderError
 
+	kustomizationDirs := allKustomizationDirs(tree)
 	kustomizeRoots := discoverKustomizations(tree)
 	kEntries, kErrs := RenderKustomizations(root, kustomizeRoots)
 	allErrs = append(allErrs, kErrs...)
@@ -68,8 +69,9 @@ func Run(ctx context.Context, opt Options) (*model.IdentityMap, []RenderError, e
 	hEntries, hErrs := RenderHelmCharts(root, chartDirs, opt.Environments)
 	allErrs = append(allErrs, hErrs...)
 
-	rawExclude := append(append([]string{}, deployRepoExclude...),
-		rawScanExclusions(chartDirs, allKustomizationDirs(tree))...)
+	rawExclude := append([]string{}, deployRepoExclude...)
+	rawExclude = append(rawExclude, rawScanExclusions(chartDirs, kustomizationDirs)...)
+	rawExclude = append(rawExclude, kustomizationReferencedExclusions(tree, kustomizationDirs)...)
 	rawTree := scan.NewOSFileTree(root, rawExclude)
 	rawDocs, rawErrs := discoverK8sRaw(rawTree)
 	allErrs = append(allErrs, rawErrs...)

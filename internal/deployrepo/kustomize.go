@@ -9,6 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"sigs.k8s.io/kustomize/api/krusty"
+	"sigs.k8s.io/kustomize/api/types"
 	"sigs.k8s.io/kustomize/kyaml/filesys"
 
 	"github.com/farhadamjady/service-discovery/internal/model"
@@ -45,7 +46,10 @@ func discoverKustomizations(tree provider.FileTree) []string {
 
 	referenced := map[string]bool{}
 	for _, dir := range dirs {
-		for _, ref := range kustomizationReferences(tree, dir) {
+		for _, ref := range kustomizationLocalRefs(tree, dir) {
+			if isYAMLRef(ref) {
+				continue // an individual manifest file, not a base directory
+			}
 			referenced[path.Clean(path.Join(dir, ref))] = true
 		}
 	}
@@ -59,11 +63,31 @@ func discoverKustomizations(tree provider.FileTree) []string {
 	return roots
 }
 
-// kustomizationReferences reads a kustomization.yaml/.yml's resources: and
-// bases: lists for entries that point at a sibling DIRECTORY (as opposed to a
-// plain manifest file or a remote URL) — the only way one kustomization can
-// pull in another's directory.
-func kustomizationReferences(tree provider.FileTree, dir string) []string {
+// kustomizationReferencedExclusions returns raw-scan exclusion globs for every
+// file or directory any kustomization pulls in via resources:/bases:, resolved
+// to repo-relative paths. A loose file-ref base living OUTSIDE its overlay's
+// own directory (so allKustomizationDirs' dir-level exclusion misses it) would
+// otherwise be emitted twice: once rendered (name-prefixed) by Kustomize and
+// once raw (un-prefixed) by the manifest scanner. Directory references become
+// a "<dir>/**" subtree glob; individual file references become the exact path.
+func kustomizationReferencedExclusions(tree provider.FileTree, kustomizationDirs []string) []string {
+	var out []string
+	for _, dir := range kustomizationDirs {
+		for _, ref := range kustomizationLocalRefs(tree, dir) {
+			resolved := path.Clean(path.Join(dir, ref))
+			if isYAMLRef(ref) {
+				out = append(out, resolved)
+			} else {
+				out = append(out, resolved+"/**")
+			}
+		}
+	}
+	return out
+}
+
+// kustomizationLocalRefs returns the local (non-URL) resources:/bases: entries
+// of the kustomization at dir — both directory and individual-file references.
+func kustomizationLocalRefs(tree provider.FileTree, dir string) []string {
 	var refs []string
 	for _, name := range []string{"kustomization.yaml", "kustomization.yml"} {
 		rel := path.Join(dir, name)
@@ -82,13 +106,17 @@ func kustomizationReferences(tree provider.FileTree, dir string) []string {
 			continue
 		}
 		for _, r := range append(doc.Resources, doc.Bases...) {
-			if strings.HasSuffix(r, ".yaml") || strings.HasSuffix(r, ".yml") || strings.Contains(r, "://") {
-				continue // a plain manifest file or a remote URL, not a directory
+			if strings.Contains(r, "://") {
+				continue // remote URL — nothing on the local filesystem to exclude
 			}
 			refs = append(refs, r)
 		}
 	}
 	return refs
+}
+
+func isYAMLRef(ref string) bool {
+	return strings.HasSuffix(ref, ".yaml") || strings.HasSuffix(ref, ".yml")
 }
 
 // RenderKustomizations renders every kustomization root directory in
@@ -103,7 +131,15 @@ func RenderKustomizations(absRoot string, overlayDirs []string) ([]model.Identit
 	var entries []model.IdentityEntry
 	var errs []RenderError
 	fSys := filesys.MakeFsOnDisk()
-	kustomizer := krusty.MakeKustomizer(krusty.MakeDefaultOptions())
+	// LoadRestrictionsNone (vs. the RootOnly default) lets an overlay reference
+	// files outside its own directory (e.g. resources: ["../../base/svc.yaml"]).
+	// This matches how Argo CD itself runs Kustomize by default; we scan a
+	// trusted, read-only local checkout, so the relaxed file access is safe.
+	// The raw-scan exclusion (kustomizationReferencedExclusions) keeps such
+	// out-of-tree files from also being counted as standalone manifests.
+	opts := krusty.MakeDefaultOptions()
+	opts.LoadRestrictions = types.LoadRestrictionsNone
+	kustomizer := krusty.MakeKustomizer(opts)
 	for _, dir := range overlayDirs {
 		e, err := renderKustomization(kustomizer, fSys, absRoot, dir)
 		if err != nil {
