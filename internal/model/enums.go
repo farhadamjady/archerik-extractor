@@ -65,3 +65,30 @@ const (
 	ReqOptional Requiredness = "optional"
 	ReqUnknown  Requiredness = "unknown"
 )
+
+// IdentitySource records WHERE a deploy-repo identity fact came from —
+// orthogonal to IdentityConfidence (source is provenance, confidence is trust
+// in that provenance). SourceSelfDeclared covers the .ekg-identity.json
+// fallback file committed in a SERVICE repo — a distinct source value, not a
+// distinct output shape, so the backend reconciles every source uniformly.
+type IdentitySource string
+
+const (
+	SourceHelm         IdentitySource = "helm"
+	SourceKustomize    IdentitySource = "kustomize"
+	SourceK8sRaw       IdentitySource = "k8s-raw"
+	SourceSelfDeclared IdentitySource = "self-declared"
+)
+
+// IdentityConfidence expresses trust in a deploy-repo identity fact. Unlike
+// Confidence (code-detection certainty), this is two-valued: a fact either
+// came from a fully rendered/parsed manifest (Confirmed) or from an
+// unverifiable self-declaration, or an Ingress/VirtualService naming a
+// Service not otherwise seen in this scan (Likely). No "uncertain" — a value
+// this repo could not resolve at all through this source is not emitted.
+type IdentityConfidence string
+
+const (
+	IdentityConfirmed IdentityConfidence = "confirmed"
+	IdentityLikely    IdentityConfidence = "likely"
+)

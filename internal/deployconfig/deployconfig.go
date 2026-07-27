@@ -60,7 +60,7 @@ func (l *Layer) Keys() []string {
 // PR 11 traces them. Unknown shapes yield no bindings rather than an error.
 func Parse(p string, src []byte) ([]Binding, error) {
 	base := path.Base(p)
-	overlay := overlayFromName(base)
+	overlay := OverlayFromName(base)
 	switch {
 	case base == ".env" || strings.HasSuffix(base, ".env"):
 		return parseDotenv(base, overlay, src), nil
@@ -100,8 +100,10 @@ func ParseK8s(p string, src []byte) ([]Binding, error) {
 	return out, nil
 }
 
-// overlayFromName extracts the env from values-<env>.yaml, else "".
-func overlayFromName(base string) string {
+// OverlayFromName extracts the env from values-<env>.yaml, else "". Exported
+// so internal/deployrepo's Helm renderer can reuse this exact convention
+// rather than reimplementing it.
+func OverlayFromName(base string) string {
 	name := strings.TrimSuffix(strings.TrimSuffix(base, ".yaml"), ".yml")
 	if strings.HasPrefix(name, "values-") {
 		return name[len("values-"):]
