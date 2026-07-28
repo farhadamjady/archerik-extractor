@@ -7,21 +7,28 @@ import "testing"
 // a different Environment is a distinct fact (a service can have different
 // hosts per environment) and both must survive.
 func TestSortIdentityMapDedup(t *testing.T) {
+	hosts := func(vs ...string) []Host {
+		out := make([]Host, len(vs))
+		for i, v := range vs {
+			out[i] = Host{Value: v, Kind: HostInCluster, Resolver: SourceHelm}
+		}
+		return out
+	}
 	im := &IdentityMap{
 		Entries: []IdentityEntry{
 			{
 				ServiceName: "pym-service", Namespace: "payments", Environment: "prod",
-				Hosts: []string{"pym-service", "pym-service.payments"}, Source: SourceHelm, Confidence: IdentityConfirmed,
+				Hosts: hosts("pym-service", "pym-service.payments"), Source: SourceHelm, Confidence: IdentityConfirmed,
 			},
 			{
 				// same fact as above, Hosts just in a different order
 				ServiceName: "pym-service", Namespace: "payments", Environment: "prod",
-				Hosts: []string{"pym-service.payments", "pym-service"}, Source: SourceHelm, Confidence: IdentityConfirmed,
+				Hosts: hosts("pym-service.payments", "pym-service"), Source: SourceHelm, Confidence: IdentityConfirmed,
 			},
 			{
 				// same (ServiceName, Namespace), different Environment: must survive
 				ServiceName: "pym-service", Namespace: "payments", Environment: "staging",
-				Hosts: []string{"pym-service", "pym-service.payments"}, Source: SourceHelm, Confidence: IdentityConfirmed,
+				Hosts: hosts("pym-service", "pym-service.payments"), Source: SourceHelm, Confidence: IdentityConfirmed,
 			},
 		},
 	}

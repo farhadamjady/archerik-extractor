@@ -46,11 +46,11 @@ func discoverCharts(tree provider.FileTree) []string {
 // cluster access and no live chart-repo pulls. A failure loading or
 // rendering one chart, or one of its env overlays, is collected as a
 // RenderError and never aborts the rest of the scan.
-func RenderHelmCharts(absRoot string, chartDirs []string, envFilter []string) ([]model.IdentityEntry, []RenderError) {
+func RenderHelmCharts(absRoot string, chartDirs []string, envFilter []string, opts ResolverOptions) ([]model.IdentityEntry, []RenderError) {
 	var entries []model.IdentityEntry
 	var errs []RenderError
 	for _, dir := range chartDirs {
-		e, chartErrs := renderChart(absRoot, dir, envFilter)
+		e, chartErrs := renderChart(absRoot, dir, envFilter, opts)
 		entries = append(entries, e...)
 		errs = append(errs, chartErrs...)
 	}
@@ -69,7 +69,7 @@ type valuesOverlay struct {
 // values overlay. A panic from the Helm SDK — a known risk on malformed or
 // unusual templates — is recovered here so one broken chart can't take down
 // the rest of the scan.
-func renderChart(absRoot, chartRelDir string, envFilter []string) (entries []model.IdentityEntry, errs []RenderError) {
+func renderChart(absRoot, chartRelDir string, envFilter []string, opts ResolverOptions) (entries []model.IdentityEntry, errs []RenderError) {
 	defer func() {
 		if r := recover(); r != nil {
 			errs = append(errs, RenderError{Unit: chartRelDir, Err: fmt.Errorf("panic loading/rendering chart: %v", r)})
@@ -88,7 +88,7 @@ func renderChart(absRoot, chartRelDir string, envFilter []string) (entries []mod
 	}
 
 	for _, ov := range overlays {
-		out, rerr := renderChartOverlay(chrt, chartRelDir, ov)
+		out, rerr := renderChartOverlay(chrt, chartRelDir, ov, opts)
 		if rerr != nil {
 			errs = append(errs, RenderError{Unit: chartRelDir, Env: ov.env, Err: rerr})
 			continue
@@ -189,7 +189,7 @@ const releaseNamespaceDefault = "default"
 // — since no live release exists in a committed repo to read the real name
 // from; a CD pipeline naming releases differently from the chart directory
 // will mis-derive ServiceName here, a known, accepted limitation.
-func renderChartOverlay(chrt *chart.Chart, chartRelDir string, ov valuesOverlay) (entries []model.IdentityEntry, err error) {
+func renderChartOverlay(chrt *chart.Chart, chartRelDir string, ov valuesOverlay, opts ResolverOptions) (entries []model.IdentityEntry, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic: %v", r)
@@ -236,5 +236,5 @@ func renderChartOverlay(chrt *chart.Chart, chartRelDir string, ov valuesOverlay)
 			}
 		}
 	}
-	return extractEntries(docs, model.SourceHelm), nil
+	return extractEntries(docs, model.SourceHelm, opts), nil
 }

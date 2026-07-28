@@ -55,7 +55,7 @@ func TestRenderChartFullnameAndOverlay(t *testing.T) {
 	chartDir := filepath.Join(root, "payments")
 	writeMinimalChart(t, chartDir, "web")
 
-	entries, errs := renderChart(root, "payments", nil)
+	entries, errs := renderChart(root, "payments", nil, testKinds())
 	if len(errs) != 0 {
 		t.Fatalf("errs = %v", errs)
 	}
@@ -81,12 +81,12 @@ func TestRenderChartFullnameAndOverlay(t *testing.T) {
 		wantFQDN := "payments-web.payments.svc.cluster.local"
 		found := false
 		for _, h := range e.Hosts {
-			if h == wantFQDN {
+			if h.Value == wantFQDN {
 				found = true
 			}
 		}
 		if !found {
-			t.Errorf("env %q: hosts = %v, want to include %q", env, e.Hosts, wantFQDN)
+			t.Errorf("env %q: hosts = %v, want to include %q", env, model.HostValues(e.Hosts), wantFQDN)
 		}
 	}
 }
@@ -104,7 +104,7 @@ metadata:
   name: {{ .Values.nonexistent.deep }}
 `)
 
-	entries, errs := renderChart(root, "broken", nil)
+	entries, errs := renderChart(root, "broken", nil, testKinds())
 	if len(errs) == 0 {
 		t.Fatalf("want a RenderError from the broken template, got none; entries = %+v", entries)
 	}
@@ -117,7 +117,7 @@ func TestRenderChartEnvFilter(t *testing.T) {
 	chartDir := filepath.Join(root, "payments")
 	writeMinimalChart(t, chartDir, "web")
 
-	entries, errs := renderChart(root, "payments", []string{"staging"})
+	entries, errs := renderChart(root, "payments", []string{"staging"}, testKinds())
 	if len(errs) != 0 {
 		t.Fatalf("errs = %v", errs)
 	}

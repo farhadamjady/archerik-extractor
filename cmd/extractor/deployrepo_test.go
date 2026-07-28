@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/farhadamjady/service-discovery/internal/backend"
+	"github.com/farhadamjady/service-discovery/internal/deployrepo"
 	"github.com/farhadamjady/service-discovery/internal/exitcode"
 	"github.com/farhadamjady/service-discovery/internal/model"
 )
@@ -42,6 +43,75 @@ func TestRunUnknownMode(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "unknown --mode") {
 		t.Errorf("stderr = %q, want it to mention the bad --mode value", stderr.String())
+	}
+}
+
+// TestRunDeployRepoResolverSubset: a repo with both a Helm chart and a raw
+// manifest, scanned with --resolvers=k8s-raw, emits only the raw entry.
+func TestRunDeployRepoResolverSubset(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "manifests/service.yaml", "apiVersion: v1\nkind: Service\nmetadata:\n  name: raw-svc\n  namespace: payments\n")
+	write(t, root, "chart/Chart.yaml", "apiVersion: v2\nname: web\nversion: 0.1.0\n")
+	write(t, root, "chart/values.yaml", "x: 1\n")
+	write(t, root, "chart/templates/service.yaml", "apiVersion: v1\nkind: Service\nmetadata:\n  name: {{ .Release.Name }}-svc\n  namespace: payments\n")
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--mode", "deploy-repo", "--root", root, "--api-key", "k", "--dry-run", "--resolvers", "k8s-raw"}, &stdout, &stderr)
+	if code != int(exitcode.OK) {
+		t.Fatalf("exit = %d, want 0; stderr: %s", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, `"service_name":"raw-svc"`) {
+		t.Errorf("want raw-svc entry, got: %s", out)
+	}
+	if strings.Contains(out, `"source":"helm"`) {
+		t.Errorf("helm resolver ran despite --resolvers=k8s-raw: %s", out)
+	}
+}
+
+func TestRunUnknownResolver(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "manifests/service.yaml", "kind: Service\nmetadata:\n  name: s\n")
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--mode", "deploy-repo", "--root", root, "--api-key", "k", "--dry-run", "--resolvers", "bogus"}, &stdout, &stderr)
+	if code == int(exitcode.OK) {
+		t.Fatalf("exit = 0, want non-zero for unknown resolver; stderr: %s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "bogus") {
+		t.Errorf("stderr = %q, want it to name the bad resolver", stderr.String())
+	}
+}
+
+func TestRunInvalidNamespaceConvention(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "manifests/service.yaml", "kind: Service\nmetadata:\n  name: s\n")
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--mode", "deploy-repo", "--root", root, "--api-key", "k", "--dry-run", "--namespace-convention", "nonsense"}, &stdout, &stderr)
+	if code != int(exitcode.Runtime) {
+		t.Fatalf("exit = %d, want %d for invalid convention; stderr: %s", code, int(exitcode.Runtime), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "namespace-convention") {
+		t.Errorf("stderr = %q, want it to mention the bad convention", stderr.String())
+	}
+}
+
+// TestRunDeployRepoNamespaceConvention: a chart whose Service declares no
+// namespace, scanned with --namespace-convention=service-name, yields
+// namespace == the rendered service name instead of "default".
+func TestRunDeployRepoNamespaceConvention(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "chart/Chart.yaml", "apiVersion: v2\nname: web\nversion: 0.1.0\n")
+	write(t, root, "chart/values.yaml", "x: 1\n")
+	write(t, root, "chart/templates/service.yaml", "apiVersion: v1\nkind: Service\nmetadata:\n  name: {{ .Release.Name }}\n") // no namespace
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--mode", "deploy-repo", "--root", root, "--api-key", "k", "--dry-run", "--namespace-convention", "service-name"}, &stdout, &stderr)
+	if code != int(exitcode.OK) {
+		t.Fatalf("exit = %d, want 0; stderr: %s", code, stderr.String())
+	}
+	// Release name = chart dir "chart", so service_name == "chart" and ns == "chart".
+	if !strings.Contains(stdout.String(), `"namespace":"chart"`) {
+		t.Errorf("want namespace derived from service name, got: %s", stdout.String())
 	}
 }
 
@@ -103,10 +173,7 @@ func TestReadSelfDeclaredIdentityArray(t *testing.T) {
 		{"service_name":"pym-service","hosts":["pym-service"],"namespace":"payments","environment":"prod"},
 		{"service_name":"pym-service","hosts":["pym-service"],"namespace":"payments","environment":"staging"}
 	]`)
-	entries, err := readSelfDeclaredIdentity(root)
-	if err != nil {
-		t.Fatalf("readSelfDeclaredIdentity: %v", err)
-	}
+	entries := deployrepo.ReadSelfDeclared(root)
 	if len(entries) != 2 {
 		t.Fatalf("entries = %+v, want 2", entries)
 	}
@@ -120,10 +187,7 @@ func TestReadSelfDeclaredIdentityArray(t *testing.T) {
 func TestReadSelfDeclaredIdentityBareObject(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, ".ekg-identity.json", `{"service_name":"pym-service","hosts":["pym-service"],"namespace":"payments"}`)
-	entries, err := readSelfDeclaredIdentity(root)
-	if err != nil {
-		t.Fatalf("readSelfDeclaredIdentity: %v", err)
-	}
+	entries := deployrepo.ReadSelfDeclared(root)
 	if len(entries) != 1 || entries[0].ServiceName != "pym-service" {
 		t.Fatalf("entries = %+v", entries)
 	}
@@ -131,14 +195,12 @@ func TestReadSelfDeclaredIdentityBareObject(t *testing.T) {
 
 func TestReadSelfDeclaredIdentityAbsentOrMalformed(t *testing.T) {
 	root := t.TempDir()
-	entries, err := readSelfDeclaredIdentity(root)
-	if err != nil || len(entries) != 0 {
-		t.Fatalf("absent file: entries=%+v err=%v, want (nil, nil)", entries, err)
+	if entries := deployrepo.ReadSelfDeclared(root); len(entries) != 0 {
+		t.Fatalf("absent file: entries=%+v, want none", entries)
 	}
 
 	write(t, root, ".ekg-identity.json", `not json at all`)
-	entries, err = readSelfDeclaredIdentity(root)
-	if err != nil || len(entries) != 0 {
-		t.Fatalf("malformed file: entries=%+v err=%v, want (nil, nil)", entries, err)
+	if entries := deployrepo.ReadSelfDeclared(root); len(entries) != 0 {
+		t.Fatalf("malformed file: entries=%+v, want none", entries)
 	}
 }

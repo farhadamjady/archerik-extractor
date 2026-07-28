@@ -15,7 +15,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"encoding/json"
@@ -43,6 +42,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		profiles     = fs.String("profiles", "", "comma-separated active Spring profiles (scan-repo mode only)")
 		environment  = fs.String("environment", "", "deploy overlay to resolve (e.g. staging) (scan-repo mode only)")
 		environments = fs.String("environments", "", "comma-separated deploy environments to render, empty renders every discovered environment (deploy-repo mode only)")
+		resolvers    = fs.String("resolvers", "", "comma-separated host resolvers to run: helm,kustomize,k8s-raw,ingress,istio,self-declared; empty runs all (deploy-repo mode only)")
+		nsConvention = fs.String("namespace-convention", "", "derive namespace from service name when a manifest declares none: service-name | replace:<from>:<to> (deploy-repo mode only)")
 		configRepo   = fs.String("config-repo", "", "local checkout of the Spring Cloud Config repo (its yml/properties feed resolution) (scan-repo mode only)")
 		out          = fs.String("out", "-", "output path for the JSON, or - for stdout")
 		apiURL       = fs.String("api-url", "", "backend base URL for key validation + submit; empty runs local/dev")
@@ -77,10 +78,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 			branch: *branch, sha: *sha, pr: *pr, commentOut: *commentOut,
 		}, key, stdout, stderr)
 	case "deploy-repo":
+		if !deployrepo.ValidNamespaceConvention(*nsConvention) {
+			fmt.Fprintf(stderr, "extractor: invalid --namespace-convention %q (want service-name or replace:<from>:<to>)\n", *nsConvention)
+			return int(exitcode.Runtime)
+		}
 		return runDeployRepo(deployRepoArgs{
 			root: *root, repository: *repository, apiURL: *apiURL, out: *out,
-			environments: *environments, dryRun: *dryRun,
-			branch: *branch, sha: *sha, pr: *pr,
+			environments: *environments, resolvers: *resolvers, nsConvention: *nsConvention,
+			dryRun: *dryRun, branch: *branch, sha: *sha, pr: *pr,
 		}, key, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "extractor: unknown --mode %q (want scan-repo or deploy-repo)\n", *mode)
@@ -136,9 +141,9 @@ func runScanRepo(a scanRepoArgs, key string, stdout, stderr io.Writer) int {
 
 // deployRepoArgs is the resolved flag set for a deploy-repo scan.
 type deployRepoArgs struct {
-	root, repository, apiURL, out, environments string
-	dryRun                                      bool
-	branch, sha, pr                             string
+	root, repository, apiURL, out, environments, resolvers, nsConvention string
+	dryRun                                                               bool
+	branch, sha, pr                                                      string
 }
 
 // runDeployRepo scans a deployment/GitOps repo and emits an identity map
@@ -146,13 +151,15 @@ type deployRepoArgs struct {
 // manifests are non-fatal — printed as warnings, never aborting the scan.
 func runDeployRepo(a deployRepoArgs, key string, stdout, stderr io.Writer) int {
 	im, renderErrs, err := deployrepo.Run(context.Background(), deployrepo.Options{
-		Root:         a.root,
-		Repository:   resolveRepository(a.repository, a.root),
-		APIKey:       key,
-		APIURL:       a.apiURL,
-		DryRun:       a.dryRun,
-		Environments: splitCSV(a.environments),
-		CI:           ciMeta(a.branch, a.sha, a.pr),
+		Root:                a.root,
+		Repository:          resolveRepository(a.repository, a.root),
+		APIKey:              key,
+		APIURL:              a.apiURL,
+		DryRun:              a.dryRun,
+		Environments:        splitCSV(a.environments),
+		Resolvers:           splitCSV(a.resolvers),
+		NamespaceConvention: a.nsConvention,
+		CI:                  ciMeta(a.branch, a.sha, a.pr),
 	})
 	for _, re := range renderErrs {
 		fmt.Fprintln(stderr, "extractor: render warning:", re)
@@ -174,59 +181,17 @@ func runDeployRepo(a deployRepoArgs, key string, stdout, stderr io.Writer) int {
 	return int(exitcode.OK)
 }
 
-// ekgIdentityDecl is one entry of the .ekg-identity.json fallback file.
-type ekgIdentityDecl struct {
-	ServiceName string   `json:"service_name"`
-	Hosts       []string `json:"hosts"`
-	Namespace   string   `json:"namespace"`
-	Environment string   `json:"environment"`
-}
-
-// readSelfDeclaredIdentity reads the optional .ekg-identity.json fallback
-// file at a service repo's root: a small, hand-authored declaration of the
-// hosts this service is reachable at, for estates with no parseable deploy
-// repo. Tolerates either a bare object or an array of objects, the same
-// tolerant-parsing spirit as resolveKey's dual "="/":" support. Absent or
-// malformed file yields no entries and no error — it never fails the scan.
-func readSelfDeclaredIdentity(root string) ([]model.IdentityEntry, error) {
-	b, err := os.ReadFile(filepath.Join(root, ".ekg-identity.json"))
-	if err != nil {
-		return nil, nil
-	}
-	var decls []ekgIdentityDecl
-	if err := json.Unmarshal(b, &decls); err != nil {
-		var single ekgIdentityDecl
-		if err := json.Unmarshal(b, &single); err != nil {
-			return nil, nil
-		}
-		decls = []ekgIdentityDecl{single}
-	}
-	entries := make([]model.IdentityEntry, 0, len(decls))
-	for _, d := range decls {
-		if d.ServiceName == "" {
-			continue
-		}
-		entries = append(entries, model.IdentityEntry{
-			ServiceName: d.ServiceName,
-			Hosts:       d.Hosts,
-			Namespace:   d.Namespace,
-			Environment: d.Environment,
-			Source:      model.SourceSelfDeclared,
-			Confidence:  model.IdentityLikely,
-		})
-	}
-	return entries, nil
-}
-
 // submitSelfDeclaredIdentity submits .ekg-identity.json's declared hosts (if
 // the file exists) as a small IdentityMap alongside the primary scan's
 // Service submission. Best-effort and side-channel: any failure here is
 // logged and never affects the primary scan's exit code, and it is never
 // merged with a deploy-repo-mode scan locally — the extractor stays
-// stateless, the backend reconciles sources via IdentityEntry.Source.
+// stateless, the backend reconciles sources via IdentityEntry.Source. The
+// file's parsing lives in the deployrepo self-declared resolver, shared with
+// deploy-repo mode.
 func submitSelfDeclaredIdentity(ctx context.Context, a scanRepoArgs, key string, stderr io.Writer) {
-	entries, err := readSelfDeclaredIdentity(a.root)
-	if err != nil || len(entries) == 0 {
+	entries := deployrepo.ReadSelfDeclared(a.root)
+	if len(entries) == 0 {
 		return
 	}
 	im := model.NewIdentityMap(resolveRepository(a.repository, a.root))

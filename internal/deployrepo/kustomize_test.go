@@ -45,7 +45,7 @@ func TestRenderKustomizationAppliesNamePrefix(t *testing.T) {
 	root := t.TempDir()
 	writeBaseAndStagingOverlay(t, root)
 
-	entries, errs := RenderKustomizations(root, []string{"overlays/staging"})
+	entries, errs := RenderKustomizations(root, []string{"overlays/staging"}, testKinds())
 	if len(errs) != 0 {
 		t.Fatalf("errs = %v", errs)
 	}

@@ -31,7 +31,13 @@ type Options struct {
 	// renders every discovered environment (Helm: base + every values-<env>.yaml;
 	// Kustomize: every overlay).
 	Environments []string
-	CI           submit.Meta
+	// Resolvers selects which host-resolution mechanisms run (see Select);
+	// empty enables all of them.
+	Resolvers []string
+	// NamespaceConvention derives a namespace from the service name when a
+	// manifest declares none (empty = default to "default").
+	NamespaceConvention string
+	CI                  submit.Meta
 	// OnSubmitResponse, when set, receives the raw ingest-response body after
 	// a successful submit.
 	OnSubmitResponse func([]byte)
@@ -57,30 +63,25 @@ func Run(ctx context.Context, opt Options) (*model.IdentityMap, []RenderError, e
 		return nil, nil, err
 	}
 
-	tree := scan.NewOSFileTree(root, deployRepoExclude)
-	var allErrs []RenderError
+	resolvers, resolverOpts, err := Select(opt.Resolvers, ResolverOptions{NamespaceConvention: opt.NamespaceConvention})
+	if err != nil {
+		return nil, nil, err
+	}
 
-	kustomizationDirs := allKustomizationDirs(tree)
-	kustomizeRoots := discoverKustomizations(tree)
-	kEntries, kErrs := RenderKustomizations(root, kustomizeRoots)
-	allErrs = append(allErrs, kErrs...)
-
-	chartDirs := discoverCharts(tree)
-	hEntries, hErrs := RenderHelmCharts(root, chartDirs, opt.Environments)
-	allErrs = append(allErrs, hErrs...)
-
-	rawExclude := append([]string{}, deployRepoExclude...)
-	rawExclude = append(rawExclude, rawScanExclusions(chartDirs, kustomizationDirs)...)
-	rawExclude = append(rawExclude, kustomizationReferencedExclusions(tree, kustomizationDirs)...)
-	rawTree := scan.NewOSFileTree(root, rawExclude)
-	rawDocs, rawErrs := discoverK8sRaw(rawTree)
-	allErrs = append(allErrs, rawErrs...)
-	rawEntries := extractEntries(rawDocs, model.SourceK8sRaw)
+	rc := ResolveContext{
+		AbsRoot:      root,
+		Tree:         scan.NewOSFileTree(root, deployRepoExclude),
+		Environments: opt.Environments,
+		Opts:         resolverOpts,
+	}
 
 	im := model.NewIdentityMap(opt.Repository)
-	im.Entries = append(im.Entries, kEntries...)
-	im.Entries = append(im.Entries, hEntries...)
-	im.Entries = append(im.Entries, rawEntries...)
+	var allErrs []RenderError
+	for _, r := range resolvers {
+		entries, errs := r.Resolve(rc)
+		im.Entries = append(im.Entries, entries...)
+		allErrs = append(allErrs, errs...)
+	}
 	model.SortIdentityMap(im)
 
 	if err := submitIdentityMap(ctx, opt, im); err != nil {

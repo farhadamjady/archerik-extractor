@@ -27,7 +27,7 @@ type k8sDoc struct {
 // Scope: VirtualService handling covers the common case — direct spec.hosts
 // and spec.http[].route[].destination.host mapping. It does not resolve
 // DestinationRule subsets, traffic mirroring, or weighted-route nuance.
-func extractEntries(docs []k8sDoc, source model.IdentitySource) []model.IdentityEntry {
+func extractEntries(docs []k8sDoc, source model.IdentitySource, opts ResolverOptions) []model.IdentityEntry {
 	byKey := map[string]*model.IdentityEntry{}
 
 	for _, d := range docs {
@@ -38,17 +38,15 @@ func extractEntries(docs []k8sDoc, source model.IdentitySource) []model.Identity
 		if !ok || name == "" {
 			continue
 		}
-		ns, _ := digStr(d.Doc, "metadata", "namespace")
-		if ns == "" {
-			ns = "default"
-		}
+		declared, _ := digStr(d.Doc, "metadata", "namespace")
+		ns := namespaceOrDefault(declared, name, opts)
 		byKey[entryKey(name, ns, d.Environment)] = &model.IdentityEntry{
 			ServiceName: name,
 			Namespace:   ns,
 			Environment: d.Environment,
 			Source:      source,
 			Confidence:  model.IdentityConfirmed,
-			Hosts:       serviceHosts(name, ns),
+			Hosts:       serviceHosts(name, ns, source),
 		}
 	}
 
@@ -56,9 +54,13 @@ func extractEntries(docs []k8sDoc, source model.IdentitySource) []model.Identity
 	for _, d := range docs {
 		switch kind(d.Doc) {
 		case "Ingress":
-			foldIngress(d, byKey, &standalone, source)
+			if opts.Ingress {
+				foldIngress(d, byKey, &standalone, source, opts)
+			}
 		case "VirtualService":
-			foldVirtualService(d, byKey, &standalone, source)
+			if opts.Istio {
+				foldVirtualService(d, byKey, &standalone, source, opts)
+			}
 		}
 	}
 
@@ -76,11 +78,8 @@ func extractEntries(docs []k8sDoc, source model.IdentitySource) []model.Identity
 // handling both the current networking.k8s.io/v1 shape
 // (backend.service.name) and the legacy extensions/v1beta1 shape
 // (backend.serviceName) — deploy repos in the wild still carry both.
-func foldIngress(d k8sDoc, byKey map[string]*model.IdentityEntry, standalone *[]*model.IdentityEntry, source model.IdentitySource) {
-	ns, _ := digStr(d.Doc, "metadata", "namespace")
-	if ns == "" {
-		ns = "default"
-	}
+func foldIngress(d k8sDoc, byKey map[string]*model.IdentityEntry, standalone *[]*model.IdentityEntry, source model.IdentitySource, opts ResolverOptions) {
+	declaredNS, _ := digStr(d.Doc, "metadata", "namespace")
 	targets := map[string][]string{}
 	for _, r := range digList(d.Doc, "spec", "rules") {
 		rm := asMap(r)
@@ -100,6 +99,7 @@ func foldIngress(d k8sDoc, byKey map[string]*model.IdentityEntry, standalone *[]
 		}
 	}
 	for svc, hosts := range targets {
+		ns := namespaceOrDefault(declaredNS, svc, opts)
 		attachOrStandalone(svc, ns, d.Environment, hosts, byKey, standalone, source)
 	}
 }
@@ -119,11 +119,8 @@ func ingressBackendServiceName(pathMap map[string]any) string {
 // name (resolved within the VirtualService's own namespace, per Istio's short-
 // name resolution), a "name.namespace" pair, or a full
 // name.namespace.svc.cluster.local FQDN.
-func foldVirtualService(d k8sDoc, byKey map[string]*model.IdentityEntry, standalone *[]*model.IdentityEntry, source model.IdentitySource) {
-	vsNS, _ := digStr(d.Doc, "metadata", "namespace")
-	if vsNS == "" {
-		vsNS = "default"
-	}
+func foldVirtualService(d k8sDoc, byKey map[string]*model.IdentityEntry, standalone *[]*model.IdentityEntry, source model.IdentitySource, opts ResolverOptions) {
+	declaredNS, _ := digStr(d.Doc, "metadata", "namespace")
 	extHosts := digStrList(d.Doc, "spec", "hosts")
 
 	type target struct{ svc, ns string }
@@ -134,7 +131,10 @@ func foldVirtualService(d k8sDoc, byKey map[string]*model.IdentityEntry, standal
 			if destHost == "" {
 				continue
 			}
-			svc, ns := splitVirtualServiceHost(destHost, vsNS)
+			svc, ns := splitVirtualServiceHost(destHost)
+			if ns == "" { // bare name: apply the VS's namespace, else default/convention
+				ns = namespaceOrDefault(declaredNS, svc, opts)
+			}
 			seen[target{svc, ns}] = true
 		}
 	}
@@ -143,28 +143,32 @@ func foldVirtualService(d k8sDoc, byKey map[string]*model.IdentityEntry, standal
 	}
 }
 
-// splitVirtualServiceHost derives (service name, namespace) from a
-// destination host string. A bare name has no dot; "name.ns" has exactly the
-// namespace as its second segment; a full FQDN's second segment is still the
-// namespace ("name.namespace.svc.cluster.local").
-func splitVirtualServiceHost(host, defaultNS string) (svc, ns string) {
+// splitVirtualServiceHost derives (service name, namespace) from a destination
+// host string. A bare name (no dot) yields ns == "" so the caller applies its
+// own namespace default/convention; "name.ns" and a full FQDN
+// ("name.namespace.svc.cluster.local") both yield the second segment.
+func splitVirtualServiceHost(host string) (svc, ns string) {
 	parts := strings.Split(host, ".")
 	svc = parts[0]
 	if len(parts) >= 2 {
 		ns = parts[1]
-	} else {
-		ns = defaultNS
 	}
 	return svc, ns
 }
 
-// attachOrStandalone merges hosts into an existing (svc, ns, env) entry, or —
-// when no Service doc for that key was seen in this batch — emits a new
-// standalone entry at Likely confidence: the Ingress/VirtualService names the
-// service by string, but its existence is unconfirmed within this scan.
-func attachOrStandalone(svc, ns, env string, hosts []string, byKey map[string]*model.IdentityEntry, standalone *[]*model.IdentityEntry, source model.IdentitySource) {
-	if len(hosts) == 0 {
+// attachOrStandalone merges external hosts into an existing (svc, ns, env)
+// entry, or — when no Service doc for that key was seen in this batch — emits a
+// new standalone entry at Likely confidence: the Ingress/VirtualService names
+// the service by string, but its existence is unconfirmed within this scan.
+// The routed hostnames are external (opaque) hosts, matched exactly by the
+// backend.
+func attachOrStandalone(svc, ns, env string, extHosts []string, byKey map[string]*model.IdentityEntry, standalone *[]*model.IdentityEntry, source model.IdentitySource) {
+	if len(extHosts) == 0 {
 		return
+	}
+	hosts := make([]model.Host, len(extHosts))
+	for i, h := range extHosts {
+		hosts[i] = model.Host{Value: h, Kind: model.HostExternal, Resolver: source}
 	}
 	if e, ok := byKey[entryKey(svc, ns, env)]; ok {
 		e.Hosts = append(e.Hosts, hosts...)
@@ -176,18 +180,25 @@ func attachOrStandalone(svc, ns, env string, hosts []string, byKey map[string]*m
 		Environment: env,
 		Source:      source,
 		Confidence:  model.IdentityLikely,
-		Hosts:       append([]string(nil), hosts...),
+		Hosts:       hosts,
 	})
 }
 
-// serviceHosts is every in-cluster form a Service's name resolves to.
-func serviceHosts(name, ns string) []string {
-	return []string{
+// serviceHosts is every in-cluster form a Service's name resolves to, each
+// tagged in-cluster (the backend matches them after normalizing a caller's
+// k8s/mesh FQDN to its bare service name).
+func serviceHosts(name, ns string, source model.IdentitySource) []model.Host {
+	forms := []string{
 		name,
 		name + "." + ns,
 		name + "." + ns + ".svc",
 		name + "." + ns + ".svc.cluster.local",
 	}
+	out := make([]model.Host, len(forms))
+	for i, f := range forms {
+		out[i] = model.Host{Value: f, Kind: model.HostInCluster, Resolver: source}
+	}
+	return out
 }
 
 func entryKey(name, ns, env string) string { return name + "\x00" + ns + "\x00" + env }

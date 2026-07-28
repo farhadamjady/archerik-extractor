@@ -127,7 +127,7 @@ func isYAMLRef(ref string) bool {
 // than through the FileTree abstraction — that traversal semantics isn't
 // worth re-implementing when the real kustomize API already reads the real
 // filesystem faithfully.
-func RenderKustomizations(absRoot string, overlayDirs []string) ([]model.IdentityEntry, []RenderError) {
+func RenderKustomizations(absRoot string, overlayDirs []string, opts ResolverOptions) ([]model.IdentityEntry, []RenderError) {
 	var entries []model.IdentityEntry
 	var errs []RenderError
 	fSys := filesys.MakeFsOnDisk()
@@ -137,11 +137,11 @@ func RenderKustomizations(absRoot string, overlayDirs []string) ([]model.Identit
 	// trusted, read-only local checkout, so the relaxed file access is safe.
 	// The raw-scan exclusion (kustomizationReferencedExclusions) keeps such
 	// out-of-tree files from also being counted as standalone manifests.
-	opts := krusty.MakeDefaultOptions()
-	opts.LoadRestrictions = types.LoadRestrictionsNone
-	kustomizer := krusty.MakeKustomizer(opts)
+	kopts := krusty.MakeDefaultOptions()
+	kopts.LoadRestrictions = types.LoadRestrictionsNone
+	kustomizer := krusty.MakeKustomizer(kopts)
 	for _, dir := range overlayDirs {
-		e, err := renderKustomization(kustomizer, fSys, absRoot, dir)
+		e, err := renderKustomization(kustomizer, fSys, absRoot, dir, opts)
 		if err != nil {
 			errs = append(errs, RenderError{Unit: dir, Err: err})
 			continue
@@ -162,7 +162,7 @@ func RenderKustomizations(absRoot string, overlayDirs []string) ([]model.Identit
 // handles them too — GetName()/GetNamespace() on the resource already
 // reflect namePrefix/nameSuffix post-transform, and that shows up in the
 // YAML the same way.
-func renderKustomization(kustomizer *krusty.Kustomizer, fSys filesys.FileSystem, absRoot, relDir string) (entries []model.IdentityEntry, err error) {
+func renderKustomization(kustomizer *krusty.Kustomizer, fSys filesys.FileSystem, absRoot, relDir string, opts ResolverOptions) (entries []model.IdentityEntry, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic rendering kustomization: %v", r)
@@ -192,5 +192,5 @@ func renderKustomization(kustomizer *krusty.Kustomizer, fSys filesys.FileSystem,
 			docs = append(docs, k8sDoc{Path: relDir, Environment: env, Doc: doc})
 		}
 	}
-	return extractEntries(docs, model.SourceKustomize), nil
+	return extractEntries(docs, model.SourceKustomize, opts), nil
 }
