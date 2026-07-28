@@ -42,7 +42,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		profiles     = fs.String("profiles", "", "comma-separated active Spring profiles (scan-repo mode only)")
 		environment  = fs.String("environment", "", "deploy overlay to resolve (e.g. staging) (scan-repo mode only)")
 		environments = fs.String("environments", "", "comma-separated deploy environments to render, empty renders every discovered environment (deploy-repo mode only)")
-		resolvers    = fs.String("resolvers", "", "comma-separated host resolvers to run: helm,kustomize,k8s-raw,ingress,istio,self-declared; empty runs all (deploy-repo mode only)")
+		resolvers    = fs.String("resolvers", "", "comma-separated host resolvers to run: helm,kustomize,k8s-raw,ingress,istio,self-declared (default all) + opt-in terraform; empty runs the default set (deploy-repo mode only)")
 		nsConvention = fs.String("namespace-convention", "", "derive namespace from service name when a manifest declares none: service-name | replace:<from>:<to> (deploy-repo mode only)")
 		configRepo   = fs.String("config-repo", "", "local checkout of the Spring Cloud Config repo (its yml/properties feed resolution) (scan-repo mode only)")
 		out          = fs.String("out", "-", "output path for the JSON, or - for stdout")

@@ -73,11 +73,19 @@ all), so a company enables the mechanisms matching its infrastructure:
 | `k8s-raw` | plain, already-rendered `Service` / `Ingress` / `VirtualService` manifests |
 | `ingress` / `istio` | cross-cutting toggles: whether `Ingress` / Istio `VirtualService` external hosts are folded in |
 | `self-declared` | a committed `.ekg-identity.json` fallback, for estates with no parseable deploy repo |
+| `terraform` *(opt-in)* | literal `name = "..."` from `module` blocks in a Terraform infra repo — literal-only (a `var.`/interpolated name is skipped, never guessed) |
 
 Rendering is embedded (Go libraries, no shelling out to `helm`/`kustomize`
 binaries) and hermetic — only values/overlays committed in the repo are read,
 never a cluster or a live chart-repo pull. A render failure on one chart/overlay
 is a non-fatal warning, never aborting the scan.
+
+The `terraform` resolver is **opt-in** (name it in `--resolvers`): a TF repo is
+a different repo than the GitOps repo, so it stays off by default to avoid
+pulling vendored third-party module names into a normal scan. It reads only
+literal `name` values, emits `confidence: likely` (the name is confirmed but
+the host is inferred from it — the bare service name is the join key), and does
+**not** evaluate variables, trace modules, or read `.tfvars`.
 
 Each host carries **provenance and a match class** so the backend knows how to
 join it:
@@ -153,11 +161,12 @@ of findings and fixes from that process.
 **Deferred / cut, by design** (never silent — unresolved cases become
 `uncertain` nodes, or are simply not emitted rather than guessed): DB detection
 (JPA/JDBC), OpenAPI ingestion, gRPC, full K8s topology, Spring Cloud Config
-Server / secret managers, version history. For deploy-repo host resolution:
-**Terraform** (external DNS / load balancers / Cloud Map), **runtime service
-registries** (Consul/Eureka — no static footprint), and richer Istio semantics
-(`DestinationRule` subsets, weighted/mirror routes) are the next resolvers, not
-yet built.
+Server / secret managers, version history. For deploy-repo host resolution: the
+`terraform` resolver reads only **literal `module name`** today — Terraform
+variable/module tracing, `helm_release`, and external DNS / load balancers /
+Cloud Map are not resolved yet; **runtime service registries** (Consul/Eureka —
+no static footprint) and richer Istio semantics (`DestinationRule` subsets,
+weighted/mirror routes) are the next resolvers.
 
 > Note: `scan-repo` config resolution reads `helm`/`kustomize` values
 > *statically* (as flat config, for placeholder resolution). `deploy-repo` mode

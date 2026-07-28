@@ -69,6 +69,31 @@ func TestRunDeployRepoResolverSubset(t *testing.T) {
 	}
 }
 
+// TestRunTerraformResolver: a TF repo with a module block, scanned with
+// --resolvers=terraform, emits the literal service name; and the default run
+// (no --resolvers) emits nothing for it, proving terraform is opt-in.
+func TestRunTerraformResolver(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "service-a.tf", `module "service_a" {
+  source = "./modules/service"
+  name   = "service-a"
+}`)
+
+	var optIn bytes.Buffer
+	if code := run([]string{"--mode", "deploy-repo", "--root", root, "--api-key", "k", "--dry-run", "--resolvers", "terraform"}, &optIn, &optIn); code != int(exitcode.OK) {
+		t.Fatalf("exit = %d; out: %s", code, optIn.String())
+	}
+	if !strings.Contains(optIn.String(), `"service_name":"service-a"`) || !strings.Contains(optIn.String(), `"source":"terraform"`) {
+		t.Errorf("--resolvers=terraform did not emit the module name: %s", optIn.String())
+	}
+
+	var deflt bytes.Buffer
+	run([]string{"--mode", "deploy-repo", "--root", root, "--api-key", "k", "--dry-run"}, &deflt, &deflt)
+	if strings.Contains(deflt.String(), "service-a") {
+		t.Errorf("terraform ran by default (should be opt-in): %s", deflt.String())
+	}
+}
+
 func TestRunUnknownResolver(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "manifests/service.yaml", "kind: Service\nmetadata:\n  name: s\n")

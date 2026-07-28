@@ -24,6 +24,9 @@ func TestSelectDefaultAllOn(t *testing.T) {
 			t.Errorf("default set missing %q; got %v", want, names)
 		}
 	}
+	if names["terraform"] {
+		t.Errorf("terraform must be opt-in, not in the default set; got %v", names)
+	}
 	if !opts.Ingress || !opts.Istio {
 		t.Errorf("default kinds = ingress:%v istio:%v, want both on", opts.Ingress, opts.Istio)
 	}

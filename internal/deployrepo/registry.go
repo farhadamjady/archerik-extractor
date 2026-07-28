@@ -6,9 +6,10 @@ import (
 	"strings"
 )
 
-// sourceResolvers are the resolvers that independently read a slice of the repo
-// and produce entries. Order is fixed for deterministic execution (output is
-// sorted regardless, but a stable order keeps logs/errors predictable).
+// sourceResolvers are the DEFAULT resolvers — run when --resolvers is empty.
+// They all read the same GitOps repo. Order is fixed for deterministic
+// execution (output is sorted regardless, but a stable order keeps logs
+// predictable).
 func sourceResolvers() []Resolver {
 	return []Resolver{
 		helmResolver{},
@@ -16,6 +17,21 @@ func sourceResolvers() []Resolver {
 		k8sRawResolver{},
 		selfDeclaredResolver{},
 	}
+}
+
+// optionalResolvers are known but OFF by default — they must be named
+// explicitly in --resolvers. terraform targets a separate infra repo, and
+// default-on would pull vendored third-party module names into a normal scan.
+func optionalResolvers() []Resolver {
+	return []Resolver{
+		terraformResolver{},
+	}
+}
+
+// allResolvers is every selectable source/optional resolver (not the kind
+// toggles), used for name validation and explicit selection.
+func allResolvers() []Resolver {
+	return append(sourceResolvers(), optionalResolvers()...)
 }
 
 // kindResolvers are cross-cutting host-resolution mechanisms — not independent
@@ -36,7 +52,7 @@ func Select(names []string, base ResolverOptions) ([]Resolver, ResolverOptions, 
 	}
 
 	known := map[string]bool{}
-	for _, r := range sourceResolvers() {
+	for _, r := range allResolvers() {
 		known[r.Name()] = true
 	}
 	for _, k := range kindResolvers {
@@ -52,7 +68,7 @@ func Select(names []string, base ResolverOptions) ([]Resolver, ResolverOptions, 
 	}
 
 	var selected []Resolver
-	for _, r := range sourceResolvers() {
+	for _, r := range allResolvers() {
 		if want[r.Name()] {
 			selected = append(selected, r)
 		}

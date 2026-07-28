@@ -78,6 +78,7 @@ const (
 	SourceKustomize    IdentitySource = "kustomize"
 	SourceK8sRaw       IdentitySource = "k8s-raw"
 	SourceSelfDeclared IdentitySource = "self-declared"
+	SourceTerraform    IdentitySource = "terraform"
 )
 
 // IdentityConfidence expresses trust in a deploy-repo identity fact. Unlike
