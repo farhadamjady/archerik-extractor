@@ -78,10 +78,12 @@ func (*Provider) Indexers() []provider.Indexer {
 	return []provider.Indexer{globalPrefixIndexer{}}
 }
 
-// Detectors: REST endpoints from @Controller classes.
+// Detectors: REST endpoints from @Controller classes, plus outbound HTTP
+// dependencies from fetch/axios/HttpService call sites.
 func (*Provider) Detectors() []provider.Detector {
 	return []provider.Detector{
 		restDetector{},
+		clientDetector{},
 	}
 }
 

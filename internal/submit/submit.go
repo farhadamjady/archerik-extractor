@@ -16,18 +16,8 @@ import (
 )
 
 // ingestPath is the submission endpoint on the backend base URL for a
-// service-mode scan's *model.Service graph.
+// scan's *model.Service graph.
 const ingestPath = "/v1/ingest"
-
-// identityIngestPath is the submission endpoint for a deploy-repo-mode scan's
-// *model.IdentityMap, and for the .ekg-identity.json fallback declaration
-// submitted alongside a service-mode scan. A distinct path (not a body
-// discriminator) since the backend's /v1/ingest handler is shaped
-// specifically for diffing a Service graph against a stored baseline —
-// conflating the two payload shapes on one path would blur that contract.
-// The backend tells identity SOURCES (helm/kustomize/k8s-raw/self-declared)
-// apart via IdentityEntry.Source, not the URL.
-const identityIngestPath = "/v1/ingest/identity-map"
 
 var client = &http.Client{Timeout: 30 * time.Second}
 
@@ -50,14 +40,7 @@ func Submit(ctx context.Context, baseURL, key string, body []byte, meta Meta) ([
 	return post(ctx, strings.TrimRight(baseURL, "/")+ingestPath, key, body, meta)
 }
 
-// SubmitIdentityMap POSTs a marshaled deploy-repo-mode (or self-declared)
-// identity map to {baseURL}/v1/ingest/identity-map. Same auth, headers, and
-// error handling as Submit — only the endpoint and payload shape differ.
-func SubmitIdentityMap(ctx context.Context, baseURL, key string, body []byte, meta Meta) ([]byte, error) {
-	return post(ctx, strings.TrimRight(baseURL, "/")+identityIngestPath, key, body, meta)
-}
-
-// post is the shared HTTP mechanics behind Submit and SubmitIdentityMap.
+// post is the shared HTTP mechanics behind Submit.
 func post(ctx context.Context, url, key string, body []byte, meta Meta) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {

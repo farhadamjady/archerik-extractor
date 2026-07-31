@@ -100,9 +100,7 @@ func ParseK8s(p string, src []byte) ([]Binding, error) {
 	return out, nil
 }
 
-// OverlayFromName extracts the env from values-<env>.yaml, else "". Exported
-// so internal/deployrepo's Helm renderer can reuse this exact convention
-// rather than reimplementing it.
+// OverlayFromName extracts the env from values-<env>.yaml, else "".
 func OverlayFromName(base string) string {
 	name := strings.TrimSuffix(strings.TrimSuffix(base, ".yaml"), ".yml")
 	if strings.HasPrefix(name, "values-") {

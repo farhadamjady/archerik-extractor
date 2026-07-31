@@ -93,6 +93,7 @@ func TestDetectors(t *testing.T) {
 	want := map[string]model.Protocol{
 		"aspnet.rest":    model.ProtoREST,
 		"aspnet.minimal": model.ProtoREST,
+		"aspnet.client":  model.ProtoREST,
 	}
 	dets := New().Detectors()
 	if len(dets) != len(want) {

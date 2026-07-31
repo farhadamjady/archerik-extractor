@@ -12,11 +12,6 @@ store, diff across commits, and query.
   can reliably diff a service's graph commit-to-commit.
 - **Paid / gated** — a run validates a per-user API key before scanning and
   submits results to an ingest API. There's no offline free mode.
-- **Two scan modes** (`--mode`) — `scan-repo` (default) turns a *service* repo
-  into its architecture graph; `deploy-repo` turns a *deployment/GitOps* repo
-  (Helm charts, Kustomize overlays, plain k8s manifests) into a service-identity
-  map the backend uses to resolve which service actually owns each host. See
-  [Host & identity resolution](#host--identity-resolution-deploy-repo-mode).
 
 ## Supported stacks
 
@@ -53,63 +48,6 @@ manifests → `.env` files, unified by relaxed binding
 `inbound_dependencies` is intentionally **not** emitted — the backend derives
 those from everyone's outbound edges.
 
-## Host & identity resolution (deploy-repo mode)
-
-A `scan-repo` run resolves an outbound call to a **host string** (e.g.
-`PYM_URL` → `pym-service`) but can't prove *which* scanned service owns that
-host — repo name, logical service name, and DNS host routinely diverge
-(`payments-area` repo → `payments-engine` app → `pym-service` host). That
-mapping lives in the deployment repo, not the service repo. `--mode=deploy-repo`
-scans that repo and emits an **identity map** — `service_name` → `hosts[]`
-facts — that the backend joins against those unresolved edges to complete them.
-
-Host resolution is a set of **selectable resolvers** (`--resolvers`, default =
-all), so a company enables the mechanisms matching its infrastructure:
-
-| Resolver | What it reads |
-|---|---|
-| `helm` | real Helm chart rendering (`helm.sh/helm/v3` — `_helpers.tpl`, `fullname`, per-`values-<env>.yaml` overlay), offline |
-| `kustomize` | real overlay build (`sigs.k8s.io/kustomize/api` — `namePrefix`/`nameSuffix`, base composition) |
-| `k8s-raw` | plain, already-rendered `Service` / `Ingress` / `VirtualService` manifests |
-| `ingress` / `istio` | cross-cutting toggles: whether `Ingress` / Istio `VirtualService` external hosts are folded in |
-| `self-declared` | a committed `.ekg-identity.json` fallback, for estates with no parseable deploy repo |
-| `terraform` *(opt-in)* | literal `name = "..."` from `module` blocks in a Terraform infra repo — literal-only (a `var.`/interpolated name is skipped, never guessed) |
-
-Rendering is embedded (Go libraries, no shelling out to `helm`/`kustomize`
-binaries) and hermetic — only values/overlays committed in the repo are read,
-never a cluster or a live chart-repo pull. A render failure on one chart/overlay
-is a non-fatal warning, never aborting the scan.
-
-The `terraform` resolver is **opt-in** (name it in `--resolvers`): a TF repo is
-a different repo than the GitOps repo, so it stays off by default to avoid
-pulling vendored third-party module names into a normal scan. It reads only
-literal `name` values, emits `confidence: likely` (the name is confirmed but
-the host is inferred from it — the bare service name is the join key), and does
-**not** evaluate variables, trace modules, or read `.tfvars`.
-
-Each host carries **provenance and a match class** so the backend knows how to
-join it:
-
-- **`in-cluster`** — a k8s DNS form (`svc`, `svc.ns`, `svc.ns.svc.cluster.local`);
-  matched after normalizing a caller's FQDN down to the bare service name (the
-  suffix is mechanical).
-- **`external`** — an opaque hostname from an Ingress/gateway (`api.co.com/pay`);
-  matched **exactly**, since it has no algorithmic tie to the service name.
-
-Namespace is best-effort (the primary join key is the bare service name):
-emitted when a manifest declares it, otherwise `default` — or derived from the
-service name via `--namespace-convention` (`service-name` | `replace:<from>:<to>`)
-for orgs whose namespace follows a convention.
-
-```sh
-# scan a GitOps repo, all resolvers, print the identity map
-extractor --mode deploy-repo --root ./deploy-repo --api-key "$EKG_API_KEY" --dry-run
-
-# only Kustomize, and derive namespace from the service name
-extractor --mode deploy-repo --root ./deploy-repo --api-key "$EKG_API_KEY" \
-  --resolvers kustomize --namespace-convention service-name --dry-run
-```
-
 ## Usage
 
 Requires Go with cgo (tree-sitter grammars are C).
@@ -131,10 +69,9 @@ time, which is the real enforcement point.
 ## Architecture, at a glance
 
 ```
-cmd/extractor          CLI entrypoint (dispatches --mode)
-internal/pipeline      scan-repo: auth-gate → detect → collect → parse → index → detect → schema → marshal → submit
-internal/deployrepo    deploy-repo: auth-gate → selected resolvers → identity map → marshal → submit
-internal/model         the JSON output contract + deterministic identity/sort (Service + IdentityMap)
+cmd/extractor          CLI entrypoint
+internal/pipeline      auth-gate → detect → collect → parse → index → detect → schema → marshal → submit
+internal/model         the JSON output contract + deterministic identity/sort (Service)
 internal/registry      the one place providers are registered
 internal/provider/
   lang/<language>      shared parsing layer per language (tree-sitter Node, helpers)
@@ -161,16 +98,10 @@ of findings and fixes from that process.
 **Deferred / cut, by design** (never silent — unresolved cases become
 `uncertain` nodes, or are simply not emitted rather than guessed): DB detection
 (JPA/JDBC), OpenAPI ingestion, gRPC, full K8s topology, Spring Cloud Config
-Server / secret managers, version history. For deploy-repo host resolution: the
-`terraform` resolver reads only **literal `module name`** today — Terraform
-variable/module tracing, `helm_release`, and external DNS / load balancers /
-Cloud Map are not resolved yet; **runtime service registries** (Consul/Eureka —
-no static footprint) and richer Istio semantics (`DestinationRule` subsets,
-weighted/mirror routes) are the next resolvers.
+Server / secret managers, version history.
 
-> Note: `scan-repo` config resolution reads `helm`/`kustomize` values
-> *statically* (as flat config, for placeholder resolution). `deploy-repo` mode
-> *fully renders* them via embedded Helm/Kustomize libraries to extract service
-> identity — the one place the tool executes chart/overlay templates.
+> Note: config resolution reads `helm`/`kustomize` values *statically* (as flat
+> config, for placeholder resolution) — the tool never renders charts/overlays
+> or executes templates.
 
 See [CLAUDE.md](CLAUDE.md) for the full spec this project is built against.

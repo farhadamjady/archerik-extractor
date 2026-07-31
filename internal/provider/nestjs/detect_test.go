@@ -91,9 +91,18 @@ func TestRESTEndpoints(t *testing.T) {
 }
 
 func TestDetectors(t *testing.T) {
+	want := map[string]model.Protocol{
+		"nestjs.rest":   model.ProtoREST,
+		"nestjs.client": model.ProtoREST,
+	}
 	dets := New().Detectors()
-	if len(dets) != 1 || dets[0].Name() != "nestjs.rest" || dets[0].Protocol() != model.ProtoREST {
-		t.Fatalf("unexpected detectors: %+v", dets)
+	if len(dets) != len(want) {
+		t.Fatalf("got %d detectors, want %d", len(dets), len(want))
+	}
+	for _, d := range dets {
+		if want[d.Name()] != d.Protocol() {
+			t.Errorf("detector %q protocol %q", d.Name(), d.Protocol())
+		}
 	}
 }
 

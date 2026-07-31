@@ -2,10 +2,6 @@
 // and emits its architecture graph as JSON (see docs/DESIGN.md). The tool is
 // paid — a run requires a valid API key (resolved here, validated fail-closed
 // before any scan).
-//
-// Two modes share this binary (--mode): "scan-repo" (default) scans a single
-// service repo; "deploy-repo" scans a deployment/GitOps repo (Helm/Kustomize/
-// plain k8s manifests) and emits an identity map instead of a service graph.
 package main
 
 import (
@@ -19,9 +15,7 @@ import (
 
 	"encoding/json"
 
-	"github.com/farhadamjady/service-discovery/internal/deployrepo"
 	"github.com/farhadamjady/service-discovery/internal/exitcode"
-	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/pipeline"
 	"github.com/farhadamjady/service-discovery/internal/submit"
 )
@@ -34,24 +28,20 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("extractor", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		mode         = fs.String("mode", "scan-repo", "scan mode: scan-repo (default, single service) or deploy-repo (Helm/Kustomize/k8s deploy repo)")
-		root         = fs.String("root", ".", "repository root to scan")
-		repository   = fs.String("repository", "", "repository identifier emitted as service.repository (e.g. github.com/owner/repo); auto-detected from CI env / git remote")
-		apiKey       = fs.String("api-key", "", "API key (overrides EKG_API_KEY and config file)")
-		configFile   = fs.String("config", "", "path to config file")
-		profiles     = fs.String("profiles", "", "comma-separated active Spring profiles (scan-repo mode only)")
-		environment  = fs.String("environment", "", "deploy overlay to resolve (e.g. staging) (scan-repo mode only)")
-		environments = fs.String("environments", "", "comma-separated deploy environments to render, empty renders every discovered environment (deploy-repo mode only)")
-		resolvers    = fs.String("resolvers", "", "comma-separated host resolvers to run: helm,kustomize,k8s-raw,ingress,istio,self-declared (default all) + opt-in terraform; empty runs the default set (deploy-repo mode only)")
-		nsConvention = fs.String("namespace-convention", "", "derive namespace from service name when a manifest declares none: service-name | replace:<from>:<to> (deploy-repo mode only)")
-		configRepo   = fs.String("config-repo", "", "local checkout of the Spring Cloud Config repo (its yml/properties feed resolution) (scan-repo mode only)")
-		out          = fs.String("out", "-", "output path for the JSON, or - for stdout")
-		apiURL       = fs.String("api-url", "", "backend base URL for key validation + submit; empty runs local/dev")
-		dryRun       = fs.Bool("dry-run", false, "produce JSON but do not submit")
-		branch       = fs.String("branch", "", "branch being scanned (auto-detected from CI env)")
-		sha          = fs.String("sha", "", "commit sha (auto-detected from CI env)")
-		pr           = fs.String("pr", "", "pull-request number (auto-detected from CI env)")
-		commentOut   = fs.String("comment-out", "", "write the returned PR-comment markdown to this file, empty discards it (scan-repo mode only)")
+		root        = fs.String("root", ".", "repository root to scan")
+		repository  = fs.String("repository", "", "repository identifier emitted as service.repository (e.g. github.com/owner/repo); auto-detected from CI env / git remote")
+		apiKey      = fs.String("api-key", "", "API key (overrides EKG_API_KEY and config file)")
+		configFile  = fs.String("config", "", "path to config file")
+		profiles    = fs.String("profiles", "", "comma-separated active Spring profiles")
+		environment = fs.String("environment", "", "deploy overlay to resolve (e.g. staging)")
+		configRepo  = fs.String("config-repo", "", "local checkout of the Spring Cloud Config repo (its yml/properties feed resolution)")
+		out         = fs.String("out", "-", "output path for the JSON, or - for stdout")
+		apiURL      = fs.String("api-url", "", "backend base URL for key validation + submit; empty runs local/dev")
+		dryRun      = fs.Bool("dry-run", false, "produce JSON but do not submit")
+		branch      = fs.String("branch", "", "branch being scanned (auto-detected from CI env)")
+		sha         = fs.String("sha", "", "commit sha (auto-detected from CI env)")
+		pr          = fs.String("pr", "", "pull-request number (auto-detected from CI env)")
+		commentOut  = fs.String("comment-out", "", "write the returned PR-comment markdown to this file, empty discards it")
 	)
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
@@ -69,28 +59,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return exitcode.Of(err)
 	}
 
-	switch *mode {
-	case "scan-repo", "":
-		return runScanRepo(scanRepoArgs{
-			root: *root, repository: *repository, configFile: *configFile,
-			profiles: *profiles, environment: *environment, configRepo: *configRepo,
-			out: *out, apiURL: *apiURL, dryRun: *dryRun,
-			branch: *branch, sha: *sha, pr: *pr, commentOut: *commentOut,
-		}, key, stdout, stderr)
-	case "deploy-repo":
-		if !deployrepo.ValidNamespaceConvention(*nsConvention) {
-			fmt.Fprintf(stderr, "extractor: invalid --namespace-convention %q (want service-name or replace:<from>:<to>)\n", *nsConvention)
-			return int(exitcode.Runtime)
-		}
-		return runDeployRepo(deployRepoArgs{
-			root: *root, repository: *repository, apiURL: *apiURL, out: *out,
-			environments: *environments, resolvers: *resolvers, nsConvention: *nsConvention,
-			dryRun: *dryRun, branch: *branch, sha: *sha, pr: *pr,
-		}, key, stdout, stderr)
-	default:
-		fmt.Fprintf(stderr, "extractor: unknown --mode %q (want scan-repo or deploy-repo)\n", *mode)
-		return int(exitcode.Runtime)
-	}
+	return runScanRepo(scanRepoArgs{
+		root: *root, repository: *repository, configFile: *configFile,
+		profiles: *profiles, environment: *environment, configRepo: *configRepo,
+		out: *out, apiURL: *apiURL, dryRun: *dryRun,
+		branch: *branch, sha: *sha, pr: *pr, commentOut: *commentOut,
+	}, key, stdout, stderr)
 }
 
 // scanRepoArgs is the resolved flag set for the default, single-service scan.
@@ -100,9 +74,7 @@ type scanRepoArgs struct {
 	branch, sha, pr, commentOut                                                  string
 }
 
-// runScanRepo is the original, unchanged single-service scan path — extracted
-// verbatim out of run() so --mode can dispatch to it. Every existing test
-// omits --mode, so it hits this exact path via the "scan-repo"/"" default.
+// runScanRepo scans a single service repo and emits its architecture graph.
 func runScanRepo(a scanRepoArgs, key string, stdout, stderr io.Writer) int {
 	svc, err := pipeline.Run(context.Background(), pipeline.Options{
 		Root:        a.root,
@@ -134,79 +106,7 @@ func runScanRepo(a scanRepoArgs, key string, stdout, stderr io.Writer) int {
 		return int(exitcode.Runtime)
 	}
 
-	submitSelfDeclaredIdentity(context.Background(), a, key, stderr)
-
 	return int(exitcode.OK)
-}
-
-// deployRepoArgs is the resolved flag set for a deploy-repo scan.
-type deployRepoArgs struct {
-	root, repository, apiURL, out, environments, resolvers, nsConvention string
-	dryRun                                                               bool
-	branch, sha, pr                                                      string
-}
-
-// runDeployRepo scans a deployment/GitOps repo and emits an identity map
-// instead of a service graph. Render failures on individual charts/overlays/
-// manifests are non-fatal — printed as warnings, never aborting the scan.
-func runDeployRepo(a deployRepoArgs, key string, stdout, stderr io.Writer) int {
-	im, renderErrs, err := deployrepo.Run(context.Background(), deployrepo.Options{
-		Root:                a.root,
-		Repository:          resolveRepository(a.repository, a.root),
-		APIKey:              key,
-		APIURL:              a.apiURL,
-		DryRun:              a.dryRun,
-		Environments:        splitCSV(a.environments),
-		Resolvers:           splitCSV(a.resolvers),
-		NamespaceConvention: a.nsConvention,
-		CI:                  ciMeta(a.branch, a.sha, a.pr),
-	})
-	for _, re := range renderErrs {
-		fmt.Fprintln(stderr, "extractor: render warning:", re)
-	}
-	if err != nil {
-		fmt.Fprintln(stderr, "extractor:", err)
-		return exitcode.Of(err)
-	}
-
-	data, err := deployrepo.Marshal(im)
-	if err != nil {
-		fmt.Fprintln(stderr, "extractor:", err)
-		return int(exitcode.Runtime)
-	}
-	if err := writeOutput(a.out, data, stdout); err != nil {
-		fmt.Fprintln(stderr, "extractor:", err)
-		return int(exitcode.Runtime)
-	}
-	return int(exitcode.OK)
-}
-
-// submitSelfDeclaredIdentity submits .ekg-identity.json's declared hosts (if
-// the file exists) as a small IdentityMap alongside the primary scan's
-// Service submission. Best-effort and side-channel: any failure here is
-// logged and never affects the primary scan's exit code, and it is never
-// merged with a deploy-repo-mode scan locally — the extractor stays
-// stateless, the backend reconciles sources via IdentityEntry.Source. The
-// file's parsing lives in the deployrepo self-declared resolver, shared with
-// deploy-repo mode.
-func submitSelfDeclaredIdentity(ctx context.Context, a scanRepoArgs, key string, stderr io.Writer) {
-	entries := deployrepo.ReadSelfDeclared(a.root)
-	if len(entries) == 0 {
-		return
-	}
-	im := model.NewIdentityMap(resolveRepository(a.repository, a.root))
-	im.Entries = entries
-	data, err := deployrepo.Marshal(im)
-	if err != nil {
-		fmt.Fprintln(stderr, "extractor: .ekg-identity.json marshal failed (non-fatal):", err)
-		return
-	}
-	if a.dryRun || a.apiURL == "" {
-		return
-	}
-	if _, err := submit.SubmitIdentityMap(ctx, a.apiURL, key, data, ciMeta(a.branch, a.sha, a.pr)); err != nil {
-		fmt.Fprintln(stderr, "extractor: .ekg-identity.json submit failed (non-fatal):", err)
-	}
 }
 
 // resolveKey applies key precedence. The config-file lookup is intentionally

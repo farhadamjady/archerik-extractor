@@ -81,10 +81,12 @@ func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 // indexers land with the client/kafka detectors and schema extraction.
 func (*Provider) Indexers() []provider.Indexer { return nil }
 
-// Detectors: REST endpoints from @RestController classes.
+// Detectors: REST endpoints from @RestController classes, plus outbound HTTP
+// dependencies from @FeignClient interfaces and RestTemplate call sites.
 func (*Provider) Detectors() []provider.Detector {
 	return []provider.Detector{
 		restDetector{},
+		clientDetector{},
 	}
 }
 

@@ -83,11 +83,12 @@ func (*Provider) Indexers() []provider.Indexer {
 	return []provider.Indexer{mountIndexer{}}
 }
 
-// Detectors: route calls (app/router.get/post/...). Outbound axios/fetch/got
-// clients are a later round.
+// Detectors: route calls (app/router.get/post/...), plus outbound HTTP
+// dependencies from axios/fetch/got client call sites.
 func (*Provider) Detectors() []provider.Detector {
 	return []provider.Detector{
 		routeDetector{},
+		clientDetector{},
 	}
 }
 

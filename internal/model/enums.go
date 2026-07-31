@@ -39,6 +39,10 @@ const (
 	DetectMPRestClient      DetectionMethod = "mp-rest-client"     // MicroProfile @RegisterRestClient (Quarkus)
 	DetectReactiveMessaging DetectionMethod = "reactive-messaging" // MicroProfile Reactive Messaging @Incoming/@Outgoing/@Channel
 	DetectHTTPClient        DetectionMethod = "http-client"        // std-lib HTTP client call (Go http.Get/NewRequest)
+	DetectAxios             DetectionMethod = "axios"              // axios / @nestjs/axios HttpService call (Node)
+	DetectFetch             DetectionMethod = "fetch"              // WHATWG fetch() call (Node/browser)
+	DetectDotNetHTTPClient  DetectionMethod = "dotnet-httpclient" // .NET HttpClient call (GetAsync/PostAsJsonAsync/SendAsync)
+	DetectRefit             DetectionMethod = "refit"             // Refit declarative HTTP client interface (.NET)
 )
 
 // Protocol is the communication protocol of an edge — a FIRST-CLASS field, kept
@@ -64,32 +68,4 @@ const (
 	ReqRequired Requiredness = "required"
 	ReqOptional Requiredness = "optional"
 	ReqUnknown  Requiredness = "unknown"
-)
-
-// IdentitySource records WHERE a deploy-repo identity fact came from —
-// orthogonal to IdentityConfidence (source is provenance, confidence is trust
-// in that provenance). SourceSelfDeclared covers the .ekg-identity.json
-// fallback file committed in a SERVICE repo — a distinct source value, not a
-// distinct output shape, so the backend reconciles every source uniformly.
-type IdentitySource string
-
-const (
-	SourceHelm         IdentitySource = "helm"
-	SourceKustomize    IdentitySource = "kustomize"
-	SourceK8sRaw       IdentitySource = "k8s-raw"
-	SourceSelfDeclared IdentitySource = "self-declared"
-	SourceTerraform    IdentitySource = "terraform"
-)
-
-// IdentityConfidence expresses trust in a deploy-repo identity fact. Unlike
-// Confidence (code-detection certainty), this is two-valued: a fact either
-// came from a fully rendered/parsed manifest (Confirmed) or from an
-// unverifiable self-declaration, or an Ingress/VirtualService naming a
-// Service not otherwise seen in this scan (Likely). No "uncertain" — a value
-// this repo could not resolve at all through this source is not emitted.
-type IdentityConfidence string
-
-const (
-	IdentityConfirmed IdentityConfidence = "confirmed"
-	IdentityLikely    IdentityConfidence = "likely"
 )
