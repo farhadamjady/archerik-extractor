@@ -75,7 +75,7 @@ func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 // endpoints carry their real leading segment. HttpService clients,
 // @MessagePattern/@EventPattern microservice edges, and DTO schemas are next.
 func (*Provider) Indexers() []provider.Indexer {
-	return []provider.Indexer{globalPrefixIndexer{}}
+	return []provider.Indexer{globalPrefixIndexer{}, typeIndexer{}}
 }
 
 // Detectors: REST endpoints from @Controller classes, plus outbound HTTP

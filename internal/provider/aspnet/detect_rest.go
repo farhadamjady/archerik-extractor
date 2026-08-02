@@ -6,6 +6,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/provider"
 	"github.com/farhadamjady/service-discovery/internal/provider/lang/csharp"
+	"github.com/farhadamjady/service-discovery/internal/schema"
 )
 
 // restDetector extracts REST endpoints from ASP.NET Core attribute-routed
@@ -48,11 +49,12 @@ func (restDetector) onController(mc *provider.MatchContext) {
 	if !body.Valid() {
 		return
 	}
+	walker := schema.NewWalker(mc.Index.Types)
 	for _, m := range csharp.NamedChildren(body) {
 		if m.Type() != "method_declaration" {
 			continue
 		}
-		appendMethodEndpoints(mc.Out, m, bases, token)
+		appendMethodEndpoints(mc.Out, m, bases, token, walker)
 	}
 }
 
@@ -88,7 +90,7 @@ func controllerBases(class csharp.Node, token string) []string {
 // appendMethodEndpoints emits the endpoint(s) for one action method: its first
 // HTTP-verb attribute gives the verb (and an optional path); a method-level
 // [Route] can also supply a path. Paths compose onto the controller base.
-func appendMethodEndpoints(out *model.Service, method csharp.Node, bases []string, token string) {
+func appendMethodEndpoints(out *model.Service, method csharp.Node, bases []string, token string, walker *schema.Walker) {
 	verb := ""
 	var subs []string
 	for _, a := range csharp.AttributesOf(method) {
@@ -116,18 +118,93 @@ func appendMethodEndpoints(out *model.Service, method csharp.Node, bases []strin
 		subs = []string{""}
 	}
 	mname := csharp.Name(method)
+	req := actionRequest(method, walker)
+	resp := actionResponse(method, walker)
 	for _, base := range bases {
 		for _, sub := range subs {
 			sub = substituteTokens(sub, token, mname)
 			out.Endpoints = append(out.Endpoints, model.Endpoint{
 				Method:     verb,
 				Path:       composePath(base, sub),
+				Request:    req,
+				Response:   resp,
 				Protocol:   model.ProtoREST,
 				Detection:  model.DetectAnnotation,
 				Confidence: model.Confirmed,
 			})
 		}
 	}
+}
+
+// actionResponse resolves the response body schema from an action's declared
+// return type (`Task<ActionResult<ProductDto>>` -> ProductDto), dropping
+// void/IActionResult (opaque) results.
+func actionResponse(method csharp.Node, walker *schema.Walker) *model.Schema {
+	rt := method.ChildByFieldName("returns") // C# grammar names the return type "returns"
+	if !rt.Valid() {
+		return nil
+	}
+	// A bare async wrapper with no type argument (`Task`/`ValueTask`) is an async
+	// no-result — treat it as void rather than an unknown "Task" type.
+	switch strings.TrimSpace(rt.Text()) {
+	case "Task", "ValueTask", "void", "Task<IActionResult>", "Task<ActionResult>":
+		return nil
+	}
+	return bodyOrNil(walker.Type(rt.Text()))
+}
+
+// actionRequest resolves the request body schema. It prefers a [FromBody]
+// parameter; failing that, the first non-routing complex parameter whose type is
+// a known DTO (ASP.NET binds complex types from the body by default under
+// [ApiController]). Route/query/header/service/form params and CancellationToken
+// are never the body.
+func actionRequest(method csharp.Node, walker *schema.Walker) *model.Schema {
+	pl := method.ChildByFieldName("parameters")
+	if !pl.Valid() {
+		return nil
+	}
+	params := csharp.NamedChildren(pl)
+	// 1) explicit [FromBody]
+	for _, p := range params {
+		if p.Type() == "parameter" && csharp.HasAttribute(p, "FromBody") {
+			if ty := p.ChildByFieldName("type"); ty.Valid() {
+				return bodyOrNil(walker.Type(ty.Text()))
+			}
+		}
+	}
+	// 2) implicit body: first known-DTO param without a non-body binding source
+	for _, p := range params {
+		if p.Type() != "parameter" || hasNonBodyBinding(p) {
+			continue
+		}
+		ty := p.ChildByFieldName("type")
+		if !ty.Valid() || ty.Text() == "CancellationToken" {
+			continue
+		}
+		if s := walker.Type(ty.Text()); s != nil && s.Confidence == model.Confirmed && len(s.Nested) > 0 {
+			return s
+		}
+	}
+	return nil
+}
+
+// hasNonBodyBinding reports whether a parameter is explicitly bound from a
+// non-body source (route/query/header/service/form), so it can't be the body.
+func hasNonBodyBinding(p csharp.Node) bool {
+	for _, src := range []string{"FromRoute", "FromQuery", "FromHeader", "FromServices", "FromForm"} {
+		if csharp.HasAttribute(p, src) {
+			return true
+		}
+	}
+	return false
+}
+
+// bodyOrNil drops a void/empty schema (no request/response body).
+func bodyOrNil(s *model.Schema) *model.Schema {
+	if s == nil || s.Type == "void" {
+		return nil
+	}
+	return s
 }
 
 // substituteTokens replaces the ASP.NET [controller] and [action] route tokens.

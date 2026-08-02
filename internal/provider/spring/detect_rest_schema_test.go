@@ -71,6 +71,11 @@ func TestRESTListResponseSchema(t *testing.T) {
 		`class User { private String name; }`,
 		`@RestController class C { @GetMapping("/users") java.util.List<User> all() { return null; } }`)
 	if len(eps) != 1 || eps[0].Response == nil || eps[0].Response.Type != "array" || eps[0].Response.Items != "User" {
-		t.Errorf("list response = %+v, want array items=User", eps[0].Response)
+		t.Fatalf("list response = %+v, want array items=User", eps[0].Response)
+	}
+	// The element DTO's structure is expanded onto the array node, so a list
+	// endpoint carries the same fields as a single-object one.
+	if got := eps[0].Response.Nested; len(got) != 1 || got[0].Name != "name" || got[0].Type != "string" {
+		t.Errorf("list element fields = %+v, want [name:string]", got)
 	}
 }

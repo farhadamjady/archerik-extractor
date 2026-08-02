@@ -75,7 +75,7 @@ func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 
 // Indexers: none yet — round 1 is REST endpoints. HttpClient/typed-client
 // outbound edges and DTO schemas are next rounds.
-func (*Provider) Indexers() []provider.Indexer { return nil }
+func (*Provider) Indexers() []provider.Indexer { return []provider.Indexer{typeIndexer{}} }
 
 // Detectors: REST endpoints from attribute-routed controllers and from
 // Minimal APIs (app.MapGet/MapPost/... incl. MapGroup prefixes), plus outbound

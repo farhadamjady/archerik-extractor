@@ -207,12 +207,53 @@ func getterField(m Node) (schema.FieldDef, bool) {
 	if !ret.Valid() || ret.Text() == "void" {
 		return schema.FieldDef{}, false
 	}
+	mods := directChild(m, "modifiers")
+	anns := annotationList(mods)
+	// Jackson's default getter visibility is PUBLIC_ONLY: a non-public getter
+	// (protected/package-private/private) is NOT auto-serialized, so it must not
+	// invent a wire property (e.g. a protected getPetsInternal()). An explicit
+	// Jackson binding (@JsonProperty/@JsonGetter) overrides visibility and forces
+	// it in. @JsonIgnore is handled downstream in the field union.
+	if !isPublicModifiers(mods) && !hasAnyAnnotation(anns, "JsonProperty", "JsonGetter") {
+		return schema.FieldDef{}, false
+	}
 	return schema.FieldDef{
 		Name:        prop,
 		Type:        ret.Text(),
 		Source:      schema.SourceGetter,
-		Annotations: annotationList(directChild(m, "modifiers")),
+		Annotations: anns,
 	}, true
+}
+
+// isPublicModifiers reports whether a `modifiers` node carries the `public`
+// keyword. Access keywords are anonymous tokens (not named children), so the
+// annotation text is stripped out first to avoid matching a name like
+// @PublicApi; an absent modifiers node is package-private, i.e. not public.
+func isPublicModifiers(mods Node) bool {
+	if !mods.Valid() {
+		return false
+	}
+	txt := mods.Text()
+	for _, a := range namedChildrenOf(mods) {
+		txt = strings.Replace(txt, a.Text(), " ", 1)
+	}
+	for _, tok := range strings.Fields(txt) {
+		if tok == "public" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAnyAnnotation(anns []schema.Annotation, names ...string) bool {
+	for _, a := range anns {
+		for _, n := range names {
+			if a.Name == n {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // getterProperty derives the property name: getName -> name, isActive -> active.

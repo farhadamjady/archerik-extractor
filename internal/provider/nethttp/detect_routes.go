@@ -6,6 +6,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/provider"
 	"github.com/farhadamjady/service-discovery/internal/provider/lang/golang"
+	"github.com/farhadamjady/service-discovery/internal/schema"
 )
 
 // routeDetector extracts REST endpoints from net/http route registrations:
@@ -60,9 +61,15 @@ func (routeDetector) onCall(mc *provider.MatchContext) {
 	if !ok {
 		return
 	}
+	var req, resp *model.Schema
+	if jf, ok := mc.File.(*golang.File); ok {
+		req, resp = handlerSchemas(jf, kids[1], schema.NewWalker(mc.Index.Types))
+	}
 	mc.Out.Endpoints = append(mc.Out.Endpoints, model.Endpoint{
 		Method:     verb,
 		Path:       path,
+		Request:    req,
+		Response:   resp,
 		Protocol:   model.ProtoREST,
 		Detection:  model.DetectRouter,
 		Confidence: model.Confirmed,

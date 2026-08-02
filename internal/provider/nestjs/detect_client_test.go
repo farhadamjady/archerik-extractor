@@ -61,6 +61,11 @@ func TestOutboundClients(t *testing.T) {
 			src:  `function f(cache: Map<string, string>) { return cache.get('key'); }`,
 			want: nil,
 		},
+		{
+			name: "http client via const-bound literal -> confirmed host",
+			src:  `async function f() { const url = 'http://catalog:8080/products'; return axios.get(url); }`,
+			want: []string{"axios confirmed catalog:8080"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

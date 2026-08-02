@@ -4,8 +4,11 @@ package model
 // It captures the shape of the contract as written in code/spec — never runtime
 // payloads. No versioning: current only, overwrite on change.
 //
-// Generics/collections are recorded as container + inner type:
-//   - List<User>          -> {Type: "array", Items: "User"}
+// Generics/collections are recorded as container + inner type. When the element
+// is an object DTO its fields are expanded onto the array node (Nested), so a
+// collection endpoint carries the same structure as a single-object one:
+//   - List<User>          -> {Type: "array", Items: "User", Nested: [User's fields]}
+//   - List<String>        -> {Type: "array", Items: "String"}
 //   - Map<String, Order>  -> {Type: "map", KeyType: "String", ValueType: "Order"}
 //   - Optional<String>    -> {Type: "String", Nullable: true}
 //   - Page<Invoice>       -> unwrapped to the inner type

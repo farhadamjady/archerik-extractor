@@ -52,9 +52,20 @@ func TestOutboundClients(t *testing.T) {
 			want: []string{"axios uncertain "},
 		},
 		{
-			name: "axios.get with a variable URL -> uncertain",
+			name: "axios.get with a parameter URL -> uncertain",
 			src:  `async function f(url) { const r = await axios.get(url, { params }); }`,
 			want: []string{"axios uncertain "},
+		},
+		{
+			name: "axios.get via const-bound literal -> confirmed host",
+			src:  `async function f() { const url = 'http://pay.svc/charge'; return axios.get(url, { params }); }`,
+			want: []string{"axios confirmed pay.svc"},
+		},
+		{
+			name: "per-function const scoping -> no cross-bleed",
+			src: `async function a() { const url = 'http://one.svc/x'; return axios.get(url); }
+			      async function b() { const url = 'http://two.svc/y'; return axios.get(url); }`,
+			want: []string{"axios confirmed one.svc", "axios confirmed two.svc"},
 		},
 	}
 	for _, tc := range cases {

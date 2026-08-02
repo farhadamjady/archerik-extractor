@@ -163,3 +163,65 @@ func StringValue(str Node) string {
 	}
 	return ""
 }
+
+// StringArgValue resolves a call argument to a string constant: a `string`
+// literal directly, or an `identifier` bound to a string literal in an enclosing
+// scope (one hop of constant propagation). It lets a URL threaded through a local
+// variable — `const url = "https://api"; axios.get(url)` — still resolve instead
+// of collapsing to an anonymous dynamic edge. Returns ok=false for template
+// literals, member/builder expressions, and unresolved/ambiguous identifiers.
+func StringArgValue(arg Node) (string, bool) {
+	switch arg.Type() {
+	case "string":
+		return StringValue(arg), true
+	case "identifier":
+		return resolveStringRef(arg)
+	default:
+		return "", false
+	}
+}
+
+// resolveStringRef resolves an identifier to a `const/let/var name = "..."`
+// binding, scanning enclosing scopes from innermost outward (inner shadows outer)
+// so it never crosses into a sibling or nested function's bindings. Returns
+// ok=false when no binding is found, or a scope binds the name to two DIFFERENT
+// literals (ambiguous — the caller stays honest and keeps the edge uncertain).
+func resolveStringRef(ref Node) (string, bool) {
+	name := ref.Text()
+	if name == "" {
+		return "", false
+	}
+	for scope := ref.Parent(); scope.Valid(); scope = scope.Parent() {
+		if val, ok, ambiguous := directStringBinding(scope, name); ambiguous {
+			return "", false
+		} else if ok {
+			return val, true
+		}
+	}
+	return "", false
+}
+
+// directStringBinding scans a scope node's OWN declaration statements (not
+// descending into nested blocks/functions) for a `name = "literal"` binding.
+func directStringBinding(scope Node, name string) (val string, ok, ambiguous bool) {
+	for _, stmt := range NamedChildren(scope) {
+		if t := stmt.Type(); t != "lexical_declaration" && t != "variable_declaration" {
+			continue
+		}
+		for _, d := range NamedChildren(stmt) {
+			if d.Type() != "variable_declarator" {
+				continue
+			}
+			nm := d.ChildByFieldName("name")
+			v := d.ChildByFieldName("value")
+			if nm.Valid() && nm.Text() == name && v.Valid() && v.Type() == "string" {
+				sv := StringValue(v)
+				if ok && sv != val {
+					ambiguous = true
+				}
+				val, ok = sv, true
+			}
+		}
+	}
+	return val, ok, ambiguous
+}

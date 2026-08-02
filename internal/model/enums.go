@@ -37,6 +37,7 @@ const (
 	DetectRouter            DetectionMethod = "router"             // WebFlux/WebMvc.fn functional routing (RouterFunction)
 	DetectMicronautClient   DetectionMethod = "micronaut-client"   // Micronaut @Client declarative HTTP client
 	DetectMPRestClient      DetectionMethod = "mp-rest-client"     // MicroProfile @RegisterRestClient (Quarkus)
+	DetectJaxrsClient       DetectionMethod = "jaxrs-client"       // JAX-RS programmatic client (ClientBuilder/WebTarget)
 	DetectReactiveMessaging DetectionMethod = "reactive-messaging" // MicroProfile Reactive Messaging @Incoming/@Outgoing/@Channel
 	DetectHTTPClient        DetectionMethod = "http-client"        // std-lib HTTP client call (Go http.Get/NewRequest)
 	DetectAxios             DetectionMethod = "axios"              // axios / @nestjs/axios HttpService call (Node)

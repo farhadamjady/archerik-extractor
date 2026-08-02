@@ -6,6 +6,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/provider"
 	"github.com/farhadamjady/service-discovery/internal/provider/lang/tsjs"
+	"github.com/farhadamjady/service-discovery/internal/schema"
 )
 
 // restDetector extracts REST endpoints from NestJS @Controller classes. A
@@ -53,11 +54,12 @@ func (restDetector) onController(mc *provider.MatchContext) {
 	if !body.Valid() {
 		return
 	}
+	walker := schema.NewWalker(mc.Index.Types)
 	for _, m := range tsjs.NamedChildren(body) {
 		if m.Type() != "method_definition" {
 			continue
 		}
-		appendMethodEndpoints(mc.Out, m, base, globals)
+		appendMethodEndpoints(mc.Out, m, base, globals, walker)
 	}
 }
 
@@ -75,8 +77,9 @@ func controllerBase(ctrl tsjs.Node) string {
 }
 
 // appendMethodEndpoints emits the endpoint for a method that carries an HTTP-verb
-// decorator, composing global prefix + controller base + method path.
-func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string, globals []string) {
+// decorator, composing global prefix + controller base + method path, and
+// attaching request/response body schemas resolved from the method signature.
+func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string, globals []string, walker *schema.Walker) {
 	decs := tsjs.PrecedingDecorators(method)
 	for _, dec := range decs {
 		verb, isVerb := verbDecorator[tsjs.DecoratorName(dec)]
@@ -90,10 +93,14 @@ func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string, gl
 		} else if !literal {
 			conf = model.Uncertain // computed path
 		}
+		req := methodRequest(method, walker)
+		resp := methodResponse(method, walker)
 		for _, g := range globals {
 			out.Endpoints = append(out.Endpoints, model.Endpoint{
 				Method:     verb,
 				Path:       normalizePath(joinPath(strings.Trim(g, "/")+"/"+strings.Trim(base, "/"), sub)),
+				Request:    req,
+				Response:   resp,
 				Protocol:   model.ProtoREST,
 				Detection:  model.DetectAnnotation,
 				Confidence: conf,
@@ -101,6 +108,45 @@ func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string, gl
 		}
 		return // one verb decorator per method
 	}
+}
+
+// methodResponse resolves the response body schema from a handler's declared
+// return type (`: Promise<ArticleRO>` -> ArticleRO), dropping void/absent.
+func methodResponse(method tsjs.Node, walker *schema.Walker) *model.Schema {
+	rt := method.ChildByFieldName("return_type")
+	if !rt.Valid() {
+		return nil
+	}
+	return bodyOrNil(walker.Type(normalizeType(typeText(rt))))
+}
+
+// methodRequest resolves the request body schema from the parameter decorated
+// with @Body (`@Body() dto: CreateArticleDto` -> CreateArticleDto). A
+// @Body('field') that picks a sub-property still yields the declared param type,
+// the closest static contract available.
+func methodRequest(method tsjs.Node, walker *schema.Walker) *model.Schema {
+	params := method.ChildByFieldName("parameters")
+	if !params.Valid() {
+		return nil
+	}
+	for _, p := range tsjs.NamedChildren(params) {
+		for _, d := range tsjs.NamedChildren(p) {
+			if d.Type() == "decorator" && tsjs.DecoratorName(d) == "Body" {
+				if ta := p.ChildByFieldName("type"); ta.Valid() {
+					return bodyOrNil(walker.Type(normalizeType(typeText(ta))))
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// bodyOrNil drops a void schema (no request/response body).
+func bodyOrNil(s *model.Schema) *model.Schema {
+	if s == nil || s.Type == "void" {
+		return nil
+	}
+	return s
 }
 
 // joinPath composes a controller base path with a method sub-path.

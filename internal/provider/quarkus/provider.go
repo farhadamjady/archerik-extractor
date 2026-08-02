@@ -108,13 +108,15 @@ func (*Provider) Indexers() []provider.Indexer {
 }
 
 // Detectors: REST endpoints (@Path + @GET/@POST/...), the MicroProfile REST
-// client (@RegisterRestClient), and MicroProfile Reactive Messaging
+// client (@RegisterRestClient), the JAX-RS programmatic client
+// (ClientBuilder.newClient()...target(...)), and MicroProfile Reactive Messaging
 // (@Incoming/@Outgoing/@Channel), whose channel→topic mapping and Kafka-vs-in-
 // memory connector distinction are read from the parsed application config.
 func (*Provider) Detectors() []provider.Detector {
 	return []provider.Detector{
 		restDetector{},
 		restClientDetector{},
+		jaxrsClientDetector{},
 		messagingDetector{},
 	}
 }

@@ -110,18 +110,15 @@ func emitURLArg(out *model.Service, args tsjs.Node, idx int, detection model.Det
 		out.OutboundDependencies = append(out.OutboundDependencies, dep)
 		return
 	}
-	arg := kids[idx]
-	switch {
-	case arg.Type() == "string":
-		url := tsjs.StringValue(arg)
+	if url, ok := tsjs.StringArgValue(kids[idx]); ok {
 		if host := authority(url); host != "" {
 			dep.TargetName, dep.URL, dep.Resolved, dep.Confidence = host, url, true, model.Confirmed
 		} else {
 			// bare path / relative URL — names no service
 			dep.URL, dep.Confidence = url, model.Uncertain
 		}
-	default:
-		// dynamic URL (variable, `new URL(...).toString()`, template literal)
+	} else {
+		// dynamic URL (unresolved variable, `new URL(...).toString()`, template)
 		dep.Confidence = model.Uncertain
 	}
 	out.OutboundDependencies = append(out.OutboundDependencies, dep)

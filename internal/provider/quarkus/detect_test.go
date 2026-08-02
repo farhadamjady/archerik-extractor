@@ -159,6 +159,71 @@ func TestRestClient(t *testing.T) {
 	}
 }
 
+func TestJaxrsClient(t *testing.T) {
+	cases := []struct {
+		name       string
+		src        string
+		expect     bool // an edge is expected
+		target     string
+		url        string
+		resolved   bool
+		confidence model.Confidence
+	}{
+		{
+			name:       "literal absolute base URL -> host confirmed",
+			src:        `class VillainClient { Object c = ClientBuilder.newClient().target("http://villains:8080/api").path("random"); }`,
+			expect:     true,
+			target:     "villains:8080",
+			url:        "http://villains:8080/api",
+			resolved:   true,
+			confidence: model.Confirmed,
+		},
+		{
+			name:       "config-accessor base -> enclosing bean name, uncertain",
+			src:        `class VillainClient { VillainClient(FightConfig cfg) { this.c = ClientBuilder.newClient().register(f).target(cfg.villain().clientBaseUrl()).path("api/villains/"); } }`,
+			expect:     true,
+			target:     "VillainClient",
+			confidence: model.Uncertain,
+		},
+		{
+			name:       "newBuilder().build() chain -> detected",
+			src:        `class C { Object c = ClientBuilder.newBuilder().build().target("http://loc:9/api"); }`,
+			expect:     true,
+			target:     "loc:9",
+			url:        "http://loc:9/api",
+			resolved:   true,
+			confidence: model.Confirmed,
+		},
+		{
+			name:   "target() not rooted at ClientBuilder -> ignored",
+			src:    `class C { Object f(jakarta.ws.rs.client.WebTarget wt) { return wt.target("random"); } }`,
+			expect: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := scanSrc(t, tc.src, jaxrsClientDetector{})
+			if !tc.expect {
+				if len(svc.OutboundDependencies) != 0 {
+					t.Fatalf("want no deps, got %+v", svc.OutboundDependencies)
+				}
+				return
+			}
+			if len(svc.OutboundDependencies) != 1 {
+				t.Fatalf("got %d deps, want 1: %+v", len(svc.OutboundDependencies), svc.OutboundDependencies)
+			}
+			d := svc.OutboundDependencies[0]
+			if d.TargetName != tc.target || d.URL != tc.url || d.Resolved != tc.resolved || d.Confidence != tc.confidence {
+				t.Errorf("got target=%q url=%q resolved=%v conf=%q; want target=%q url=%q resolved=%v conf=%q",
+					d.TargetName, d.URL, d.Resolved, d.Confidence, tc.target, tc.url, tc.resolved, tc.confidence)
+			}
+			if d.Detection != model.DetectJaxrsClient || d.Protocol != model.ProtoREST {
+				t.Errorf("detection=%q protocol=%q", d.Detection, d.Protocol)
+			}
+		})
+	}
+}
+
 // scanMessaging runs the messaging detector with a config store built from a
 // properties string, exercising channel→topic mapping + connector gating.
 func scanMessaging(t *testing.T, src, props string) *model.Service {

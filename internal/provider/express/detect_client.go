@@ -10,11 +10,13 @@ import (
 
 // clientDetector extracts outbound HTTP dependencies from Express/Node call
 // sites: `axios.get/post/...(url, ...)`, `axios(url)`, `fetch(url, ...)`, and
-// `got(url, ...)` / `got.get(url, ...)`. A literal absolute URL resolves to its
-// authority (host[:port]) as target_name; a literal relative path or a dynamic
-// expression (variable / template / builder) emits an honest anonymous uncertain
-// edge — never dropped (CLAUDE.md honesty rule). A TS/JS value evaluator that
-// could resolve a base-URL variable through config is a later round.
+// `got(url, ...)` / `got.get(url, ...)`. A literal absolute URL — directly or via
+// a local variable bound to a literal (one hop of const propagation, see
+// tsjs.StringArgValue) — resolves to its authority (host[:port]) as target_name;
+// a literal relative path or a dynamic expression (template / builder /
+// unresolved variable) emits an honest anonymous uncertain edge — never dropped
+// (CLAUDE.md honesty rule). A value evaluator that resolves a base-URL variable
+// through config is a later round.
 type clientDetector struct{}
 
 func (clientDetector) Name() string             { return "express.client" }
@@ -91,15 +93,15 @@ func emitURLArg(out *model.Service, args tsjs.Node, idx int, detection model.Det
 		out.OutboundDependencies = append(out.OutboundDependencies, dep)
 		return
 	}
-	switch arg := kids[idx]; {
-	case arg.Type() == "string":
-		url := tsjs.StringValue(arg)
+	if url, ok := tsjs.StringArgValue(kids[idx]); ok {
 		if host := authority(url); host != "" {
 			dep.TargetName, dep.URL, dep.Resolved, dep.Confidence = host, url, true, model.Confirmed
 		} else {
+			// bare path / relative URL — names no service
 			dep.URL, dep.Confidence = url, model.Uncertain
 		}
-	default:
+	} else {
+		// dynamic URL (unresolved variable, template literal, builder)
 		dep.Confidence = model.Uncertain
 	}
 	out.OutboundDependencies = append(out.OutboundDependencies, dep)

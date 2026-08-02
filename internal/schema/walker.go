@@ -42,7 +42,7 @@ func (w *Walker) Type(typeExpr string) *model.Schema {
 // nesting path (cycle guard); depth is the remaining nesting budget.
 func (w *Walker) walk(te typeExpr, depth int, seen map[string]bool) *model.Schema {
 	if te.Array {
-		return &model.Schema{Type: "array", Items: te.Name, Confidence: model.Confirmed}
+		return w.arraySchema(typeExpr{Name: te.Name, Args: te.Args}, depth, seen)
 	}
 	switch {
 	case te.Name == "void" || te.Name == "Void":
@@ -50,7 +50,7 @@ func (w *Walker) walk(te typeExpr, depth int, seen map[string]bool) *model.Schem
 	case singleWrapper[te.Name] && len(te.Args) == 1:
 		return w.walk(te.Args[0], depth, seen) // unwrap ResponseEntity/Mono/Optional/Page/...
 	case arrayWrapper[te.Name] && len(te.Args) == 1:
-		return &model.Schema{Type: "array", Items: te.Args[0].Name, Confidence: model.Confirmed}
+		return w.arraySchema(te.Args[0], depth, seen)
 	case mapWrapper[te.Name] && len(te.Args) == 2:
 		return &model.Schema{Type: "map", KeyType: te.Args[0].Name, ValueType: te.Args[1].Name, Confidence: model.Confirmed}
 	}
@@ -71,6 +71,29 @@ func (w *Walker) walk(te typeExpr, depth int, seen map[string]bool) *model.Schem
 	}
 	// External/unknown type: known by name, structure unresolved.
 	return &model.Schema{Type: te.Name, Confidence: model.Uncertain}
+}
+
+// arraySchema builds an "array" schema for a collection whose element is `elem`
+// (List<T>, Set<T>, Flux<T>, T[], IEnumerable<T>, ...). The container is
+// TRANSPARENT w.r.t. depth — like Optional/ResponseEntity — so the element is
+// expanded at the current depth and a bare T, Optional<T>, and List<T> all yield
+// the SAME element structure. Items keeps the element type NAME (backward compat);
+// when the element resolves to an object DTO its fields are hoisted onto the array
+// node (and a depth-truncated element is flagged), so a collection-returning
+// endpoint carries the same structure as a single-object one. Scalar, opaque, and
+// unknown elements add no fields — the Items name alone describes them; an element
+// that is itself an array/map is left to the Items name (nested-container elements
+// aren't further unwrapped).
+func (w *Walker) arraySchema(elem typeExpr, depth int, seen map[string]bool) *model.Schema {
+	s := &model.Schema{Type: "array", Items: elem.Name, Confidence: model.Confirmed}
+	switch es := w.walk(elem, depth, seen); {
+	case es == nil, es.Type == "array", es.Type == "map":
+		// nested container or nothing to expand: the Items name describes it
+	default:
+		s.Nested = es.Nested
+		s.Truncated = es.Truncated
+	}
+	return s
 }
 
 func (w *Walker) object(td *TypeDef, depth int, seen map[string]bool) *model.Schema {
@@ -345,10 +368,22 @@ func set(names ...string) map[string]bool {
 }
 
 var (
-	singleWrapper = set("ResponseEntity", "HttpEntity", "Mono", "Optional", "CompletableFuture", "Callable", "Future", "Page", "Slice", "AtomicReference")
-	arrayWrapper  = set("List", "Set", "Collection", "Iterable", "Flux", "Stream", "ArrayList", "LinkedList", "HashSet")
-	mapWrapper    = set("Map", "HashMap", "LinkedHashMap", "TreeMap", "ConcurrentHashMap")
-	opaque        = set("Object", "JsonNode", "ObjectNode", "Serializable")
+	// Wrapper/scalar sets are multi-language: the walker is type-name-neutral, so
+	// alongside the JVM names it recognizes TypeScript (Promise/Array/Record),
+	// C#/.NET (Task/ValueTask/ActionResult/IEnumerable/...), and Go container
+	// spellings. Lower-case scalars (string/number/bool/...) are TS/C#/Go
+	// primitives and never collide with Java's capitalized ones.
+	singleWrapper = set("ResponseEntity", "HttpEntity", "Mono", "Optional", "CompletableFuture", "Callable", "Future", "Page", "Slice", "AtomicReference",
+		"Promise", "Observable", // TypeScript async
+		"Task", "ValueTask", "ActionResult", "JsonResult") // C#/.NET
+	arrayWrapper = set("List", "Set", "Collection", "Iterable", "Flux", "Stream", "ArrayList", "LinkedList", "HashSet",
+		"Array", "ReadonlyArray", // TypeScript
+		"IEnumerable", "ICollection", "IList", "IReadOnlyList", "IReadOnlyCollection") // C#/.NET
+	mapWrapper = set("Map", "HashMap", "LinkedHashMap", "TreeMap", "ConcurrentHashMap",
+		"Record", "Dictionary", "IDictionary", "IReadOnlyDictionary") // TS Record<K,V> / C# Dictionary<K,V>
+	opaque = set("Object", "JsonNode", "ObjectNode", "Serializable",
+		"any", "unknown", "object", // TypeScript
+		"IActionResult", "JToken", "JObject") // C#
 
 	scalarJSON = map[string]string{
 		"String": "string", "CharSequence": "string", "char": "string", "Character": "string",
@@ -358,5 +393,18 @@ var (
 		"short": "integer", "Short": "integer", "byte": "integer", "Byte": "integer", "BigInteger": "integer",
 		"double": "number", "Double": "number", "float": "number", "Float": "number", "BigDecimal": "number",
 		"boolean": "boolean", "Boolean": "boolean",
+
+		// TypeScript primitives
+		"string": "string", "number": "number", "bigint": "integer",
+
+		// C#/.NET scalars
+		"Guid": "string", "DateTime": "string", "DateTimeOffset": "string", "DateOnly": "string",
+		"TimeOnly": "string", "TimeSpan": "string", "decimal": "number", "Decimal": "number",
+		"bool": "boolean",
+
+		// Go scalars
+		"int8": "integer", "int16": "integer", "int32": "integer", "int64": "integer",
+		"uint": "integer", "uint8": "integer", "uint16": "integer", "uint32": "integer", "uint64": "integer",
+		"rune": "integer", "float32": "number", "float64": "number", "time.Time": "string",
 	}
 )

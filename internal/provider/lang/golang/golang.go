@@ -178,6 +178,17 @@ func NamedChildren(n Node) []Node {
 	return out
 }
 
+// ChildByType returns the first named child of the given node type, or an
+// invalid Node when none is present.
+func ChildByType(n Node, typ string) Node {
+	for i := 0; i < n.NamedChildCount(); i++ {
+		if c := n.NamedChild(i); c.Type() == typ {
+			return c
+		}
+	}
+	return Node{}
+}
+
 // StringLit returns the content of an interpreted_string_literal (or raw
 // string_literal) without the surrounding quotes/backticks, and whether the node
 // is a string literal at all.

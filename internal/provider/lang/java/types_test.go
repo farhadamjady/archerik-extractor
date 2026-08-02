@@ -77,6 +77,28 @@ func TestIndexPOJOWithGetters(t *testing.T) {
 	}
 }
 
+// TestIndexGetterVisibility locks in Jackson's PUBLIC_ONLY default: only public
+// getters invent a wire property. A protected helper like getPetsInternal() must
+// not leak a phantom "petsInternal" field, but a non-public getter forced in with
+// @JsonProperty/@JsonGetter still counts.
+func TestIndexGetterVisibility(t *testing.T) {
+	types := indexOne(t, `class Owner {
+		private java.util.Set<Pet> pets;
+		public java.util.List<Pet> getPets() { return null; }
+		protected java.util.Set<Pet> getPetsInternal() { return null; }
+		String getPackagePrivate() { return null; }
+		@JsonProperty("nick") protected String getNickname() { return null; }
+	}`)
+	td, _ := types.Lookup("Owner")
+	// field "pets" + public getter "pets" (merge downstream) + forced "nickname".
+	// petsInternal (protected) and packagePrivate (package-private) are excluded.
+	got := fieldNames(td)
+	want := []string{"nickname", "pets", "pets"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Errorf("fields = %v, want %v", got, want)
+	}
+}
+
 func TestIndexLombokData(t *testing.T) {
 	types := indexOne(t, `@Data class User { private String name; private int age; }`)
 	td, _ := types.Lookup("User")

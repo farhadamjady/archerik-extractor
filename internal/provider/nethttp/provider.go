@@ -81,7 +81,7 @@ func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 
 // Indexers: none yet — round 1 is server routes. Outbound http.Get/NewRequest
 // edges and request/response schemas are next rounds.
-func (*Provider) Indexers() []provider.Indexer { return nil }
+func (*Provider) Indexers() []provider.Indexer { return []provider.Indexer{typeIndexer{}} }
 
 // Detectors: server routes from HandleFunc/Handle registrations, and outbound
 // edges from std-lib client calls (http.Get / http.NewRequest).
