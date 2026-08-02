@@ -40,6 +40,27 @@ func TestWalkScalar(t *testing.T) {
 	}
 }
 
+// TestWalkKotlinScalars covers the Kotlin type names added in H2: Int -> integer,
+// Unit/Nothing -> void (dropped body), and Any -> uncertain object.
+func TestWalkKotlinScalars(t *testing.T) {
+	w := NewWalker(nil)
+	if got := w.Type("Int"); got.Type != "integer" || got.Confidence != model.Confirmed {
+		t.Errorf("Int = %+v, want integer/confirmed", got)
+	}
+	if got := w.Type("UInt"); got.Type != "integer" {
+		t.Errorf("UInt = %+v, want integer", got)
+	}
+	if got := w.Type("Unit"); got.Type != "void" {
+		t.Errorf("Unit = %+v, want void", got)
+	}
+	if got := w.Type("Nothing"); got.Type != "void" {
+		t.Errorf("Nothing = %+v, want void", got)
+	}
+	if got := w.Type("Any"); got.Type != "object" || got.Confidence != model.Uncertain {
+		t.Errorf("Any = %+v, want object/uncertain", got)
+	}
+}
+
 func TestWalkDTOFields(t *testing.T) {
 	types := fakeTypes{"User": {Name: "User", Fields: []FieldDef{
 		field("name", "String"),

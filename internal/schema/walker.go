@@ -45,7 +45,8 @@ func (w *Walker) walk(te typeExpr, depth int, seen map[string]bool) *model.Schem
 		return w.arraySchema(typeExpr{Name: te.Name, Args: te.Args}, depth, seen)
 	}
 	switch {
-	case te.Name == "void" || te.Name == "Void":
+	case te.Name == "void" || te.Name == "Void" || te.Name == "Unit" || te.Name == "Nothing":
+		// Unit/Nothing are Kotlin's void/bottom types (no serialized body).
 		return &model.Schema{Type: "void", Confidence: model.Confirmed}
 	case singleWrapper[te.Name] && len(te.Args) == 1:
 		return w.walk(te.Args[0], depth, seen) // unwrap ResponseEntity/Mono/Optional/Page/...
@@ -381,7 +382,7 @@ var (
 		"IEnumerable", "ICollection", "IList", "IReadOnlyList", "IReadOnlyCollection") // C#/.NET
 	mapWrapper = set("Map", "HashMap", "LinkedHashMap", "TreeMap", "ConcurrentHashMap",
 		"Record", "Dictionary", "IDictionary", "IReadOnlyDictionary") // TS Record<K,V> / C# Dictionary<K,V>
-	opaque = set("Object", "JsonNode", "ObjectNode", "Serializable",
+	opaque = set("Object", "JsonNode", "ObjectNode", "Serializable", "Any", // JVM (Any = Kotlin's Object)
 		"any", "unknown", "object", // TypeScript
 		"IActionResult", "JToken", "JObject") // C#
 
@@ -393,6 +394,10 @@ var (
 		"short": "integer", "Short": "integer", "byte": "integer", "Byte": "integer", "BigInteger": "integer",
 		"double": "number", "Double": "number", "float": "number", "Float": "number", "BigDecimal": "number",
 		"boolean": "boolean", "Boolean": "boolean",
+
+		// Kotlin primitives beyond the shared JVM names (Long/Short/Byte/Float/
+		// Double/Boolean/Char/String already map above)
+		"Int": "integer", "UInt": "integer", "ULong": "integer", "UShort": "integer", "UByte": "integer",
 
 		// TypeScript primitives
 		"string": "string", "number": "number", "bigint": "integer",
