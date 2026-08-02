@@ -77,9 +77,12 @@ func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 	}
 }
 
-// Indexers: none yet — round 1 is REST endpoints only. Symbol/type/config
-// indexers land with the client/kafka detectors and schema extraction.
-func (*Provider) Indexers() []provider.Indexer { return nil }
+// Indexers: the DTO type index, so the REST/Kafka schema pass can resolve
+// request/response and topic-payload structure. Symbol/config indexers land
+// with the value-flow evaluator.
+func (*Provider) Indexers() []provider.Indexer {
+	return []provider.Indexer{typeIndexer{}}
+}
 
 // Detectors: REST endpoints from @RestController classes, plus outbound HTTP
 // dependencies from @FeignClient interfaces and RestTemplate call sites.
