@@ -156,7 +156,7 @@ func primaryCtorFields(n Node) []schema.FieldDef {
 		if !name.Valid() {
 			continue
 		}
-		typ, nullable := typeOf(p)
+		typ, nullable := DeclaredType(p)
 		out = append(out, field(name.Text(), typ, nullable, schema.SourceCtorParam, Modifiers(p)))
 	}
 	return out
@@ -181,7 +181,7 @@ func bodyFields(n Node) []schema.FieldDef {
 		if !name.Valid() {
 			continue
 		}
-		typ, nullable := typeOf(vd)
+		typ, nullable := DeclaredType(vd)
 		out = append(out, field(name.Text(), typ, nullable, schema.SourceField, Modifiers(m)))
 	}
 	return out
@@ -199,12 +199,12 @@ func field(name, typ string, nullable bool, src schema.FieldSource, mods Node) s
 	return schema.FieldDef{Name: name, Type: typ, Source: src, Annotations: anns}
 }
 
-// typeOf reads the declared type node under a class_parameter/variable_declaration
-// and returns its type text with the nullability marker stripped, plus whether
-// the type was nullable (`T?`). A `List<Role>?` yields ("List<Role>", true).
-// Missing (inferred) types yield ("", false) — the walker resolves those as an
-// uncertain object.
-func typeOf(parent Node) (typ string, nullable bool) {
+// DeclaredType reads the declared type node under a class_parameter,
+// variable_declaration, or function parameter and returns its type text with the
+// nullability marker stripped, plus whether the type was nullable (`T?`). A
+// `List<Role>?` yields ("List<Role>", true). Missing (inferred) types yield
+// ("", false) — the walker resolves those as an uncertain object.
+func DeclaredType(parent Node) (typ string, nullable bool) {
 	for _, c := range NamedChildren(parent) {
 		switch c.Type() {
 		case "nullable_type":

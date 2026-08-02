@@ -6,6 +6,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/provider"
 	"github.com/farhadamjady/service-discovery/internal/provider/lang/kotlin"
+	"github.com/farhadamjady/service-discovery/internal/schema"
 )
 
 // restDetector extracts REST endpoints from @RestController classes written in
@@ -45,6 +46,7 @@ func (restDetector) onController(mc *provider.MatchContext) {
 		return
 	}
 	bases := classBasePaths(mods)
+	walker := schema.NewWalker(mc.Index.Types)
 	body := kotlin.ChildByType(class, "class_body")
 	if !body.Valid() {
 		return
@@ -57,8 +59,38 @@ func (restDetector) onController(mc *provider.MatchContext) {
 		if needResponseBody && !kotlin.FindAnnotation(fmods, "ResponseBody").Valid() {
 			continue
 		}
-		appendMethodEndpoints(mc.Out, fmods, bases)
+		req, resp := funcSchemas(walker, fn)
+		appendMethodEndpoints(mc.Out, fmods, bases, req, resp)
 	}
+}
+
+// funcSchemas resolves a handler function's request (the @RequestBody parameter)
+// and response (the return type) schemas through the shared walker. A void/Unit
+// body yields nil; a nullable return/param (`T?`) marks the schema nullable.
+func funcSchemas(w *schema.Walker, fn kotlin.Node) (req, resp *model.Schema) {
+	if rt, nullable := kotlin.ReturnType(fn); rt != "" {
+		resp = bodyOrNil(w.Type(rt), nullable)
+	}
+	for _, p := range kotlin.Params(fn) {
+		if p.Mods.Valid() && kotlin.FindAnnotation(p.Mods, "RequestBody").Valid() {
+			typ, nullable := kotlin.DeclaredType(p.Node)
+			req = bodyOrNil(w.Type(typ), nullable)
+			break
+		}
+	}
+	return req, resp
+}
+
+// bodyOrNil drops a void schema (no request/response body) and applies top-level
+// nullability from a Kotlin `T?` type.
+func bodyOrNil(s *model.Schema, nullable bool) *model.Schema {
+	if s == nil || s.Type == "void" {
+		return nil
+	}
+	if nullable {
+		s.Nullable = true
+	}
+	return s
 }
 
 // controllerKind classifies the class: @RestController (every mapped method is
@@ -98,7 +130,8 @@ func classBasePaths(mods kotlin.Node) []string {
 
 // appendMethodEndpoints emits the endpoints for one handler function: its first
 // mapping annotation, across the product of class base paths × method paths × verbs.
-func appendMethodEndpoints(out *model.Service, fmods kotlin.Node, bases []string) {
+// req/resp are the resolved request/response body schemas (nil when absent).
+func appendMethodEndpoints(out *model.Service, fmods kotlin.Node, bases []string, req, resp *model.Schema) {
 	if !fmods.Valid() {
 		return
 	}
@@ -129,6 +162,8 @@ func appendMethodEndpoints(out *model.Service, fmods kotlin.Node, bases []string
 					out.Endpoints = append(out.Endpoints, model.Endpoint{
 						Method:     v,
 						Path:       path,
+						Request:    req,
+						Response:   resp,
 						Protocol:   model.ProtoREST,
 						Detection:  model.DetectAnnotation,
 						Confidence: conf,
