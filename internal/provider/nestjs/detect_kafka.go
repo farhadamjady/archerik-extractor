@@ -6,6 +6,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/provider"
 	"github.com/farhadamjady/service-discovery/internal/provider/lang/tsjs"
+	"github.com/farhadamjady/service-discovery/internal/schema"
 )
 
 // kafkaDetector extracts Kafka edges from NestJS/Node services (K8, topics only —
@@ -66,11 +67,56 @@ func (kafkaDetector) onClass(mc *provider.MatchContext) {
 			switch tsjs.DecoratorName(dec) {
 			case "MessagePattern", "EventPattern":
 				if v, literal, ok := tsjs.DecoratorStringArg(dec); ok {
-					emitKafkaTopic(mc, topicVal{v, literal}, false)
+					emitKafkaTopic(mc, topicVal{v, literal}, false, consumerPayloadSchema(mc, m))
 				}
 			}
 		}
 	}
+}
+
+// consumerPayloadSchema resolves a message handler's payload schema (K9): the
+// type of the @Payload()-decorated parameter, or the first typed non-@Ctx
+// parameter, resolved files-first via schema.ResolveKafka. Returns nil when no
+// payload type is found or it doesn't resolve (edge kept, schema dropped).
+func consumerPayloadSchema(mc *provider.MatchContext, method tsjs.Node) *model.Schema {
+	pt := payloadParamType(method)
+	if pt == "" {
+		return nil
+	}
+	return schema.ResolveKafka(pt, mc.Index.Schemas, mc.Index.Types)
+}
+
+// payloadParamType returns the payload parameter's declared type: the
+// @Payload()-decorated parameter's type wins; otherwise the first typed
+// parameter that is not @Ctx-decorated (the by-convention message argument).
+func payloadParamType(method tsjs.Node) string {
+	params := method.ChildByFieldName("parameters")
+	if !params.Valid() {
+		return ""
+	}
+	firstTyped := ""
+	for _, p := range tsjs.NamedChildren(params) {
+		ta := p.ChildByFieldName("type")
+		isPayload, isCtx := false, false
+		for _, d := range tsjs.NamedChildren(p) {
+			if d.Type() != "decorator" {
+				continue
+			}
+			switch tsjs.DecoratorName(d) {
+			case "Payload":
+				isPayload = true
+			case "Ctx":
+				isCtx = true
+			}
+		}
+		if isPayload && ta.Valid() {
+			return normalizeType(typeText(ta))
+		}
+		if !isCtx && ta.Valid() && firstTyped == "" {
+			firstTyped = normalizeType(typeText(ta))
+		}
+	}
+	return firstTyped
 }
 
 // onCall handles the call-based producer/consumer idioms.
@@ -87,18 +133,18 @@ func (kafkaDetector) onCall(mc *provider.MatchContext) {
 	switch method.Text() {
 	case "send": // kafkajs producer.send({ topic, ... })
 		for _, tv := range objectTopics(kids[0]) {
-			emitKafkaTopic(mc, tv, true)
+			emitKafkaTopic(mc, tv, true, nil)
 		}
 	case "subscribe": // kafkajs consumer.subscribe({ topic } / { topics: [...] })
 		for _, tv := range objectTopics(kids[0]) {
-			emitKafkaTopic(mc, tv, false)
+			emitKafkaTopic(mc, tv, false, nil)
 		}
 	case "emit": // ClientKafka.emit('pattern', payload) — gated to avoid EventEmitter
 		if !fileImportsMicroservices(mc.File) {
 			return
 		}
 		if tv, ok := stringPattern(kids[0]); ok {
-			emitKafkaTopic(mc, tv, true)
+			emitKafkaTopic(mc, tv, true, nil)
 		}
 	}
 }
@@ -158,11 +204,11 @@ func stringPattern(n tsjs.Node) (topicVal, bool) {
 	return topicVal{}, false
 }
 
-// emitKafkaTopic appends one topic edge (producer or consumer). No payload schema
-// yet (K9). A literal topic is confirmed and resolved; a computed one is an honest
-// uncertain edge.
-func emitKafkaTopic(mc *provider.MatchContext, tv topicVal, producer bool) {
-	edge := model.KafkaEdge{Protocol: model.ProtoKafka, Detection: model.DetectKafka}
+// emitKafkaTopic appends one topic edge (producer or consumer) with an optional
+// payload schema (nil when unresolved). A literal topic is confirmed and
+// resolved; a computed one is an honest uncertain edge.
+func emitKafkaTopic(mc *provider.MatchContext, tv topicVal, producer bool, sch *model.Schema) {
+	edge := model.KafkaEdge{Protocol: model.ProtoKafka, Detection: model.DetectKafka, Schema: sch}
 	if tv.literal {
 		edge.Topic, edge.Resolved, edge.Confidence = tv.value, true, model.Confirmed
 	} else {

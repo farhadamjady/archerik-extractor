@@ -16,8 +16,9 @@ func kafkaFor(t *testing.T, src string) *model.Service {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
+	idx := &provider.Index{Types: buildTypeIndex([]*tsjs.File{f.(*tsjs.File)})}
 	svc := model.NewService("s", "s", "")
-	if err := query.New().Run(f, []provider.Detector{kafkaDetector{}}, &provider.Index{}, nil, svc); err != nil {
+	if err := query.New().Run(f, []provider.Detector{kafkaDetector{}}, idx, nil, svc); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	model.Sort(svc)
@@ -68,6 +69,53 @@ class OrdersController {
 		if !c.Resolved || c.Confidence != model.Confirmed || c.Detection != model.DetectKafka {
 			t.Errorf("edge = %+v, want resolved/confirmed/kafka", c)
 		}
+	}
+}
+
+// TestPayloadSchema proves K9: a @MessagePattern handler's @Payload() DTO type
+// resolves to a nested schema on the consumer edge (files-first, likely).
+func TestPayloadSchema(t *testing.T) {
+	src := `
+import { Controller } from '@nestjs/common';
+import { MessagePattern, Payload, Ctx } from '@nestjs/microservices';
+
+interface Customer {
+	id: string;
+	name: string;
+}
+interface OrderCreated {
+	orderId: string;
+	total: number;
+	customer: Customer;
+}
+
+@Controller()
+class OrdersController {
+	@MessagePattern('orders.created')
+	handle(@Payload() dto: OrderCreated, @Ctx() ctx: KafkaContext) {}
+}`
+	svc := kafkaFor(t, src)
+	if len(svc.KafkaConsumers) != 1 {
+		t.Fatalf("consumers = %d, want 1", len(svc.KafkaConsumers))
+	}
+	c := svc.KafkaConsumers[0]
+	if c.Topic != "orders.created" {
+		t.Errorf("topic = %q", c.Topic)
+	}
+	if c.Schema == nil || c.Schema.Type != "OrderCreated" {
+		t.Fatalf("schema = %+v, want OrderCreated", c.Schema)
+	}
+	fields := map[string]model.Schema{}
+	for _, f := range c.Schema.Nested {
+		fields[f.Name] = f
+	}
+	if fields["orderId"].Type != "string" || fields["total"].Type != "number" {
+		t.Errorf("scalar fields = %v", c.Schema.Nested)
+	}
+	// nested DTO expands
+	cust := fields["customer"]
+	if cust.Type != "Customer" || len(cust.Nested) != 2 {
+		t.Errorf("customer not expanded: %+v", cust)
 	}
 }
 
