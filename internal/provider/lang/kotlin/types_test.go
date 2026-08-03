@@ -126,6 +126,55 @@ data class Customer(val name: String, val vip: Boolean)
 	}
 }
 
+// TestKotlinRequiredness proves the walker derives tri-state requiredness from
+// Kotlin idioms (H4): a non-null property with no default is required, a nullable
+// `T?` is optional, and a property with a default (`= …`) is optional even though
+// it is non-null. Covered for both a primary-constructor param and a class-body
+// property.
+func TestKotlinRequiredness(t *testing.T) {
+	src := `package x
+data class Signup(
+    val email: String,
+    val nickname: String?,
+    val role: String = "member",
+) {
+    val active: Boolean = true
+    val bio: String?
+}
+`
+	idx := indexOf(t, src)
+	s := schema.NewWalker(idx).Type("Signup")
+	fields := map[string]model.Schema{}
+	for _, f := range s.Nested {
+		fields[f.Name] = f
+	}
+
+	cases := []struct {
+		name     string
+		nullable bool
+		required model.Requiredness
+	}{
+		{"email", false, model.ReqRequired},   // non-null, no default
+		{"nickname", true, model.ReqOptional}, // nullable
+		{"role", false, model.ReqOptional},    // non-null but defaulted (ctor param)
+		{"active", false, model.ReqOptional},  // non-null but defaulted (body property)
+		{"bio", true, model.ReqOptional},      // nullable body property
+	}
+	for _, c := range cases {
+		f, ok := fields[c.name]
+		if !ok {
+			t.Errorf("missing field %q", c.name)
+			continue
+		}
+		if f.Nullable != c.nullable {
+			t.Errorf("%s nullable = %v, want %v", c.name, f.Nullable, c.nullable)
+		}
+		if f.Required != c.required {
+			t.Errorf("%s required = %q, want %q", c.name, f.Required, c.required)
+		}
+	}
+}
+
 func hasAnnotation(anns []schema.Annotation, name string) bool {
 	for _, a := range anns {
 		if a.Name == name {

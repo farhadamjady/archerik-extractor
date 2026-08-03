@@ -107,7 +107,7 @@ func (w *Walker) object(td *TypeDef, depth int, seen map[string]bool) *model.Sch
 		fs := w.walk(te, depth-1, next)
 		fs.Name = mf.wire
 		fs.Nullable = nullability(mf.annotations, te)
-		fs.Required = requiredness(mf.annotations, mf.sources, te)
+		fs.Required = requiredness(mf.annotations, mf.sources, te, mf.hasDefault)
 		s.Nested = append(s.Nested, *fs)
 	}
 	return s
@@ -150,6 +150,7 @@ type mergedField struct {
 	typ         string
 	annotations []Annotation
 	sources     map[FieldSource]bool
+	hasDefault  bool
 }
 
 // unionFields groups field candidates by property name (so a field and its
@@ -170,10 +171,12 @@ func unionFields(fields []FieldDef) []mergedField {
 		cands := groups[name]
 		var anns []Annotation
 		srcs := map[FieldSource]bool{}
+		hasDefault := false
 		best := cands[0]
 		for _, c := range cands {
 			anns = append(anns, c.Annotations...)
 			srcs[c.Source] = true
+			hasDefault = hasDefault || c.HasDefault
 			if srcRank(c.Source) < srcRank(best.Source) {
 				best = c
 			}
@@ -181,7 +184,7 @@ func unionFields(fields []FieldDef) []mergedField {
 		if hasAnn(anns, "JsonIgnore") {
 			continue
 		}
-		out = append(out, mergedField{wire: wireNameFrom(anns, name), typ: best.Type, annotations: anns, sources: srcs})
+		out = append(out, mergedField{wire: wireNameFrom(anns, name), typ: best.Type, annotations: anns, sources: srcs, hasDefault: hasDefault})
 	}
 	return out
 }
@@ -214,13 +217,16 @@ func nullability(anns []Annotation, te typeExpr) bool {
 }
 
 // requiredness: must the field be present (§11), tri-state, default unknown.
-// Explicit annotations win, then Optional<T>, then type/source heuristics.
-func requiredness(anns []Annotation, srcs map[FieldSource]bool, te typeExpr) model.Requiredness {
+// Explicit annotations win, then a declared default (Kotlin `= …`), then
+// Optional<T>, then type/source heuristics.
+func requiredness(anns []Annotation, srcs map[FieldSource]bool, te typeExpr, hasDefault bool) model.Requiredness {
 	switch {
 	case hasAnn(anns, "NotNull") || hasAnn(anns, "NotBlank") || hasAnn(anns, "NotEmpty"):
 		return model.ReqRequired
 	case jsonPropertyRequired(anns, "true"):
 		return model.ReqRequired
+	case hasDefault:
+		return model.ReqOptional
 	case hasAnn(anns, "Nullable"):
 		return model.ReqOptional
 	case jsonPropertyRequired(anns, "false"):

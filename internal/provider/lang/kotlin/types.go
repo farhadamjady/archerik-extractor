@@ -157,7 +157,7 @@ func primaryCtorFields(n Node) []schema.FieldDef {
 			continue
 		}
 		typ, nullable := DeclaredType(p)
-		out = append(out, field(name.Text(), typ, nullable, schema.SourceCtorParam, Modifiers(p)))
+		out = append(out, field(name.Text(), typ, nullable, hasDefault(p), schema.SourceCtorParam, Modifiers(p)))
 	}
 	return out
 }
@@ -182,7 +182,7 @@ func bodyFields(n Node) []schema.FieldDef {
 			continue
 		}
 		typ, nullable := DeclaredType(vd)
-		out = append(out, field(name.Text(), typ, nullable, schema.SourceField, Modifiers(m)))
+		out = append(out, field(name.Text(), typ, nullable, hasDefault(m), schema.SourceField, Modifiers(m)))
 	}
 	return out
 }
@@ -190,13 +190,39 @@ func bodyFields(n Node) []schema.FieldDef {
 // field assembles a FieldDef. A Kotlin nullable type (`T?`) is encoded as a
 // synthetic @Nullable annotation so the walker's existing nullability +
 // requiredness rules treat it as a nullable, optional field — no walker change
-// needed. Explicit annotations are preserved alongside it.
-func field(name, typ string, nullable bool, src schema.FieldSource, mods Node) schema.FieldDef {
+// needed. A declared default (`= …`) sets HasDefault, which the walker reads as
+// optional. Explicit annotations are preserved alongside these.
+func field(name, typ string, nullable, hasDefault bool, src schema.FieldSource, mods Node) schema.FieldDef {
 	anns := schemaAnnotations(mods)
 	if nullable {
 		anns = append(anns, schema.Annotation{Name: "Nullable"})
 	}
-	return schema.FieldDef{Name: name, Type: typ, Source: src, Annotations: anns}
+	return schema.FieldDef{Name: name, Type: typ, Source: src, Annotations: anns, HasDefault: hasDefault}
+}
+
+// hasDefault reports whether a class_parameter or property_declaration carries an
+// initializer expression (`= value`) after its declared type. A defaulted field
+// may be omitted by the caller, so it is optional regardless of nullability. A
+// computed property (a getter/setter/delegate rather than a stored initializer)
+// is NOT a default.
+func hasDefault(decl Node) bool {
+	seenType := false
+	for _, c := range NamedChildren(decl) {
+		if !seenType {
+			switch c.Type() {
+			case "user_type", "nullable_type", "function_type", "variable_declaration":
+				seenType = true
+			}
+			continue
+		}
+		switch c.Type() {
+		case "getter", "setter", "property_delegate":
+			return false
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 // DeclaredType reads the declared type node under a class_parameter,

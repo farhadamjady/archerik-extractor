@@ -56,6 +56,10 @@ type FieldDef struct {
 	Type        string
 	Source      FieldSource
 	Annotations []Annotation
+	// HasDefault marks a field with a declared default value (e.g. a Kotlin
+	// `val x: String = "n/a"` property/param). A defaulted field may be omitted
+	// by the caller, so the walker treats it as optional regardless of type.
+	HasDefault bool
 }
 
 // Annotation is a captured annotation: its simple name, the first positional
