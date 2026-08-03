@@ -114,6 +114,7 @@ func TestDetectors(t *testing.T) {
 	want := map[string]model.Protocol{
 		"springkt.rest":   model.ProtoREST,
 		"springkt.client": model.ProtoREST,
+		"springkt.kafka":  model.ProtoKafka,
 	}
 	dets := New().Detectors()
 	if len(dets) != len(want) {

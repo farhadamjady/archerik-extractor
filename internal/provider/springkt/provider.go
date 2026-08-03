@@ -84,12 +84,14 @@ func (*Provider) Indexers() []provider.Indexer {
 	return []provider.Indexer{typeIndexer{}}
 }
 
-// Detectors: REST endpoints from @RestController classes, plus outbound HTTP
-// dependencies from @FeignClient interfaces and RestTemplate call sites.
+// Detectors: REST endpoints from @RestController classes, outbound HTTP
+// dependencies from @FeignClient interfaces and RestTemplate call sites, and
+// Kafka edges from @KafkaListener functions and KafkaTemplate.send call sites.
 func (*Provider) Detectors() []provider.Detector {
 	return []provider.Detector{
 		restDetector{},
 		clientDetector{},
+		kafkaDetector{},
 	}
 }
 
