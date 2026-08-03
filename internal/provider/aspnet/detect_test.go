@@ -94,6 +94,7 @@ func TestDetectors(t *testing.T) {
 		"aspnet.rest":    model.ProtoREST,
 		"aspnet.minimal": model.ProtoREST,
 		"aspnet.client":  model.ProtoREST,
+		"aspnet.kafka":   model.ProtoKafka,
 	}
 	dets := New().Detectors()
 	if len(dets) != len(want) {

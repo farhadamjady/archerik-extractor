@@ -85,6 +85,7 @@ func (*Provider) Detectors() []provider.Detector {
 		restDetector{},
 		minimalDetector{},
 		clientDetector{},
+		kafkaDetector{},
 	}
 }
 
