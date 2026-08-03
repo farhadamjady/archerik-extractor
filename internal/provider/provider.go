@@ -154,6 +154,17 @@ type Index struct {
 	// here; the REST detector composes them with the implementing controller's
 	// base path. Values are lang/java.Node kept opaque (like TopicBeans.NameArg).
 	HTTPContracts map[string][]ASTNode
+
+	// GoFuncBodies maps a Go function/method simple name to its declaration's
+	// body node, indexed across ALL scanned files so the net/http route detector
+	// can follow a handler referenced by name (`getUsers` / `h.GetUsers`) into
+	// another file and resolve its request/response schema — Go handlers carry no
+	// declared types, so the body is the only source. Method names can collide
+	// across receivers (the selector gives the method name, not the type); the
+	// first declaration in path-sorted order wins, so resolution stays
+	// deterministic and best-effort. Values are lang/golang.Node kept opaque here
+	// (like HTTPContracts).
+	GoFuncBodies map[string]ASTNode
 }
 
 // TopicBean is one Kafka `@Bean NewTopic` declaration: the bean/method name and

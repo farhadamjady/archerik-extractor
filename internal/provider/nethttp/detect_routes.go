@@ -63,7 +63,7 @@ func (routeDetector) onCall(mc *provider.MatchContext) {
 	}
 	var req, resp *model.Schema
 	if jf, ok := mc.File.(*golang.File); ok {
-		req, resp = handlerSchemas(jf, kids[1], schema.NewWalker(mc.Index.Types))
+		req, resp = handlerSchemas(jf, kids[1], schema.NewWalker(mc.Index.Types), mc.Index.GoFuncBodies)
 	}
 	mc.Out.Endpoints = append(mc.Out.Endpoints, model.Endpoint{
 		Method:     verb,

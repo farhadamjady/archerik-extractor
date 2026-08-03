@@ -17,8 +17,36 @@ type typeIndexer struct{}
 func (typeIndexer) Name() string { return "nethttp.types" }
 
 func (typeIndexer) Index(ic *provider.IndexContext, idx *provider.Index) error {
-	idx.Types = buildTypeIndex(goFiles(ic.Parsed))
+	files := goFiles(ic.Parsed)
+	idx.Types = buildTypeIndex(files)
+	idx.GoFuncBodies = buildFuncIndex(files)
 	return nil
+}
+
+// buildFuncIndex maps every function/method's simple name to its body node,
+// across all files, so a handler referenced by name resolves regardless of which
+// file declares it. Files arrive path-sorted (goFiles), and the first
+// declaration of a name wins, so a method-name collision across receivers
+// resolves deterministically (best-effort — the selector carries no receiver
+// type).
+func buildFuncIndex(files []*golang.File) map[string]provider.ASTNode {
+	idx := map[string]provider.ASTNode{}
+	for _, f := range files {
+		f.Root().Walk(func(n golang.Node) bool {
+			switch n.Type() {
+			case "function_declaration", "method_declaration":
+				name := n.ChildByFieldName("name")
+				body := n.ChildByFieldName("body")
+				if name.Valid() && body.Valid() {
+					if _, exists := idx[name.Text()]; !exists {
+						idx[name.Text()] = body
+					}
+				}
+			}
+			return true
+		})
+	}
+	return idx
 }
 
 // goFiles returns the parsed Go files in stable path order.
@@ -42,9 +70,10 @@ func goFiles(parsed map[string]provider.ParsedFile) []*golang.File {
 // body for JSON decode/encode calls (stdlib `json.Unmarshal`/`Encode` or a
 // project helper whose name contains Decode/Unmarshal / Encode/Marshal/JSON) and
 // infers the body type from the locally-declared variable passed to it. The
-// handler is a func literal or a same-file named function/method value.
-func handlerSchemas(file *golang.File, handler golang.Node, walker *schema.Walker) (req, resp *model.Schema) {
-	body := handlerBody(file, handler)
+// handler is a func literal, a same-file named function/method, or (via funcs) a
+// named function/method declared in another file.
+func handlerSchemas(file *golang.File, handler golang.Node, walker *schema.Walker, funcs map[string]provider.ASTNode) (req, resp *model.Schema) {
+	body := handlerBody(file, handler, funcs)
 	if !body.Valid() {
 		return nil, nil
 	}
@@ -59,9 +88,10 @@ func handlerSchemas(file *golang.File, handler golang.Node, walker *schema.Walke
 }
 
 // handlerBody resolves the block body of a handler argument: a func literal
-// inline, or a named function/method (getUsers / h.GetUsers) declared in the same
-// file, matched by name.
-func handlerBody(file *golang.File, handler golang.Node) golang.Node {
+// inline, or a named function/method (getUsers / h.GetUsers) resolved by name —
+// first in the same file, then through the repo-wide func index (funcs), so a
+// handler defined in another file still resolves.
+func handlerBody(file *golang.File, handler golang.Node, funcs map[string]provider.ASTNode) golang.Node {
 	if handler.Type() == "func_literal" {
 		return handler.ChildByFieldName("body")
 	}
@@ -69,6 +99,20 @@ func handlerBody(file *golang.File, handler golang.Node) golang.Node {
 	if name == "" {
 		return golang.Node{}
 	}
+	if body := sameFileFuncBody(file, name); body.Valid() {
+		return body
+	}
+	if n, ok := funcs[name]; ok {
+		if body, ok := n.(golang.Node); ok {
+			return body
+		}
+	}
+	return golang.Node{}
+}
+
+// sameFileFuncBody finds a named function/method's body within one file (the
+// fast path, and the fallback when no repo-wide index is present).
+func sameFileFuncBody(file *golang.File, name string) golang.Node {
 	var body golang.Node
 	file.Root().Walk(func(n golang.Node) bool {
 		if body.Valid() {
