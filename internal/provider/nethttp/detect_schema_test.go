@@ -97,6 +97,64 @@ func main() {
 	}
 }
 
+// TestDecodeEncodeForms proves H6: request/response bodies resolve across the
+// stdlib JSON forms — top-level `json.Unmarshal(b, &x)` / `json.Marshal(x)` and
+// the address-of variants (`json.Marshal(&resp)`, `Encode(&resp)`), not just the
+// NewDecoder/NewEncoder streaming forms.
+func TestDecodeEncodeForms(t *testing.T) {
+	const dtos = `
+type CreateReq struct {
+	Name string ` + "`json:\"name\"`" + `
+}
+type CreateResp struct {
+	ID uint64 ` + "`json:\"id\"`" + `
+}
+`
+	cases := map[string]string{
+		// top-level Unmarshal (request) + top-level Marshal of a value (response)
+		"unmarshal request, marshal value response": `
+	var in CreateReq
+	json.Unmarshal(body, &in)
+	resp := CreateResp{ID: 1}
+	json.Marshal(resp)`,
+		// address-of response: Marshal(&resp)
+		"marshal address-of response": `
+	var in CreateReq
+	json.Unmarshal(body, &in)
+	resp := CreateResp{ID: 1}
+	json.Marshal(&resp)`,
+		// address-of response through the encoder: Encode(&resp)
+		"encoder address-of response": `
+	var in CreateReq
+	json.NewDecoder(r.Body).Decode(&in)
+	resp := CreateResp{ID: 1}
+	json.NewEncoder(w).Encode(&resp)`,
+	}
+	for name, handlerBody := range cases {
+		t.Run(name, func(t *testing.T) {
+			src := `package main
+import (
+	"encoding/json"
+	"net/http"
+)
+` + dtos + `
+func createUser(w http.ResponseWriter, r *http.Request) {` + handlerBody + `
+}
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /users", createUser)
+}`
+			post := schemaFor(t, src)["POST /users"]
+			if post.Request == nil || post.Request.Type != "CreateReq" {
+				t.Errorf("request = %+v, want CreateReq", post.Request)
+			}
+			if post.Response == nil || post.Response.Type != "CreateResp" {
+				t.Errorf("response = %+v, want CreateResp", post.Response)
+			}
+		})
+	}
+}
+
 // TestHandlerBodyCrossFile proves H5: the route is registered in routes.go, but
 // the handler function (and the DTOs it decodes/encodes) live in handlers.go.
 // The cross-file func index lets the detector follow `createUser` into the other

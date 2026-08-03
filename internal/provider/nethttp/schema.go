@@ -246,9 +246,17 @@ func encodeArgType(body golang.Node, locals map[string]string) string {
 	return found
 }
 
-// argType resolves an encode argument to a type: a composite literal's type, or
-// a local variable's declared type. Returns "" for non-type args (w, status).
+// argType resolves an encode argument to a type: an address-of expression
+// (`&x` / `&T{...}`, e.g. `json.Marshal(&resp)`) unwrapped to its operand, a
+// composite literal's type, or a local variable's declared type. Returns "" for
+// non-type args (w, status).
 func argType(arg golang.Node, locals map[string]string) string {
+	if arg.Type() == "unary_expression" {
+		if op := arg.ChildByFieldName("operator"); op.Valid() && op.Text() != "&" {
+			return "" // only address-of carries a body type (&x); skip !x, -x, <-ch
+		}
+		return argType(arg.ChildByFieldName("operand"), locals)
+	}
 	if t := compositeType(arg); t != "" {
 		return t
 	}
