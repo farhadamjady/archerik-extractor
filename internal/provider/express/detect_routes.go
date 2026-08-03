@@ -6,6 +6,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/provider"
 	"github.com/farhadamjady/service-discovery/internal/provider/lang/tsjs"
+	"github.com/farhadamjady/service-discovery/internal/schema"
 )
 
 // routeDetector extracts REST endpoints from Express route registrations:
@@ -56,7 +57,8 @@ func (routeDetector) onCall(mc *provider.MatchContext) {
 	// `.route('/path')` call somewhere in the receiver chain, and this call's
 	// arguments are just handlers.
 	if raw, ok := chainRoutePath(obj); ok {
-		emitRoute(mc, verb, raw)
+		req, resp := routeSchemas(mc, kids)
+		emitRoute(mc, verb, raw, req, resp)
 		return
 	}
 
@@ -70,14 +72,43 @@ func (routeDetector) onCall(mc *provider.MatchContext) {
 	if !strings.HasPrefix(raw, "/") || !plausibleAppReceiver(obj) {
 		return
 	}
-	emitRoute(mc, verb, raw)
+	req, resp := routeSchemas(mc, kids)
+	emitRoute(mc, verb, raw, req, resp)
+}
+
+// routeSchemas best-effort resolves a route's request/response body schemas from
+// its handler argument. Gated on TypeScript — a plain-JS handler carries no
+// types, so JS routes stay honestly schema-less.
+func routeSchemas(mc *provider.MatchContext, kids []tsjs.Node) (req, resp *model.Schema) {
+	file, ok := mc.File.(*tsjs.File)
+	if !ok || !strings.HasSuffix(file.Path(), ".ts") {
+		return nil, nil
+	}
+	h := handlerArg(kids)
+	if !h.Valid() {
+		return nil, nil
+	}
+	return handlerSchemas(file, h, schema.NewWalker(mc.Index.Types))
+}
+
+// handlerArg picks the route's handler argument: the last function-like or
+// identifier argument (skipping the leading path string and any preceding
+// middleware — the terminal handler is the one whose types describe the route).
+func handlerArg(kids []tsjs.Node) tsjs.Node {
+	for i := len(kids) - 1; i >= 0; i-- {
+		switch kids[i].Type() {
+		case "arrow_function", "function_expression", "function", "identifier":
+			return kids[i]
+		}
+	}
+	return tsjs.Node{}
 }
 
 // emitRoute appends the endpoint(s) for one route declaration, prepending the
 // file's composed mount prefix(es) from the mount indexer (#50). An unmounted
 // file emits at the declared path; a file mounted at several places emits one
 // endpoint per prefix.
-func emitRoute(mc *provider.MatchContext, verb, raw string) {
+func emitRoute(mc *provider.MatchContext, verb, raw string, req, resp *model.Schema) {
 	prefixes := []string{""}
 	if ps := mc.Index.MountPrefixes[mc.File.Path()]; len(ps) > 0 {
 		prefixes = ps
@@ -87,6 +118,8 @@ func emitRoute(mc *provider.MatchContext, verb, raw string) {
 		mc.Out.Endpoints = append(mc.Out.Endpoints, model.Endpoint{
 			Method:     verb,
 			Path:       normalizePath("/" + strings.Trim(full, "/")),
+			Request:    req,
+			Response:   resp,
 			Protocol:   model.ProtoREST,
 			Detection:  model.DetectRouter,
 			Confidence: model.Confirmed,
