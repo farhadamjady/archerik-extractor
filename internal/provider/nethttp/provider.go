@@ -83,12 +83,16 @@ func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 // edges and request/response schemas are next rounds.
 func (*Provider) Indexers() []provider.Indexer { return []provider.Indexer{typeIndexer{}} }
 
-// Detectors: server routes from HandleFunc/Handle registrations, and outbound
-// edges from std-lib client calls (http.Get / http.NewRequest).
+// Detectors: server routes from HandleFunc/Handle registrations, outbound edges
+// from std-lib client calls (http.Get / http.NewRequest), and Kafka edges from
+// the segmentio/sarama/confluent Go clients. (Kafka detection lives here rather
+// than in a dedicated go-messaging provider for now, so it only runs on Go
+// services that also use net/http — a documented limitation.)
 func (*Provider) Detectors() []provider.Detector {
 	return []provider.Detector{
 		routeDetector{},
 		clientDetector{},
+		kafkaDetector{},
 	}
 }
 

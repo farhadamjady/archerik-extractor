@@ -90,6 +90,7 @@ func TestDetectors(t *testing.T) {
 	want := map[string]model.Protocol{
 		"nethttp.route":  model.ProtoREST,
 		"nethttp.client": model.ProtoREST,
+		"nethttp.kafka":  model.ProtoKafka,
 	}
 	dets := New().Detectors()
 	if len(dets) != len(want) {
