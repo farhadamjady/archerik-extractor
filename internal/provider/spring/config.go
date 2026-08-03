@@ -12,6 +12,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/provider"
 	"github.com/farhadamjady/service-discovery/internal/scan"
+	"github.com/farhadamjady/service-discovery/internal/schema/registry"
 )
 
 // maxDeployCandidates caps overlay fan-out per key (bounding, T4.5.8).
@@ -44,7 +45,24 @@ func (configIndexer) Index(ic *provider.IndexContext, idx *provider.Index) error
 		return err
 	}
 	idx.Config = cfg
+	if rc := registry.Parse(cfg.props()); rc.Configured() {
+		idx.Registry = &rc
+	}
 	return nil
+}
+
+// props flattens the merged config into a plain key->value map (active values
+// win; non-active profiles fill only absent keys) for cross-cutting readers like
+// the Schema Registry detector.
+func (c *springConfig) props() map[string]string {
+	m := make(map[string]string, len(c.values)+len(c.fallback))
+	for k, v := range c.fallback {
+		m[k] = v.value
+	}
+	for k, v := range c.values {
+		m[k] = v.value // active layer overrides fallback
+	}
+	return m
 }
 
 // configVal is a resolved value plus provenance (which file/profile it came

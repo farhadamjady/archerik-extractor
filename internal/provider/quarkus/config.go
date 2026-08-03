@@ -9,6 +9,7 @@ import (
 
 	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/service-discovery/internal/schema/registry"
 )
 
 // configIndexer builds a FLAT key→value view of the Quarkus config files
@@ -34,6 +35,9 @@ func (configIndexer) Index(ic *provider.IndexContext, idx *provider.Index) error
 	}
 	if len(cfg.values) > 0 {
 		idx.Config = cfg
+	}
+	if rc := registry.Parse(cfg.values); rc.Configured() {
+		idx.Registry = &rc
 	}
 	return nil
 }

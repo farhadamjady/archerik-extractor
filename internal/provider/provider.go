@@ -14,6 +14,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/resolve"
 	"github.com/farhadamjady/service-discovery/internal/schema"
+	"github.com/farhadamjady/service-discovery/internal/schema/registry"
 )
 
 // FileKind routes a collected file to its parser. The scanner buckets files by
@@ -111,6 +112,12 @@ type Index struct {
 	Types   schema.TypeSource
 	Symbols SymbolIndex
 	Schemas schema.SchemaSources
+
+	// Registry is the detected Kafka Schema Registry configuration (URL +
+	// subject-name strategy) read statically from the config layer (K4, no
+	// network), or nil when no registry is configured. Groundwork: a later round
+	// uses it to resolve topic subjects; nothing consumes it yet.
+	Registry *registry.Config
 
 	// Adapters are company-specific wrapper declarations from .ekg-adapters.json
 	// in the repo (IMPROVEMENTS #15): internal SDK calls like
