@@ -35,6 +35,11 @@ type TypeDef struct {
 	Imports     map[string]string // simple name -> fully-qualified name
 	Annotations []Annotation      // type-level (Lombok @Data/@Value, @JsonNaming, ...)
 	Fields      []FieldDef        // from every source; not yet deduped
+
+	// EnumValues holds an enum type's member names in declaration order (Kind ==
+	// KindEnum). The walker emits them as a string field constrained to these
+	// values instead of walking the enum's (usually irrelevant) instance fields.
+	EnumValues []string
 }
 
 // FieldSource records where a candidate field came from, so the walker can

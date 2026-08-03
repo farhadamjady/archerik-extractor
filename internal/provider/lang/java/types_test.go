@@ -4,6 +4,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/schema"
 )
 
@@ -159,5 +160,68 @@ func TestLookupQualifiedFallback(t *testing.T) {
 	types := indexOne(t, `class User { private String name; }`)
 	if _, ok := types.Lookup("com.acme.User"); !ok {
 		t.Error("qualified lookup should fall back to simple name User")
+	}
+}
+
+// TestIndexEnum covers H8 extraction: an enum's members are captured in
+// declaration order, ignoring constructor args and the instance-field body.
+func TestIndexEnum(t *testing.T) {
+	types := indexOne(t, `package x;
+		public enum Status {
+			ACTIVE,
+			SUSPENDED("s"),
+			CLOSED;
+			private final String code;
+			Status() {}
+			Status(String c) { this.code = c; }
+		}`)
+	td, ok := types.Lookup("Status")
+	if !ok {
+		t.Fatal("Status not indexed")
+	}
+	if td.Kind != schema.KindEnum {
+		t.Errorf("kind = %v, want KindEnum", td.Kind)
+	}
+	want := []string{"ACTIVE", "SUSPENDED", "CLOSED"}
+	if len(td.EnumValues) != len(want) {
+		t.Fatalf("enum values = %v, want %v", td.EnumValues, want)
+	}
+	for i, v := range want {
+		if td.EnumValues[i] != v {
+			t.Errorf("enum[%d] = %q, want %q", i, td.EnumValues[i], v)
+		}
+	}
+}
+
+// TestWalkerEnumFieldSorted proves the end-to-end path: a DTO with an enum field
+// emits that field as a string+enum, and model.Sort (identity.go) orders the
+// sibling fields by name while preserving the enum members' declaration order.
+func TestWalkerEnumFieldSorted(t *testing.T) {
+	types := indexOne(t,
+		`package x; public class Account { public String name; public Status status; }`,
+		`package x; public enum Status { ACTIVE, SUSPENDED, CLOSED }`)
+	resp := schema.NewWalker(types).Type("Account")
+
+	svc := model.NewService("s", "s", "")
+	svc.Endpoints = []model.Endpoint{{Method: "GET", Path: "/a", Response: resp}}
+	model.Sort(svc)
+
+	nested := svc.Endpoints[0].Response.Nested
+	// identity.go sorts sibling fields by wire name: name < status.
+	if len(nested) != 2 || nested[0].Name != "name" || nested[1].Name != "status" {
+		t.Fatalf("nested = %+v, want [name status] sorted", nested)
+	}
+	status := nested[1]
+	if status.Type != "string" {
+		t.Errorf("status type = %q, want string", status.Type)
+	}
+	want := []string{"ACTIVE", "SUSPENDED", "CLOSED"}
+	if len(status.Enum) != len(want) {
+		t.Fatalf("status enum = %v, want %v", status.Enum, want)
+	}
+	for i, v := range want {
+		if status.Enum[i] != v {
+			t.Errorf("enum[%d] = %q, want %q (order preserved through Sort)", i, status.Enum[i], v)
+		}
 	}
 }

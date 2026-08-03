@@ -27,6 +27,12 @@ type Schema struct {
 	ValueType string   `json:"value_type,omitempty"` // for maps
 	Nested    []Schema `json:"nested,omitempty"`     // walked to a configurable depth
 
+	// Enum holds the declared members of an enum type, in declaration (ordinal)
+	// order — the field is then a string constrained to these values
+	// (Type == "string"). Order is preserved, not sorted: enum ordinals are
+	// semantic, and a deterministic parse keeps it byte-stable for diffing.
+	Enum []string `json:"enum,omitempty"`
+
 	// Truncated marks a field where the nested DTO walk hit its depth limit
 	// (default 2). Deeper fields become {"type":"object","truncated":true}.
 	Truncated bool `json:"truncated,omitempty"`

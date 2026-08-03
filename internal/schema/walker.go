@@ -63,6 +63,11 @@ func (w *Walker) walk(te typeExpr, depth int, seen map[string]bool) *model.Schem
 	}
 	if w.types != nil {
 		if td, ok := w.types.Lookup(te.Name); ok {
+			// An enum is a string constrained to its members, not an object — emit
+			// the members and stop (no depth/cycle concern: it is a leaf).
+			if td.Kind == KindEnum {
+				return &model.Schema{Type: "string", Enum: td.EnumValues, Confidence: model.Confirmed}
+			}
 			// Truncate on depth exhaustion or a cycle (A -> B -> A).
 			if depth <= 0 || seen[td.Name] {
 				return &model.Schema{Type: td.Name, Truncated: true, Confidence: model.Confirmed}

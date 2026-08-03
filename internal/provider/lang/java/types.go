@@ -107,8 +107,34 @@ func buildTypeDef(n Node, pkg string, imports map[string]string) *schema.TypeDef
 	if n.Type() == "record_declaration" {
 		td.Fields = append(td.Fields, recordComponents(n)...)
 	}
+	if n.Type() == "enum_declaration" {
+		td.EnumValues = enumConstants(n.ChildByFieldName("body"))
+	}
 	td.Fields = append(td.Fields, bodyFields(n.ChildByFieldName("body"))...)
 	return td
+}
+
+// enumConstants returns an enum body's member names in declaration order
+// (ACTIVE, SUSPENDED, CLOSED), ignoring any constructor arguments and the
+// enum's instance-field/method body.
+func enumConstants(body Node) []string {
+	if !body.Valid() {
+		return nil
+	}
+	var out []string
+	for _, c := range namedChildrenOf(body) {
+		if c.Type() != "enum_constant" {
+			continue
+		}
+		name := c.ChildByFieldName("name")
+		if !name.Valid() {
+			name = directChild(c, "identifier")
+		}
+		if name.Valid() {
+			out = append(out, name.Text())
+		}
+	}
+	return out
 }
 
 func kindOf(nodeType string) schema.Kind {

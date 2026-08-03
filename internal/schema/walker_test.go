@@ -61,6 +61,31 @@ func TestWalkKotlinScalars(t *testing.T) {
 	}
 }
 
+// TestWalkEnum covers H8: a KindEnum type resolves to a string constrained to
+// its members (in declaration order), not an object with the enum's fields.
+func TestWalkEnum(t *testing.T) {
+	types := fakeTypes{"Status": {
+		Name: "Status", Kind: KindEnum,
+		EnumValues: []string{"ACTIVE", "SUSPENDED", "CLOSED"},
+	}}
+	s := NewWalker(types).Type("Status")
+	if s.Type != "string" || s.Confidence != model.Confirmed {
+		t.Fatalf("Status = %+v, want string/confirmed", s)
+	}
+	if len(s.Nested) != 0 {
+		t.Errorf("enum should have no nested fields, got %+v", s.Nested)
+	}
+	want := []string{"ACTIVE", "SUSPENDED", "CLOSED"}
+	if len(s.Enum) != len(want) {
+		t.Fatalf("enum = %v, want %v", s.Enum, want)
+	}
+	for i, v := range want {
+		if s.Enum[i] != v {
+			t.Errorf("enum[%d] = %q, want %q (declaration order)", i, s.Enum[i], v)
+		}
+	}
+}
+
 func TestWalkDTOFields(t *testing.T) {
 	types := fakeTypes{"User": {Name: "User", Fields: []FieldDef{
 		field("name", "String"),
