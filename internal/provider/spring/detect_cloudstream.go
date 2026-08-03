@@ -24,10 +24,179 @@ type cloudStreamDetector struct{}
 func (cloudStreamDetector) Name() string             { return "spring.cloudstream" }
 func (cloudStreamDetector) Protocol() model.Protocol { return model.ProtoKafka }
 
-const cloudStreamQuery = `(method_declaration) @method`
+const (
+	cloudStreamQuery = `(method_declaration) @method`
+	// StreamBridge.send(<binding>, <payload>) — the imperative producer.
+	streamBridgeQuery = `(method_invocation
+  name: (identifier) @name
+  arguments: (argument_list) @args
+) @call`
+)
 
 func (d cloudStreamDetector) Rules() []provider.Rule {
-	return []provider.Rule{{Query: cloudStreamQuery, OnMatch: d.onMethod}}
+	return []provider.Rule{
+		{Query: cloudStreamQuery, OnMatch: d.onMethod},
+		{Query: streamBridgeQuery, OnMatch: d.onStreamBridgeSend},
+	}
+}
+
+// onStreamBridgeSend handles the imperative producer streamBridge.send(binding,
+// payload) (IMPROVEMENTS #34). The binding (arg0, a string literal) maps to its
+// destination(s) via spring.cloud.stream.bindings.<binding>.destination; a
+// composite (comma-separated) destination fans out to one producer edge each.
+func (cloudStreamDetector) onStreamBridgeSend(mc *provider.MatchContext) {
+	if !hasCloudStreamConfig(mc.Index) {
+		return
+	}
+	name, _ := mc.Captures["name"].(java.Node)
+	call, _ := mc.Captures["call"].(java.Node)
+	args, _ := mc.Captures["args"].(java.Node)
+	if !name.Valid() || name.Text() != "send" || !args.Valid() {
+		return
+	}
+	if !receiverIsStreamBridge(call) {
+		return // a send() on something other than a StreamBridge
+	}
+	binding, ok := stringLiteralArg(args.NamedChild(0))
+	if !ok {
+		return // dynamic binding name — could resolve via the evaluator later
+	}
+	sch := schema.ResolveKafka(streamBridgePayloadType(args), mc.Index.Schemas, mc.Index.Types)
+	for _, d := range bindingDestinations(mc, binding) {
+		mc.Out.KafkaProducers = append(mc.Out.KafkaProducers, model.KafkaEdge{
+			Topic:       d.topic,
+			Resolved:    true,
+			Schema:      sch,
+			Protocol:    model.ProtoKafka,
+			Detection:   model.DetectCloudStream,
+			Confidence:  d.conf,
+			ResolvedVia: d.via,
+		})
+	}
+}
+
+// destination is one resolved output target of a binding.
+type destination struct {
+	topic string
+	conf  model.Confidence
+	via   string
+}
+
+// bindingDestinations resolves a binding's destination(s):
+// spring.cloud.stream.bindings.<binding>.destination, splitting a composite
+// (comma-separated) value into one destination each. Absent config defaults to
+// the binding name (Spring's dynamic-destination fallback), at likely.
+func bindingDestinations(mc *provider.MatchContext, binding string) []destination {
+	raw, conf, via := binding, model.Likely, ""
+	if cfg := mc.Index.Config; cfg != nil {
+		if v, c, src, ok := cfg.Resolve("${spring.cloud.stream.bindings." + binding + ".destination}"); ok && v != "" {
+			raw, conf, via = v, c, src
+		}
+	}
+	var out []destination
+	for _, part := range strings.Split(raw, ",") {
+		if t := strings.TrimSpace(part); t != "" {
+			out = append(out, destination{topic: t, conf: conf, via: via})
+		}
+	}
+	if len(out) == 0 {
+		out = append(out, destination{topic: binding, conf: model.Likely})
+	}
+	return out
+}
+
+// receiverIsStreamBridge reports whether the call's receiver is declared as a
+// StreamBridge in the enclosing method (parameter) or class (field) — the guard
+// that keeps a generic send() on some other object from being a producer.
+func receiverIsStreamBridge(call java.Node) bool {
+	name := receiverName(call)
+	if name == "" {
+		return false
+	}
+	if m := enclosingOfTypes(call, "method_declaration", "constructor_declaration"); m.Valid() {
+		if params := childByType(m, "formal_parameters"); params.Valid() {
+			for _, p := range namedChildren(params) {
+				if p.Type() == "formal_parameter" && p.ChildByFieldName("name").Text() == name {
+					return isStreamBridgeType(p.ChildByFieldName("type").Text())
+				}
+			}
+		}
+	}
+	if cls := enclosingOfTypes(call, "class_declaration"); cls.Valid() {
+		body := cls.ChildByFieldName("body")
+		for _, fd := range namedChildren(body) {
+			if fd.Type() != "field_declaration" || !isStreamBridgeType(fd.ChildByFieldName("type").Text()) {
+				continue
+			}
+			for _, d := range namedChildren(fd) {
+				if d.Type() == "variable_declarator" && d.ChildByFieldName("name").Text() == name {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func isStreamBridgeType(t string) bool {
+	t = strings.TrimSpace(t)
+	return t == "StreamBridge" || strings.HasSuffix(t, ".StreamBridge")
+}
+
+// stringLiteralArg returns a string-literal argument's unquoted value.
+func stringLiteralArg(n java.Node) (string, bool) {
+	if n.Valid() && n.Type() == "string_literal" {
+		return unquote(n.Text()), true
+	}
+	return "", false
+}
+
+// streamBridgePayloadType best-effort resolves the message payload type from the
+// send()'s second argument: a `new Foo(...)` creation or a local/parameter whose
+// declared type is known. Unresolved payloads yield "" (edge kept, schema nil).
+func streamBridgePayloadType(args java.Node) string {
+	data := args.NamedChild(1)
+	if !data.Valid() {
+		return ""
+	}
+	switch data.Type() {
+	case "object_creation_expression":
+		if t := data.ChildByFieldName("type"); t.Valid() {
+			return t.Text()
+		}
+	case "identifier":
+		return localOrParamType(data, data.Text())
+	}
+	return ""
+}
+
+// localOrParamType returns the declared type of a local variable or method
+// parameter named `name` in the enclosing method.
+func localOrParamType(ctx java.Node, name string) string {
+	method := enclosingOfTypes(ctx, "method_declaration", "constructor_declaration")
+	if !method.Valid() {
+		return ""
+	}
+	if params := childByType(method, "formal_parameters"); params.Valid() {
+		for _, p := range namedChildren(params) {
+			if p.Type() == "formal_parameter" && p.ChildByFieldName("name").Text() == name {
+				return p.ChildByFieldName("type").Text()
+			}
+		}
+	}
+	var typ string
+	method.Walk(func(m java.Node) bool {
+		if m.Type() != "local_variable_declaration" {
+			return true
+		}
+		for _, d := range namedChildren(m) {
+			if d.Type() == "variable_declarator" && d.ChildByFieldName("name").Text() == name {
+				typ = m.ChildByFieldName("type").Text()
+			}
+		}
+		return true
+	})
+	return typ
 }
 
 func (cloudStreamDetector) onMethod(mc *provider.MatchContext) {
