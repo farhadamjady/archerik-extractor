@@ -94,6 +94,7 @@ func TestDetectors(t *testing.T) {
 	want := map[string]model.Protocol{
 		"nestjs.rest":   model.ProtoREST,
 		"nestjs.client": model.ProtoREST,
+		"nestjs.kafka":  model.ProtoKafka,
 	}
 	dets := New().Detectors()
 	if len(dets) != len(want) {

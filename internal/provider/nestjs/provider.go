@@ -78,12 +78,15 @@ func (*Provider) Indexers() []provider.Indexer {
 	return []provider.Indexer{globalPrefixIndexer{}, typeIndexer{}}
 }
 
-// Detectors: REST endpoints from @Controller classes, plus outbound HTTP
-// dependencies from fetch/axios/HttpService call sites.
+// Detectors: REST endpoints from @Controller classes, outbound HTTP
+// dependencies from fetch/axios/HttpService call sites, and Kafka edges from
+// @MessagePattern/@EventPattern handlers, ClientKafka.emit, and kafkajs
+// producer.send / consumer.subscribe call sites.
 func (*Provider) Detectors() []provider.Detector {
 	return []provider.Detector{
 		restDetector{},
 		clientDetector{},
+		kafkaDetector{},
 	}
 }
 
