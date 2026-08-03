@@ -208,18 +208,76 @@ func (cloudStreamDetector) onMethod(mc *provider.MatchContext) {
 	if !mods.Valid() || !findAnnotation(mods, "Bean").Valid() {
 		return
 	}
-	ret := m.ChildByFieldName("type").Text()
-	kind, in, out := functionalKind(ret)
+	kind, in, out := functionalKind(m.ChildByFieldName("type").Text())
 	if kind == "" {
 		return
 	}
 	name := m.ChildByFieldName("name").Text()
-	if in != "" {
-		emitBinding(mc, name+"-in-0", in, false)
+
+	defs := functionDefinitions(mc.Index)
+	if len(defs) == 0 {
+		// No explicit composition: each functional bean binds on its own name.
+		if in != "" {
+			emitBinding(mc, name+"-in-0", in, false)
+		}
+		if out != "" {
+			emitBinding(mc, name+"-out-0", out, true)
+		}
+		return
 	}
-	if out != "" {
-		emitBinding(mc, name+"-out-0", out, true)
+	// Composition declared (IMPROVEMENTS #23): only beans named in
+	// spring.cloud.function.definition are active, and a composed chain a|b
+	// exposes ONE input (from the first bean) and ONE output (from the last) on
+	// the composite binding name — the intermediate hand-off is internal, never a
+	// topic. So per bean: emit IN only if it is first, OUT only if it is last.
+	for _, chain := range defs {
+		pos := indexOfStr(chain, name)
+		if pos < 0 {
+			continue // this bean isn't part of an active definition
+		}
+		composite := strings.Join(chain, "|")
+		if pos == 0 && in != "" {
+			emitBinding(mc, composite+"-in-0", in, false)
+		}
+		if pos == len(chain)-1 && out != "" {
+			emitBinding(mc, composite+"-out-0", out, true)
+		}
 	}
+}
+
+// functionDefinitions parses spring.cloud.function.definition into composition
+// chains: "a|b;c" -> [["a","b"], ["c"]]. Empty when unset (per-bean binding).
+func functionDefinitions(idx *provider.Index) [][]string {
+	cfg := idx.Config
+	if cfg == nil {
+		return nil
+	}
+	v, _, _, ok := cfg.Resolve("${spring.cloud.function.definition}")
+	if !ok || strings.TrimSpace(v) == "" {
+		return nil
+	}
+	var out [][]string
+	for _, group := range strings.Split(v, ";") {
+		var chain []string
+		for _, fn := range strings.Split(group, "|") {
+			if f := strings.TrimSpace(fn); f != "" {
+				chain = append(chain, f)
+			}
+		}
+		if len(chain) > 0 {
+			out = append(out, chain)
+		}
+	}
+	return out
+}
+
+func indexOfStr(ss []string, s string) int {
+	for i, x := range ss {
+		if x == s {
+			return i
+		}
+	}
+	return -1
 }
 
 // functionalKind classifies the return type: Consumer<T> consumes T;

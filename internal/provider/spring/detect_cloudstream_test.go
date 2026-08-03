@@ -6,6 +6,78 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/model"
 )
 
+// TestFunctionComposition proves K3: with spring.cloud.function.definition=a|b,
+// the composed pipeline exposes ONE input (from the first bean a) and ONE output
+// (from the last bean b) on the composite binding name — not four per-bean
+// bindings, and the intermediate type is not a topic.
+func TestFunctionComposition(t *testing.T) {
+	cfg := buildStore(t, nil, map[string]string{
+		"application.yml": "spring:\n" +
+			"  cloud:\n" +
+			"    function:\n" +
+			"      definition: a|b\n" +
+			"    stream:\n" +
+			"      bindings:\n" +
+			"        a|b-in-0:\n" +
+			"          destination: in.topic\n" +
+			"        a|b-out-0:\n" +
+			"          destination: out.topic\n",
+	})
+	svc := scanWith(t, cloudStreamDetector{}, cfg, nil, `
+class Cfg {
+	@Bean public Function<In, Mid> a() { return x -> null; }
+	@Bean public Function<Mid, Out> b() { return x -> null; }
+}
+class In { private String x; }
+class Mid { private String y; }
+class Out { private String z; }`)
+
+	if len(svc.KafkaConsumers) != 1 {
+		t.Fatalf("consumers = %+v, want 1 (composite input)", svc.KafkaConsumers)
+	}
+	if c := svc.KafkaConsumers[0]; c.Topic != "in.topic" || c.Schema == nil || c.Schema.Type != "In" {
+		t.Errorf("consumer = %+v, want in.topic / In", c)
+	}
+	if len(svc.KafkaProducers) != 1 {
+		t.Fatalf("producers = %+v, want 1 (composite output)", svc.KafkaProducers)
+	}
+	if p := svc.KafkaProducers[0]; p.Topic != "out.topic" || p.Schema == nil || p.Schema.Type != "Out" {
+		t.Errorf("producer = %+v, want out.topic / Out", p)
+	}
+	// The intermediate Mid type is internal — it must not surface as a topic.
+	for _, e := range append(svc.KafkaConsumers, svc.KafkaProducers...) {
+		if e.Schema != nil && e.Schema.Type == "Mid" {
+			t.Errorf("intermediate Mid leaked as a topic: %+v", e)
+		}
+	}
+}
+
+// TestCompositionInactiveBean proves a bean absent from the definition emits
+// nothing (only definition-named functions are active).
+func TestCompositionInactiveBean(t *testing.T) {
+	cfg := buildStore(t, nil, map[string]string{
+		"application.yml": "spring:\n" +
+			"  cloud:\n" +
+			"    function:\n" +
+			"      definition: a\n" +
+			"    stream:\n" +
+			"      bindings:\n" +
+			"        a-out-0:\n" +
+			"          destination: a.topic\n",
+	})
+	svc := scanWith(t, cloudStreamDetector{}, cfg, nil, `
+class Cfg {
+	@Bean public Supplier<Out> a() { return () -> null; }
+	@Bean public Supplier<Other> unused() { return () -> null; }
+}
+class Out { private String z; }
+class Other { private String w; }`)
+
+	if len(svc.KafkaProducers) != 1 || svc.KafkaProducers[0].Topic != "a.topic" {
+		t.Fatalf("producers = %+v, want only a.topic (unused bean inactive)", svc.KafkaProducers)
+	}
+}
+
 // TestStreamBridgeCompositeProducer proves K2: streamBridge.send(binding, data)
 // resolves the binding's destination through config, and a composite
 // (comma-separated) destination fans out to one producer edge per destination —
