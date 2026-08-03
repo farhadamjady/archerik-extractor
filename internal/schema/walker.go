@@ -113,6 +113,7 @@ func (w *Walker) object(td *TypeDef, depth int, seen map[string]bool) *model.Sch
 		fs.Name = mf.wire
 		fs.Nullable = nullability(mf.annotations, te)
 		fs.Required = requiredness(mf.annotations, mf.sources, te, mf.hasDefault)
+		fs.Constraints = constraints(mf.annotations)
 		s.Nested = append(s.Nested, *fs)
 	}
 	return s
@@ -245,6 +246,50 @@ func requiredness(anns []Annotation, srcs map[FieldSource]bool, te typeExpr, has
 	default:
 		return model.ReqUnknown
 	}
+}
+
+// constraints maps a field's validation annotations to declared constraint
+// metadata via a known-annotation allowlist (Jakarta/javax Bean Validation).
+// Unknown annotations are ignored, so the map holds only what we understand.
+// @Size applies to string length here; @Min/@Max/@DecimalMin/@DecimalMax to
+// numeric bounds. TS class-validator / .NET DataAnnotations capture is a
+// follow-up (their type indexes don't surface field annotations yet).
+func constraints(anns []Annotation) map[string]string {
+	var c map[string]string
+	put := func(k, v string) {
+		if v == "" {
+			return
+		}
+		if c == nil {
+			c = map[string]string{}
+		}
+		c[k] = v
+	}
+	for _, a := range anns {
+		switch a.Name {
+		case "Size":
+			put("minLength", a.Named["min"])
+			put("maxLength", a.Named["max"])
+		case "Min", "DecimalMin":
+			put("minimum", constraintValue(a))
+		case "Max", "DecimalMax":
+			put("maximum", constraintValue(a))
+		case "Pattern":
+			put("pattern", a.Named["regexp"])
+		case "Email":
+			put("format", "email")
+		}
+	}
+	return c
+}
+
+// constraintValue reads a bound's value from its positional literal (@Min(5)) or
+// a value= named argument (@Min(value=5)).
+func constraintValue(a Annotation) string {
+	if a.Arg != "" {
+		return a.Arg
+	}
+	return a.Named["value"]
 }
 
 func jsonPropertyRequired(anns []Annotation, want string) bool {

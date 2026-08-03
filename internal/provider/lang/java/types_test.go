@@ -193,6 +193,32 @@ func TestIndexEnum(t *testing.T) {
 	}
 }
 
+// TestWalkerFieldConstraints proves H9 end-to-end: Bean Validation annotations
+// on Java DTO fields surface as a constraint map, including the positional
+// numeric bound of @Min/@Max (which the widened arg capture now reads).
+func TestWalkerFieldConstraints(t *testing.T) {
+	types := indexOne(t, `package x;
+		public class Account {
+			@Size(max = 10) public String username;
+			@Min(1) @Max(120) public int age;
+			@Pattern(regexp = "[a-z]+") @Email public String contact;
+		}`)
+	byName := map[string]model.Schema{}
+	for _, f := range schema.NewWalker(types).Type("Account").Nested {
+		byName[f.Name] = f
+	}
+
+	if c := byName["username"].Constraints; c["maxLength"] != "10" {
+		t.Errorf("username constraints = %v, want maxLength:10", c)
+	}
+	if c := byName["age"].Constraints; c["minimum"] != "1" || c["maximum"] != "120" {
+		t.Errorf("age constraints = %v, want minimum:1 maximum:120", c)
+	}
+	if c := byName["contact"].Constraints; c["pattern"] != "[a-z]+" || c["format"] != "email" {
+		t.Errorf("contact constraints = %v, want pattern + format:email", c)
+	}
+}
+
 // TestWalkerEnumFieldSorted proves the end-to-end path: a DTO with an enum field
 // emits that field as a string+enum, and model.Sort (identity.go) orders the
 // sibling fields by name while preserving the enum members' declaration order.

@@ -321,11 +321,18 @@ func annotationList(mods Node) []schema.Annotation {
 	return out
 }
 
+// firstStringArg returns the first positional literal argument's value: a string
+// literal's content unquoted, or a numeric literal's text with its type suffix
+// stripped (@Min(5) -> "5", @Max(100L) -> "100"). Named args and non-literal
+// positionals yield "".
 func firstStringArg(a Node) string {
 	args := a.ChildByFieldName("arguments")
 	for _, c := range namedChildrenOf(args) {
-		if c.Type() == "string_literal" {
+		switch c.Type() {
+		case "string_literal":
 			return stripQuotes(c.Text())
+		case "decimal_integer_literal", "decimal_floating_point_literal":
+			return strings.TrimRight(c.Text(), "LlFfDd")
 		}
 	}
 	return ""

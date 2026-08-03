@@ -101,6 +101,33 @@ func TestWalkDTOFields(t *testing.T) {
 	}
 }
 
+// TestWalkConstraints covers H9: validation annotations on a field become a
+// constraint map via the allowlist; unknown annotations are ignored.
+func TestWalkConstraints(t *testing.T) {
+	types := fakeTypes{"C": {Name: "C", Fields: []FieldDef{
+		field("code", "String",
+			Annotation{Name: "Size", Named: map[string]string{"min": "2", "max": "10"}},
+			Annotation{Name: "Pattern", Named: map[string]string{"regexp": "[a-z]+"}}),
+		field("age", "int", Annotation{Name: "Min", Arg: "1"}, Annotation{Name: "Max", Arg: "120"}),
+		field("mail", "String", Annotation{Name: "Email"}, Annotation{Name: "Mystery", Arg: "x"}),
+		field("plain", "String"),
+	}}}
+	n := nestedByName(NewWalker(types).Type("C"))
+
+	if c := n["code"].Constraints; c["minLength"] != "2" || c["maxLength"] != "10" || c["pattern"] != "[a-z]+" {
+		t.Errorf("code constraints = %v", c)
+	}
+	if c := n["age"].Constraints; c["minimum"] != "1" || c["maximum"] != "120" {
+		t.Errorf("age constraints = %v", c)
+	}
+	if c := n["mail"].Constraints; c["format"] != "email" || len(c) != 1 {
+		t.Errorf("mail constraints = %v, want only format:email (unknown @Mystery ignored)", c)
+	}
+	if n["plain"].Constraints != nil {
+		t.Errorf("plain should have no constraints, got %v", n["plain"].Constraints)
+	}
+}
+
 func TestWalkListUnwrap(t *testing.T) {
 	s := NewWalker(nil).Type("List<User>")
 	if s.Type != "array" || s.Items != "User" {

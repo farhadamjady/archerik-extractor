@@ -33,6 +33,13 @@ type Schema struct {
 	// semantic, and a deterministic parse keeps it byte-stable for diffing.
 	Enum []string `json:"enum,omitempty"`
 
+	// Constraints carries declared validation metadata as a small JSON-schema-
+	// flavored map (e.g. {"maxLength":"10","pattern":"[a-z]+","format":"email"}),
+	// mapped from a known-annotation allowlist (Bean Validation @Size/@Min/@Max/
+	// @Pattern/@Email). Unknown annotations are ignored. JSON marshals map keys
+	// sorted, so output stays byte-stable for diffing.
+	Constraints map[string]string `json:"constraints,omitempty"`
+
 	// Truncated marks a field where the nested DTO walk hit its depth limit
 	// (default 2). Deeper fields become {"type":"object","truncated":true}.
 	Truncated bool `json:"truncated,omitempty"`
