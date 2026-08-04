@@ -6,6 +6,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/model"
 	"github.com/farhadamjady/service-discovery/internal/provider"
 	"github.com/farhadamjady/service-discovery/internal/provider/lang/csharp"
+	"github.com/farhadamjady/service-discovery/internal/schema"
 )
 
 // minimalDetector extracts REST endpoints from ASP.NET Core Minimal APIs — the
@@ -58,13 +59,79 @@ func (d minimalDetector) onCall(mc *provider.MatchContext) {
 	if path == "" {
 		path = "/"
 	}
+	// #60(a): read request/response body types off the fluent OpenAPI metadata
+	// chained onto this Map* call — `.Accepts<T>()` (request) and `.Produces<T>()`
+	// (response). fn.Parent() is the Map* invocation; the chain wraps it.
+	req, resp := fluentBodies(fn.Parent(), schema.NewWalkerDepth(mc.Index.Types, mc.Index.SchemaDepth))
+
 	mc.Out.Endpoints = append(mc.Out.Endpoints, model.Endpoint{
 		Method:     verb,
 		Path:       path,
+		Request:    req,
+		Response:   resp,
 		Protocol:   model.ProtoREST,
 		Detection:  model.DetectRouter,
 		Confidence: model.Confirmed,
 	})
+}
+
+// fluentBodies walks up the fluent chain from a Map* invocation, reading the
+// generic type argument of `.Accepts<T>()` (request body) and the first generic
+// `.Produces<T>()` (response body). Non-generic `.Produces(StatusCodes...)` (a
+// bare status, no body) and other builder calls (.WithName/.RequireAuthorization)
+// are ignored. Types resolve through the C# type index + walker (#60a).
+func fluentBodies(mapInvocation csharp.Node, walker *schema.Walker) (req, resp *model.Schema) {
+	cur := mapInvocation
+	for cur.Valid() {
+		ma := cur.Parent()
+		if !ma.Valid() || ma.Type() != "member_access_expression" {
+			break
+		}
+		inv := ma.Parent()
+		if !inv.Valid() || inv.Type() != "invocation_expression" {
+			break
+		}
+		if method, arg, ok := genericCall(ma.ChildByFieldName("name")); ok {
+			switch method {
+			case "Accepts":
+				if req == nil {
+					req = bodyOrNil(walker.Type(arg))
+				}
+			case "Produces":
+				if resp == nil {
+					resp = bodyOrNil(walker.Type(arg))
+				}
+			}
+		}
+		cur = inv
+	}
+	return req, resp
+}
+
+// genericCall extracts a `Method<TypeArg>` from a member name node: returns the
+// method identifier and the first type-argument text. ok=false for a plain
+// identifier (`Produces` with no <T>, a bare status-code call).
+func genericCall(name csharp.Node) (method, typeArg string, ok bool) {
+	if !name.Valid() || name.Type() != "generic_name" {
+		return "", "", false
+	}
+	var tal csharp.Node
+	for _, c := range csharp.NamedChildren(name) {
+		switch c.Type() {
+		case "identifier":
+			method = c.Text()
+		case "type_argument_list":
+			tal = c
+		}
+	}
+	if method == "" || !tal.Valid() {
+		return "", "", false
+	}
+	args := csharp.NamedChildren(tal)
+	if len(args) == 0 {
+		return "", "", false
+	}
+	return method, args[0].Text(), true
 }
 
 // memberName is the invoked member's simple name (the last identifier of a

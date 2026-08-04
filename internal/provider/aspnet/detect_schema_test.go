@@ -27,6 +27,49 @@ func schemaFor(t *testing.T, src string) map[string]model.Endpoint {
 	return out
 }
 
+// TestMinimalFluentSchemas proves #60(a): Minimal API endpoints get request/
+// response bodies from the fluent .Accepts<T>()/.Produces<T>() metadata chained
+// onto Map*, with .Produces(statusOnly) carrying no body.
+func TestMinimalFluentSchemas(t *testing.T) {
+	src := `
+		public class ContactDto { public string Name { get; set; } }
+		public class ContactForCreationDto { public string Name { get; set; } }
+		public static class Api {
+			public static void Register(IEndpointRouteBuilder app) {
+				app.MapGet("/contacts", GetAll).Produces<IEnumerable<ContactDto>>();
+				app.MapGet("/contacts/{id}", GetOne).Produces<ContactDto>().Produces(404);
+				app.MapPost("/contacts", Create).Accepts<ContactForCreationDto>("application/json").Produces(201);
+			}
+		}`
+	f, err := csharp.NewParser().Parse("C.cs", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	idx := &provider.Index{Types: buildTypeIndex([]*csharp.File{f.(*csharp.File)})}
+	svc := model.NewService("s", "s", "")
+	if err := query.New().Run(f, []provider.Detector{minimalDetector{}}, idx, nil, svc); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	eps := map[string]model.Endpoint{}
+	for _, e := range svc.Endpoints {
+		eps[e.Method+" "+e.Path] = e
+	}
+
+	if r := eps["GET /contacts"].Response; r == nil || r.Type != "array" || r.Items != "ContactDto" {
+		t.Errorf("GET /contacts response = %+v, want array of ContactDto", r)
+	}
+	if r := eps["GET /contacts/{id}"].Response; r == nil || r.Type != "ContactDto" {
+		t.Errorf("GET /contacts/{id} response = %+v, want ContactDto", r)
+	}
+	post := eps["POST /contacts"]
+	if post.Request == nil || post.Request.Type != "ContactForCreationDto" {
+		t.Errorf("POST request = %+v, want ContactForCreationDto", post.Request)
+	}
+	if post.Response != nil {
+		t.Errorf("POST response = %+v, want nil (Produces(201) is a status, no body)", post.Response)
+	}
+}
+
 // TestPropertyVisibility locks in System.Text.Json's public-instance-only rule:
 // non-public / static / [JsonIgnore] properties invent no phantom wire field,
 // while [JsonInclude] forces a non-public one in.
