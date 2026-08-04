@@ -155,12 +155,32 @@ func methodRequest(method tsjs.Node, walker *schema.Walker, aliases map[string]t
 					if s != nil && nullable {
 						s.Nullable = true
 					}
+					// @Body('key') binds a SUB-property: the wire body is
+					// { key: <Dto> }, so wrap the DTO under that key (#63).
+					if key, literal, ok := tsjs.DecoratorStringArg(d); ok && literal && key != "" {
+						s = wrapUnderKey(s, key)
+					}
 					return s
 				}
 			}
 		}
 	}
 	return nil
+}
+
+// wrapUnderKey wraps a resolved body schema as { <key>: <schema> } — the shape a
+// @Body('key') param actually receives on the wire. A nil body stays nil.
+func wrapUnderKey(s *model.Schema, key string) *model.Schema {
+	if s == nil {
+		return nil
+	}
+	inner := *s
+	inner.Name = key
+	return &model.Schema{
+		Type:       "object",
+		Confidence: s.Confidence,
+		Nested:     []model.Schema{inner},
+	}
 }
 
 // bodyOrNil drops a void schema (no request/response body).

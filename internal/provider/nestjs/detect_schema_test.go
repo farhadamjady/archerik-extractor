@@ -70,6 +70,36 @@ func TestResponseAndRequestSchema(t *testing.T) {
 	}
 }
 
+// TestBodyKeyWrapping proves #63: @Body('article') binds a sub-property, so the
+// request body is { article: <Dto> }, not the bare Dto. A key-less @Body() stays
+// unwrapped.
+func TestBodyKeyWrapping(t *testing.T) {
+	src := `
+		export class CreateArticleDto { readonly title: string; readonly body: string; }
+		@Controller('articles')
+		export class ArticlesController {
+			@Post() create(@Body('article') dto: CreateArticleDto) {}
+			@Put() replace(@Body() dto: CreateArticleDto) {}
+		}`
+	eps := schemaFor(t, src)
+
+	post := eps["POST /articles"].Request
+	if post == nil || post.Type != "object" || len(post.Nested) != 1 {
+		t.Fatalf("POST request = %+v, want object wrapping one key", post)
+	}
+	if post.Nested[0].Name != "article" || post.Nested[0].Type != "CreateArticleDto" {
+		t.Fatalf("wrapper field = %+v, want article: CreateArticleDto", post.Nested[0])
+	}
+	if len(post.Nested[0].Nested) != 2 {
+		t.Errorf("wrapped Dto should keep its 2 fields, got %d", len(post.Nested[0].Nested))
+	}
+
+	put := eps["PUT /articles"].Request
+	if put == nil || put.Type != "CreateArticleDto" {
+		t.Fatalf("PUT request = %+v, want unwrapped CreateArticleDto (key-less @Body)", put)
+	}
+}
+
 // TestNullableAliasAndUnion proves #61(a)+(b): a nullable type ALIAS
 // (`type NullableType<T> = T | null`) and a direct `| null` union both resolve to
 // the base DTO with nullable set — instead of a fieldless "NullableType" phantom
