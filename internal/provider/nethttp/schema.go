@@ -2,6 +2,7 @@ package nethttp
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/farhadamjady/service-discovery/internal/model"
@@ -220,30 +221,152 @@ func decodeArgType(body golang.Node, locals map[string]string) string {
 	return found
 }
 
-// encodeArgType finds the response body type: across calls that signal JSON
-// encoding (Marshal/Encode/JSON/Respond), the last argument that resolves to a
-// known non-error struct — last call wins (the happy-path response, after the
-// early error returns).
+// encodeArgType finds the response body type by scanning the handler body block
+// by block. Within a block, statements run in order, so a `WriteHeader(status)`
+// call sets the branch's HTTP status for the Encode calls that follow it, and an
+// Encode call may itself carry the status (`ReturnJSON(w, status, x)`). Encodes
+// on an ERROR branch (4xx/5xx) are error envelopes — a `map[string]string{"error":
+// …}` 404 shape is NOT the endpoint's contract — so they are skipped rather than
+// presented as the response (finding #58). Among the remaining success/neutral
+// Encodes the last resolvable argument wins (the happy path, after early returns).
 func encodeArgType(body golang.Node, locals map[string]string) string {
 	found := ""
-	body.Walk(func(n golang.Node) bool {
-		if n.Type() != "call_expression" {
-			return true
-		}
-		name := callName(n)
-		if !isEncodeCall(name) || isDecodeCall(name) {
-			return true
-		}
-		for _, a := range callArgs(n) {
-			t := argType(a, locals)
-			if t == "" || strings.Contains(t, "Error") {
-				continue // skip error-response envelopes
+	var scan func(block golang.Node)
+	scan = func(block golang.Node) {
+		branchErr := false // an error-status WriteHeader seen earlier in THIS block
+		for _, stmt := range golang.NamedChildren(block) {
+			if call := topCall(stmt); call.Valid() {
+				switch name := callName(call); {
+				case name == "WriteHeader":
+					if cls := statusClassOfArgs(callArgs(call)); cls != statusUnknown {
+						branchErr = cls == statusError
+					}
+				case isEncodeCall(name) && !isDecodeCall(name):
+					if branchErr || statusClassOfArgs(callArgs(call)) == statusError {
+						break // error envelope — never the contract
+					}
+					for _, a := range callArgs(call) {
+						t := argType(a, locals)
+						if t == "" || strings.Contains(t, "Error") {
+							continue
+						}
+						found = t // last qualifying success Encode wins
+					}
+				}
 			}
-			found = t // last qualifying call+arg wins
+			for _, b := range outerBlocks(stmt) {
+				scan(b) // if/else/for/switch bodies carry their own branch status
+			}
 		}
-		return true
-	})
+	}
+	scan(body)
 	return found
+}
+
+// topCall returns the top-level call expression of a statement (an
+// `expression_statement` like `w.WriteHeader(...)` / `json.NewEncoder(w).Encode(x)`,
+// or a `return f(...)`), or an invalid node when the statement is not a bare call.
+func topCall(stmt golang.Node) golang.Node {
+	switch stmt.Type() {
+	case "expression_statement", "return_statement":
+		for _, c := range golang.NamedChildren(stmt) {
+			if c.Type() == "call_expression" {
+				return c
+			}
+		}
+	}
+	return golang.Node{}
+}
+
+// outerBlocks returns the outermost `block` nodes structurally contained in a
+// statement (an if/else consequence+alternative, a for/switch body), WITHOUT
+// descending into blocks-within-blocks — scan() recurses into those itself. This
+// keeps each block's WriteHeader→Encode branch status local to that block.
+func outerBlocks(stmt golang.Node) []golang.Node {
+	var out []golang.Node
+	var rec func(x golang.Node)
+	rec = func(x golang.Node) {
+		for _, c := range golang.NamedChildren(x) {
+			if c.Type() == "block" {
+				out = append(out, c)
+			} else {
+				rec(c) // descend through non-block children (condition, else-if, …)
+			}
+		}
+	}
+	rec(stmt)
+	return out
+}
+
+type statusClass int
+
+const (
+	statusUnknown statusClass = iota
+	statusSuccess
+	statusError
+)
+
+// statusClassOfArgs classifies the first HTTP-status argument in a call's args:
+// a `http.StatusXxx` selector/identifier or a numeric literal. 2xx → success,
+// 4xx/5xx → error, anything else/none → unknown.
+func statusClassOfArgs(args []golang.Node) statusClass {
+	for _, a := range args {
+		if c := classifyStatusExpr(a); c != statusUnknown {
+			return c
+		}
+	}
+	return statusUnknown
+}
+
+func classifyStatusExpr(n golang.Node) statusClass {
+	switch n.Type() {
+	case "selector_expression":
+		if f := n.ChildByFieldName("field"); f.Valid() {
+			return classifyStatusName(f.Text())
+		}
+	case "identifier":
+		return classifyStatusName(n.Text())
+	case "int_literal":
+		if v, err := strconv.Atoi(n.Text()); err == nil {
+			switch {
+			case v >= 200 && v < 300:
+				return statusSuccess
+			case v >= 400 && v < 600:
+				return statusError
+			}
+		}
+	}
+	return statusUnknown
+}
+
+// statusSuccessNames / statusErrorNames are the net/http StatusXxx constants we
+// classify; an unlisted name stays statusUnknown (never taints a branch).
+var statusSuccessNames = map[string]bool{
+	"StatusOK": true, "StatusCreated": true, "StatusAccepted": true,
+	"StatusNonAuthoritativeInfo": true, "StatusNoContent": true,
+	"StatusResetContent": true, "StatusPartialContent": true,
+	"StatusMultiStatus": true, "StatusAlreadyReported": true, "StatusIMUsed": true,
+}
+
+var statusErrorNames = map[string]bool{
+	"StatusBadRequest": true, "StatusUnauthorized": true, "StatusPaymentRequired": true,
+	"StatusForbidden": true, "StatusNotFound": true, "StatusMethodNotAllowed": true,
+	"StatusNotAcceptable": true, "StatusProxyAuthRequired": true, "StatusRequestTimeout": true,
+	"StatusConflict": true, "StatusGone": true, "StatusPreconditionFailed": true,
+	"StatusRequestEntityTooLarge": true, "StatusUnsupportedMediaType": true,
+	"StatusUnprocessableEntity": true, "StatusTooManyRequests": true,
+	"StatusInternalServerError": true, "StatusNotImplemented": true, "StatusBadGateway": true,
+	"StatusServiceUnavailable": true, "StatusGatewayTimeout": true,
+}
+
+func classifyStatusName(name string) statusClass {
+	switch {
+	case statusSuccessNames[name]:
+		return statusSuccess
+	case statusErrorNames[name]:
+		return statusError
+	}
+	return statusUnknown
 }
 
 // argType resolves an encode argument to a type: an address-of expression

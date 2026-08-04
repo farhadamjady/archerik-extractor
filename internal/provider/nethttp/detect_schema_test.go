@@ -203,3 +203,88 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("response = %+v, want CreateResp (resolved cross-file)", post.Response)
 	}
 }
+
+// TestErrorBranchNotResponse proves #58: a handler that encodes a
+// map[string]string{"error":…} on the 404 branch (guarded by
+// WriteHeader(StatusNotFound)) and the real payload on the 200 branch must NOT
+// report the error envelope as the response. Here the success payload comes from
+// a method-call return the walker can't type, so the honest outcome is NO
+// response — never the error map.
+func TestErrorBranchNotResponse(t *testing.T) {
+	src := `
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+type User struct {
+	ID string ` + "`json:\"id\"`" + `
+}
+
+type store struct{}
+func (s *store) Get(id string) (User, error) { return User{}, nil }
+
+type H struct{ s *store }
+
+func (h *H) GetUser(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	user, err := h.s.Get(id)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "User not found"})
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(user)
+}
+
+func main() {
+	mux := http.NewServeMux()
+	h := &H{}
+	mux.HandleFunc("GET /users/{id}", h.GetUser)
+}`
+	eps := schemaFor(t, src)
+	get := eps["GET /users/{id}"]
+	if get.Response != nil {
+		t.Fatalf("response = %+v, want nil (error envelope must not be the contract)", get.Response)
+	}
+}
+
+// TestSuccessBranchWins proves the flip side: when the 200-branch payload IS a
+// resolvable local, it wins over an earlier 404 error-envelope Encode.
+func TestSuccessBranchWins(t *testing.T) {
+	src := `
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+type User struct {
+	ID string ` + "`json:\"id\"`" + `
+}
+
+func getUser(w http.ResponseWriter, r *http.Request) {
+	if r.PathValue("id") == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "bad"})
+		return
+	}
+	user := User{ID: "1"}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(user)
+}
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /users/{id}", getUser)
+}`
+	eps := schemaFor(t, src)
+	get := eps["GET /users/{id}"]
+	if get.Response == nil || get.Response.Type != "User" {
+		t.Fatalf("response = %+v, want User (success branch wins over error envelope)", get.Response)
+	}
+}
