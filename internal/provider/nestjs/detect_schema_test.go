@@ -69,3 +69,32 @@ func TestResponseAndRequestSchema(t *testing.T) {
 		}
 	}
 }
+
+// TestNullableAliasAndUnion proves #61(a)+(b): a nullable type ALIAS
+// (`type NullableType<T> = T | null`) and a direct `| null` union both resolve to
+// the base DTO with nullable set — instead of a fieldless "NullableType" phantom
+// or the literal "User | null" type.
+func TestNullableAliasAndUnion(t *testing.T) {
+	src := `
+		export type NullableType<T> = T | null;
+		export class User { readonly id: string; readonly name: string; }
+		@Controller('users')
+		export class UsersController {
+			@Get('alias') viaAlias(): Promise<NullableType<User>> { return null; }
+			@Get('union') viaUnion(): Promise<User | null> { return null; }
+		}`
+	eps := schemaFor(t, src)
+
+	for _, path := range []string{"GET /users/alias", "GET /users/union"} {
+		r := eps[path].Response
+		if r == nil || r.Type != "User" {
+			t.Fatalf("%s response = %+v, want User", path, r)
+		}
+		if !r.Nullable {
+			t.Errorf("%s response should be nullable", path)
+		}
+		if len(r.Nested) != 2 {
+			t.Errorf("%s response fields = %d, want 2 (User expanded, not a phantom)", path, len(r.Nested))
+		}
+	}
+}

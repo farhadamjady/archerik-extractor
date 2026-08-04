@@ -55,12 +55,22 @@ func (restDetector) onController(mc *provider.MatchContext) {
 		return
 	}
 	walker := schema.NewWalkerDepth(mc.Index.Types, mc.Index.SchemaDepth)
+	aliases := typeAliases(mc.Index.Types)
 	for _, m := range tsjs.NamedChildren(body) {
 		if m.Type() != "method_definition" {
 			continue
 		}
-		appendMethodEndpoints(mc.Out, m, base, globals, walker)
+		appendMethodEndpoints(mc.Out, m, base, globals, walker, aliases)
 	}
+}
+
+// typeAliases returns the local type-alias map when the type source is the
+// TS index (it always is for this provider); nil otherwise.
+func typeAliases(ts schema.TypeSource) map[string]tsAlias {
+	if ti, ok := ts.(*tsTypeIndex); ok {
+		return ti.aliases
+	}
+	return nil
 }
 
 // controllerBase extracts the controller base path from @Controller: the
@@ -79,7 +89,7 @@ func controllerBase(ctrl tsjs.Node) string {
 // appendMethodEndpoints emits the endpoint for a method that carries an HTTP-verb
 // decorator, composing global prefix + controller base + method path, and
 // attaching request/response body schemas resolved from the method signature.
-func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string, globals []string, walker *schema.Walker) {
+func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string, globals []string, walker *schema.Walker, aliases map[string]tsAlias) {
 	decs := tsjs.PrecedingDecorators(method)
 	for _, dec := range decs {
 		verb, isVerb := verbDecorator[tsjs.DecoratorName(dec)]
@@ -93,8 +103,8 @@ func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string, gl
 		} else if !literal {
 			conf = model.Uncertain // computed path
 		}
-		req := methodRequest(method, walker)
-		resp := methodResponse(method, walker)
+		req := methodRequest(method, walker, aliases)
+		resp := methodResponse(method, walker, aliases)
 		for _, g := range globals {
 			out.Endpoints = append(out.Endpoints, model.Endpoint{
 				Method:     verb,
@@ -111,20 +121,27 @@ func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string, gl
 }
 
 // methodResponse resolves the response body schema from a handler's declared
-// return type (`: Promise<ArticleRO>` -> ArticleRO), dropping void/absent.
-func methodResponse(method tsjs.Node, walker *schema.Walker) *model.Schema {
+// return type (`: Promise<ArticleRO>` -> ArticleRO), dropping void/absent. Local
+// nullable aliases and `| null` unions resolve to the base type with nullable set
+// (#61): `Promise<NullableType<User>>` / `Promise<User | null>` -> User, nullable.
+func methodResponse(method tsjs.Node, walker *schema.Walker, aliases map[string]tsAlias) *model.Schema {
 	rt := method.ChildByFieldName("return_type")
 	if !rt.Valid() {
 		return nil
 	}
-	return bodyOrNil(walker.Type(normalizeType(typeText(rt))))
+	nt, nullable := normalizeTypeAlias(typeText(rt), aliases)
+	s := bodyOrNil(walker.Type(nt))
+	if s != nil && nullable {
+		s.Nullable = true
+	}
+	return s
 }
 
 // methodRequest resolves the request body schema from the parameter decorated
 // with @Body (`@Body() dto: CreateArticleDto` -> CreateArticleDto). A
 // @Body('field') that picks a sub-property still yields the declared param type,
 // the closest static contract available.
-func methodRequest(method tsjs.Node, walker *schema.Walker) *model.Schema {
+func methodRequest(method tsjs.Node, walker *schema.Walker, aliases map[string]tsAlias) *model.Schema {
 	params := method.ChildByFieldName("parameters")
 	if !params.Valid() {
 		return nil
@@ -133,7 +150,12 @@ func methodRequest(method tsjs.Node, walker *schema.Walker) *model.Schema {
 		for _, d := range tsjs.NamedChildren(p) {
 			if d.Type() == "decorator" && tsjs.DecoratorName(d) == "Body" {
 				if ta := p.ChildByFieldName("type"); ta.Valid() {
-					return bodyOrNil(walker.Type(normalizeType(typeText(ta))))
+					nt, nullable := normalizeTypeAlias(typeText(ta), aliases)
+					s := bodyOrNil(walker.Type(nt))
+					if s != nil && nullable {
+						s.Nullable = true
+					}
+					return s
 				}
 			}
 		}
