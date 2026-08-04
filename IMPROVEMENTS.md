@@ -55,6 +55,8 @@ to do.
 | 54 | **ASP.NET Minimal APIs (`app.MapGet`/`MapGroup`) not detected** — the controller-less style (the default in new .NET templates; eShop uses it): `app.MapGet("/todos", h)`, grouped `var g = app.MapGroup("/api/items"); g.MapGet("/{id:int}", h)`, with groups often declared THROUGH a fluent builder chain (`app.MapGroup(...).AddEndpointFilter(...)...`) and group templates carrying route params (`/api/contacts/{contactId:int}/phones`). Round-1 ASP.NET (attribute controllers only) saw none of it. | round-6-dotnet-aspnet round 2 / `sswietoniowski/learning-aspnetcore-webapi-7-building-minimal-apis` | Added `aspnet.minimal` (DetectRouter): Map{Get,Post,Put,Delete,Patch} invocations, first-string-arg path, and MapGroup prefix resolution — direct, via a same-file variable declaration, nested groups, and descending through fluent builder calls (found-while-benchmarking: the chained-declaration case initially emitted `PUT /{id}` instead of `PUT /api/contacts/{id}`). Constraints strip as in the attribute detector. | high | ✅ implemented (round 2) |
 | | 57 | **Go outbound std-lib HTTP client edges** — round-1 Go emitted only server routes; the sync mesh (`http.Get("http://catalog-service/items")`, `http.Post`, `http.NewRequest[WithContext]`) was invisible. | round-7-go-nethttp round 2 | Added `nethttp.client` (new `model.DetectHTTPClient`): package-level `http.{Get,Post,Head,PostForm}` (URL = arg0) and `NewRequest`/`NewRequestWithContext` (URL after the method arg); a literal absolute URL resolves to its AUTHORITY as target_name (path variants share a node, JVM-consistent), a bare path or dynamic URL emits the honest anonymous uncertain edge (never dropped). Import-gated like the route detector. Later steps: `client.Get(...)` on an `*http.Client` receiver (type tracking) and a Go value evaluator for `fmt.Sprintf`/const-built URLs. | high | ✅ implemented (round 2, package-level calls) |
 | 43 | **Micronaut config placeholder resolution** — `@Client("${elastichealth.endpoint}")`, `@Topic("${...}")` and `@Controller("${...}")` stay honest-uncertain because round-1 Micronaut ships without a config resolver (`Index.Config` nil). Micronaut uses the SAME `application.yml`/`.properties` + `${}` model as Spring, so the Spring config/deploy layer is directly reusable. | round-1-java-micronaut / `asc-lab/micronaut-microservices-poc` @ `9871a2e` (dashboard-service ElasticHealthCheck) | Promote Spring's `configIndexer`/`deployIndexer`/`springConfig` resolver out of `provider/spring` into a neutral JVM-config package (GUIDELINE §2.4) and wire it into the Micronaut provider's `Indexers()`; the `${}` resolver, relaxed binding and deploy layer are all framework-free. | medium | |
+| 58 | **Go `net/http` response detector emits the ERROR-branch payload as the response contract** (correctness — a CONFIDENT WRONG schema, not a miss) — a handler with two `json.NewEncoder(w).Encode(...)` calls (the 404/400 error branch first, then the 2xx success branch) reports the error envelope as the endpoint's response. `GetUser`/`UpdateUser` emit `{"type":"map","key_type":"string","value_type":"string","confidence":"confirmed"}` — the `map[string]string{"error": "User not found"}` 404 shape — instead of `User`. Cause: the response pass takes the first statically-resolvable `Encode` arg, and the error map literal beats the later success `Encode(user)` (whose `user` comes from an interface/method-call return it can't type anyway, the #57/`GetInventories` gap). Same bug on `GET`+`PUT /users/{id}`; contrast `POST /users` (single `Encode`, `var user models.User` declared) which resolves `User` correctly. | round-7-go-nethttp / `oragazz0/go-native-router-example` @ `813f760` (`internal/handlers/user.go` GetUser/UpdateUser) | Prefer the `Encode` on the 2xx path — the one guarded by `WriteHeader(StatusOK/Created)`, not `StatusNotFound/BadRequest` — and add interface/method-return resolution so the success payload types to `User`. Cheap interim mitigation that restores honesty: when multiple `Encode` targets disagree, do NOT emit `confirmed` — downgrade to `uncertain`/skip so the error envelope is never presented as the contract. | high | |
+| 59 | **Plain-JavaScript contracts unread — Joi validation + Mongoose schemas**: on a pure-JS Express repo the tsjs schema inference finds nothing (it reads TypeScript type annotations — `Request<_,_,ReqBody>`/`Response<Body>` generics, `req.body as Foo` — and is gated on `.ts`), so all 15 endpoints carry NO request/response schema (endpoints themselves 15/15). But the contracts ARE declared statically, just not as types: `src/api/validations/*.validation.js` Joi objects (`createUser: { body: { email: Joi.string().email().required(), password: Joi.string().min(6).max(128), role: Joi.string().valid(User.roles) } }` — even self-documenting the route via `// POST /v1/users` comments) and Mongoose `new mongoose.Schema({ email: {type: String} })` models (the response shape `.transform()` emits). | round-5-node-express / `danielfsousa/express-rest-boilerplate` @ `b8bed6d` (all endpoints; `api/validations/*.validation.js` + `api/models/user.model.js`) | Add a JS-oriented schema pass on the tsjs layer: read Joi validation schemas → request schema from `body`/`query`/`params`, mapping `.email()`→`format:email`, `.min/.max`→minLength/maxLength (the H9 constraints model), `.valid(...)`→enum (the H8 model), `.required()`→required; read `new mongoose.Schema({...})` field types → response shape. Highest-value JS source (explicit + parseable, common across Express/Hapi/Koa) and reuses the enum+constraint model already built. | high | |
 
 ## How to add a new entry
 When a benchmark tier finds a miss: add a row here with the repo + commit SHA,
@@ -535,3 +537,40 @@ re-benchmark). Four capability fixes landed, each provoked by a real repo:
 **11/11 new-language benchmark services now perfect (117 endpoints, zero missed / zero wrong)**; all
 older stacks (Spring/Micronaut/Quarkus/Kotlin) re-verified unchanged. New open findings: #56 (NestJS
 config-driven prefix + URI versioning — needs a tsjs value evaluator/config layer). Full gate green.
+
+## Contract-detection re-scan (2026-08-04) — all 24 bench services re-run vs the LIVE backend
+After the HTTP/Kafka/nested-schema contract work (H1–H9, K1–K11 minus the cut network-registry
+K5–K7, N1–N3), re-scanned every `_bench` service across rounds 1–7 against a live backend
+(`--api-url http://localhost:3000`, authenticated): validate → ingest → per-commit diff, all 24
+exit 0. Aggregate vs golden labels: **endpoints 176/176, kafka producers 6/6, kafka consumers 6/6
+(100%/100%)**; outbound 18/18 recall with the only two "wrong" being REAL hardcoded axios OAuth
+calls (`graph.facebook.com/me`, `googleapis.com/oauth2/v3/userinfo`) the labels under-count — a
+labels gap, not a false positive. Determinism holds against the live diff engine: a re-submit of
+an unchanged service returns zero churn, and an explicit double-scan is byte-identical across
+Java/Kotlin/Go/TS/C#. New-feature emission confirmed on real repos: nested schemas (27 outputs),
+enums #H8 (2), Kafka payload schemas (10), truncation boundary #N3 (4); constraints #H9 fire on 0
+benchmark repos (honest — no reachable Bean-Validation DTOs; proven end-to-end by the real-parse
+`TestWalkerFieldConstraints`).
+
+Per-endpoint schema investigation — four HONEST non-resolutions (endpoint always found; schema
+declined rather than guessed), each a different rung of the resolution ladder, plus one CORRECTNESS
+bug:
+- agent-portal-gateway `GET /api/documents/{policyNumber}` → `FindDocumentsResult` uncertain: the
+  DTO is concrete but lives in a sibling module (`documents-service-api`) AND is Kotlin — outside
+  the single-service Java scan (the #6/#42 shared-module + Kotlin gaps).
+- customer-service `/api/users` (Quarkus) → response `Response` uncertain: the methods return raw
+  `javax.ws.rs.core.Response`, a typeless JAX-RS wrapper whose body only exists in `.entity()`/`.ok()`
+  builder args (request `UserDTO` resolved fully — the type index is healthy here).
+- example-go-rest-api `GET /inventories` → no response schema: the payload `inventories` comes from
+  an interface method-call return (`PaginatedInventories`), needing cross-package method-return
+  dataflow the Go detector doesn't do (POST resolved `InventoryData`/`CreateInventoryResponse` fine).
+- express-rest-boilerplate → 0/15 schemas: pure JavaScript (0 `.ts`); tsjs inference is TS-only.
+  Static contracts DO exist as Joi + Mongoose → **#59**.
+- go-native-router-example `GET`/`PUT /users/{id}` → response `map` **confirmed** but WRONG: the
+  detector picks the error-branch `Encode(map[string]string{"error":…})` over the success payload →
+  the 404 envelope masquerades as the contract → **#58** (a false positive, not a gap).
+
+New findings logged: **#58** (Go response detector picks the error branch — correctness/false
+positive, `high`) and **#59** (plain-JS Joi/Mongoose contracts unread, `high`). No fixes applied
+this pass (user deferred); extractor tree unchanged (only bench artifacts regenerated). Full gate
+green.
