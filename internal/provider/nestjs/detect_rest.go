@@ -56,11 +56,16 @@ func (restDetector) onController(mc *provider.MatchContext) {
 	}
 	walker := schema.NewWalkerDepth(mc.Index.Types, mc.Index.SchemaDepth)
 	aliases := typeAliases(mc.Index.Types)
+	// #62: resolve a handler's response from `return this.svc.method(...)` when it
+	// has no return annotation — needs the controller's field types and the
+	// repo-wide method-return index.
+	ctrlFields := controllerFieldTypes(class)
+	methodReturns := typeMethods(mc.Index.Types)
 	for _, m := range tsjs.NamedChildren(body) {
 		if m.Type() != "method_definition" {
 			continue
 		}
-		appendMethodEndpoints(mc.Out, m, base, globals, walker, aliases)
+		appendMethodEndpoints(mc.Out, m, base, globals, walker, aliases, ctrlFields, methodReturns)
 	}
 }
 
@@ -69,6 +74,14 @@ func (restDetector) onController(mc *provider.MatchContext) {
 func typeAliases(ts schema.TypeSource) map[string]tsAlias {
 	if ti, ok := ts.(*tsTypeIndex); ok {
 		return ti.aliases
+	}
+	return nil
+}
+
+// typeMethods returns the class -> method -> return-type index.
+func typeMethods(ts schema.TypeSource) map[string]map[string]string {
+	if ti, ok := ts.(*tsTypeIndex); ok {
+		return ti.methods
 	}
 	return nil
 }
@@ -89,7 +102,7 @@ func controllerBase(ctrl tsjs.Node) string {
 // appendMethodEndpoints emits the endpoint for a method that carries an HTTP-verb
 // decorator, composing global prefix + controller base + method path, and
 // attaching request/response body schemas resolved from the method signature.
-func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string, globals []string, walker *schema.Walker, aliases map[string]tsAlias) {
+func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string, globals []string, walker *schema.Walker, aliases map[string]tsAlias, ctrlFields map[string]string, methodReturns map[string]map[string]string) {
 	decs := tsjs.PrecedingDecorators(method)
 	for _, dec := range decs {
 		verb, isVerb := verbDecorator[tsjs.DecoratorName(dec)]
@@ -104,7 +117,7 @@ func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string, gl
 			conf = model.Uncertain // computed path
 		}
 		req := methodRequest(method, walker, aliases)
-		resp := methodResponse(method, walker, aliases)
+		resp := methodResponse(method, walker, aliases, ctrlFields, methodReturns)
 		for _, g := range globals {
 			out.Endpoints = append(out.Endpoints, model.Endpoint{
 				Method:     verb,
@@ -124,10 +137,11 @@ func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string, gl
 // return type (`: Promise<ArticleRO>` -> ArticleRO), dropping void/absent. Local
 // nullable aliases and `| null` unions resolve to the base type with nullable set
 // (#61): `Promise<NullableType<User>>` / `Promise<User | null>` -> User, nullable.
-func methodResponse(method tsjs.Node, walker *schema.Walker, aliases map[string]tsAlias) *model.Schema {
+func methodResponse(method tsjs.Node, walker *schema.Walker, aliases map[string]tsAlias, ctrlFields map[string]string, methodReturns map[string]map[string]string) *model.Schema {
 	rt := method.ChildByFieldName("return_type")
 	if !rt.Valid() {
-		return nil
+		// No declared return type — infer it from `return this.svc.method(...)` (#62).
+		return inferResponseFromBody(method, methodReturns, ctrlFields, aliases, walker)
 	}
 	nt, nullable := normalizeTypeAlias(typeText(rt), aliases)
 	s := bodyOrNil(walker.Type(nt))

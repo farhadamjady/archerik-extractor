@@ -100,6 +100,33 @@ func TestBodyKeyWrapping(t *testing.T) {
 	}
 }
 
+// TestResponseInferredFromServiceReturn proves #62: a handler with no return
+// annotation that delegates `return this.svc.method(...)` gets its response from
+// the service method's declared return type (constructor param-property resolves
+// the field type; the method-return index resolves the method).
+func TestResponseInferredFromServiceReturn(t *testing.T) {
+	src := `
+		export class ArticleEntity { readonly slug: string; readonly title: string; }
+		export class ArticleService {
+			async create(dto): Promise<ArticleEntity> { return null; }
+		}
+		@Controller('articles')
+		export class ArticlesController {
+			constructor(private readonly articleService: ArticleService) {}
+			@Post() async create(@Body('article') dto: any) {
+				return await this.articleService.create(dto);
+			}
+		}`
+	eps := schemaFor(t, src)
+	r := eps["POST /articles"].Response
+	if r == nil || r.Type != "ArticleEntity" {
+		t.Fatalf("POST response = %+v, want ArticleEntity (inferred from ArticleService.create)", r)
+	}
+	if len(r.Nested) != 2 {
+		t.Errorf("ArticleEntity should expand to 2 fields, got %d", len(r.Nested))
+	}
+}
+
 // TestNullableAliasAndUnion proves #61(a)+(b): a nullable type ALIAS
 // (`type NullableType<T> = T | null`) and a direct `| null` union both resolve to
 // the base DTO with nullable set — instead of a fieldless "NullableType" phantom

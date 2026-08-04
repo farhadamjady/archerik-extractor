@@ -14,7 +14,8 @@ import (
 // tree-sitter-typescript AST.
 type tsTypeIndex struct {
 	defs    map[string]*schema.TypeDef
-	aliases map[string]tsAlias // local `type X<..> = …` declarations (#61a)
+	aliases map[string]tsAlias           // local `type X<..> = …` declarations (#61a)
+	methods map[string]map[string]string // class -> method -> return type text (#62)
 }
 
 func (t *tsTypeIndex) Lookup(name string) (*schema.TypeDef, bool) {
@@ -33,13 +34,16 @@ func simpleName(name string) string {
 
 // buildTypeIndex indexes every class/interface across the parsed TS files.
 func buildTypeIndex(files []*tsjs.File) *tsTypeIndex {
-	idx := &tsTypeIndex{defs: map[string]*schema.TypeDef{}, aliases: map[string]tsAlias{}}
+	idx := &tsTypeIndex{defs: map[string]*schema.TypeDef{}, aliases: map[string]tsAlias{}, methods: map[string]map[string]string{}}
 	for _, f := range files {
 		f.Root().Walk(func(n tsjs.Node) bool {
 			switch n.Type() {
 			case "class_declaration":
 				if td := classDef(n, schema.KindClass); td != nil {
 					idx.defs[td.Name] = td
+					if mr := classMethodReturns(n); len(mr) > 0 {
+						idx.methods[td.Name] = mr
+					}
 				}
 			case "interface_declaration":
 				if td := interfaceDef(n); td != nil {
