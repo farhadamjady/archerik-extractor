@@ -162,6 +162,11 @@ type Index struct {
 	// base path. Values are lang/java.Node kept opaque (like TopicBeans.NameArg).
 	HTTPContracts map[string][]ASTNode
 
+	// SchemaDepth is the nested-DTO walk depth (--schema-depth, N2), threaded to
+	// every REST schema walker. 0 means unset — the walker falls back to its
+	// default (2).
+	SchemaDepth int
+
 	// GoFuncBodies maps a Go function/method simple name to its declaration's
 	// body node, indexed across ALL scanned files so the net/http route detector
 	// can follow a handler referenced by name (`getUsers` / `h.GetUsers`) into

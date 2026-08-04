@@ -46,7 +46,7 @@ func (restDetector) onController(mc *provider.MatchContext) {
 		return
 	}
 	bases := classBasePaths(mods)
-	walker := schema.NewWalker(mc.Index.Types)
+	walker := schema.NewWalkerDepth(mc.Index.Types, mc.Index.SchemaDepth)
 	body := kotlin.ChildByType(class, "class_body")
 	if !body.Valid() {
 		return

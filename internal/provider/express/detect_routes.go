@@ -88,7 +88,7 @@ func routeSchemas(mc *provider.MatchContext, kids []tsjs.Node) (req, resp *model
 	if !h.Valid() {
 		return nil, nil
 	}
-	return handlerSchemas(file, h, schema.NewWalker(mc.Index.Types))
+	return handlerSchemas(file, h, schema.NewWalkerDepth(mc.Index.Types, mc.Index.SchemaDepth))
 }
 
 // handlerArg picks the route's handler argument: the last function-like or

@@ -137,6 +137,47 @@ func TestNestedDeterministic(t *testing.T) {
 	}
 }
 
+// fieldByName returns a schema's nested field by wire name, or nil.
+func fieldByName(s *model.Schema, name string) *model.Schema {
+	if s == nil {
+		return nil
+	}
+	for i := range s.Nested {
+		if s.Nested[i].Name == name {
+			return &s.Nested[i]
+		}
+	}
+	return nil
+}
+
+// TestConfigurableDepth proves N2: --schema-depth changes how deep the walker
+// expands. Depth 1 truncates at the first nested object; depth 3 reaches a level
+// the default 2 truncates; depth 0 falls back to the default (2), unchanged.
+func TestConfigurableDepth(t *testing.T) {
+	types := nestedFixture()
+
+	// depth 1: the first nested object (customer) is already truncated.
+	cust1 := fieldByName(NewWalkerDepth(types, 1).Type("Order"), "customer")
+	if cust1 == nil || !cust1.Truncated || len(cust1.Nested) != 0 {
+		t.Errorf("depth 1 customer = %+v, want truncated with no nested", cust1)
+	}
+
+	// depth 3: nesting reaches Address's fields (deeper than the default 2).
+	addr3 := fieldByName(fieldByName(NewWalkerDepth(types, 3).Type("Order"), "customer"), "address")
+	if addr3 == nil || addr3.Truncated {
+		t.Fatalf("depth 3 address = %+v, want expanded (not truncated)", addr3)
+	}
+	if fieldByName(addr3, "city") == nil {
+		t.Errorf("depth 3 address should expand to city, got %+v", addr3.Nested)
+	}
+
+	// depth 0 -> default (2), unchanged: address truncated, as in the golden.
+	addr0 := fieldByName(fieldByName(NewWalkerDepth(types, 0).Type("Order"), "customer"), "address")
+	if addr0 == nil || !addr0.Truncated {
+		t.Errorf("default depth address = %+v, want truncated (depth 2)", addr0)
+	}
+}
+
 // TestTruncationBoundaryShape locks N3's contract: the node at the depth limit is
 // {type:<TypeName>, truncated:true} with NO nested subtree.
 func TestTruncationBoundaryShape(t *testing.T) {

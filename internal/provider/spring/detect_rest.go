@@ -56,7 +56,7 @@ func (restDetector) onController(mc *provider.MatchContext) {
 		return
 	}
 	bases := classBasePaths(class, types)
-	walker := schema.NewWalker(types)
+	walker := schema.NewWalkerDepth(types, mc.Index.SchemaDepth)
 	body := class.ChildByFieldName("body")
 	for _, m := range namedChildren(body) {
 		if m.Type() != "method_declaration" {

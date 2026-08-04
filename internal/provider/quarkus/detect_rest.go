@@ -58,7 +58,7 @@ func (restDetector) onResource(mc *provider.MatchContext) {
 		return
 	}
 	base := resourceBasePath(mods)
-	walker := schema.NewWalker(mc.Index.Types)
+	walker := schema.NewWalkerDepth(mc.Index.Types, mc.Index.SchemaDepth)
 	body := class.ChildByFieldName("body")
 	for _, m := range java.NamedChildren(body) {
 		if m.Type() != "method_declaration" {

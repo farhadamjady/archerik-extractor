@@ -40,6 +40,7 @@ type Options struct {
 	ConfigFile  string
 	Profiles    []string    // active Spring profiles (D3)
 	Environment string      // deploy overlay selection, e.g. "staging" (E3)
+	SchemaDepth int         // nested-DTO walk depth (--schema-depth, N2); 0 = default (2)
 	ConfigRepo  string      // local checkout of the Spring Cloud Config repo (IMPROVEMENTS #16)
 	APIURL      string      // backend base URL (auth validate + submit); empty = local/dev
 	DryRun      bool        // skip submit
@@ -194,7 +195,7 @@ func parse(p provider.Provider, tree provider.FileTree, spec provider.FileSpec, 
 // index builds the shared cross-file Index by running the provider's indexers
 // in order. Indexers own all cross-file/non-Java parsing (DESIGN §7).
 func index(root string, tree provider.FileTree, p provider.Provider, parsed map[string]provider.ParsedFile, opt Options) (*provider.Index, *provider.IndexContext, error) {
-	idx := &provider.Index{}
+	idx := &provider.Index{SchemaDepth: opt.SchemaDepth}
 	ic := &provider.IndexContext{
 		Root:        root,
 		Files:       tree,

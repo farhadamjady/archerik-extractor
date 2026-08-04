@@ -35,6 +35,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		profiles    = fs.String("profiles", "", "comma-separated active Spring profiles")
 		environment = fs.String("environment", "", "deploy overlay to resolve (e.g. staging)")
 		configRepo  = fs.String("config-repo", "", "local checkout of the Spring Cloud Config repo (its yml/properties feed resolution)")
+		schemaDepth = fs.Int("schema-depth", 2, "nested-DTO schema walk depth before truncation")
 		out         = fs.String("out", "-", "output path for the JSON, or - for stdout")
 		apiURL      = fs.String("api-url", "", "backend base URL for key validation + submit; empty runs local/dev")
 		dryRun      = fs.Bool("dry-run", false, "produce JSON but do not submit")
@@ -62,7 +63,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return runScanRepo(scanRepoArgs{
 		root: *root, repository: *repository, configFile: *configFile,
 		profiles: *profiles, environment: *environment, configRepo: *configRepo,
-		out: *out, apiURL: *apiURL, dryRun: *dryRun,
+		out: *out, apiURL: *apiURL, dryRun: *dryRun, schemaDepth: *schemaDepth,
 		branch: *branch, sha: *sha, pr: *pr, commentOut: *commentOut,
 	}, key, stdout, stderr)
 }
@@ -71,6 +72,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 type scanRepoArgs struct {
 	root, repository, configFile, profiles, environment, configRepo, out, apiURL string
 	dryRun                                                                       bool
+	schemaDepth                                                                  int
 	branch, sha, pr, commentOut                                                  string
 }
 
@@ -84,6 +86,7 @@ func runScanRepo(a scanRepoArgs, key string, stdout, stderr io.Writer) int {
 		Profiles:    splitCSV(a.profiles),
 		Environment: a.environment,
 		ConfigRepo:  a.configRepo,
+		SchemaDepth: a.schemaDepth,
 		APIURL:      a.apiURL,
 		DryRun:      a.dryRun,
 		CI:          ciMeta(a.branch, a.sha, a.pr),

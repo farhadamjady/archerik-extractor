@@ -23,8 +23,18 @@ type Walker struct {
 }
 
 // NewWalker builds a walker over a type source (nil is tolerated — everything
-// then resolves as unresolved/uncertain).
-func NewWalker(types TypeSource) *Walker { return &Walker{types: types, maxDepth: defaultDepth} }
+// then resolves as unresolved/uncertain) at the default nesting depth.
+func NewWalker(types TypeSource) *Walker { return NewWalkerDepth(types, defaultDepth) }
+
+// NewWalkerDepth builds a walker with a configurable nesting depth (--schema-depth,
+// N2). A depth <= 0 falls back to the default, so an unset Index.SchemaDepth (0)
+// keeps today's behavior.
+func NewWalkerDepth(types TypeSource, depth int) *Walker {
+	if depth <= 0 {
+		depth = defaultDepth
+	}
+	return &Walker{types: types, maxDepth: depth}
+}
 
 // Type resolves a type expression (e.g. "ResponseEntity<List<User>>") to a
 // schema, or nil for an empty expression. A void body yields a {type:"void"}

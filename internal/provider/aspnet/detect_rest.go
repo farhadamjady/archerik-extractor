@@ -49,7 +49,7 @@ func (restDetector) onController(mc *provider.MatchContext) {
 	if !body.Valid() {
 		return
 	}
-	walker := schema.NewWalker(mc.Index.Types)
+	walker := schema.NewWalkerDepth(mc.Index.Types, mc.Index.SchemaDepth)
 	for _, m := range csharp.NamedChildren(body) {
 		if m.Type() != "method_declaration" {
 			continue
