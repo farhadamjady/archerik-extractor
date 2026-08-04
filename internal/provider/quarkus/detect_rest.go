@@ -59,12 +59,15 @@ func (restDetector) onResource(mc *provider.MatchContext) {
 	}
 	base := resourceBasePath(mods)
 	walker := schema.NewWalkerDepth(mc.Index.Types, mc.Index.SchemaDepth)
+	// #64: resolver that types a JAX-RS `Response` handler's body from the
+	// enclosing class's fields + the repo-wide method-return index.
+	resolver := newResponseBodyResolver(class, mc.Index.MethodReturns)
 	body := class.ChildByFieldName("body")
 	for _, m := range java.NamedChildren(body) {
 		if m.Type() != "method_declaration" {
 			continue
 		}
-		appendMethodEndpoints(mc.Out, m, base, walker)
+		appendMethodEndpoints(mc.Out, m, base, walker, resolver)
 	}
 
 	// API-interface pattern (#41): the @Path resource may implement an interface
@@ -73,7 +76,7 @@ func (restDetector) onResource(mc *provider.MatchContext) {
 	for _, iface := range implementedTypes(class) {
 		for _, node := range mc.Index.HTTPContracts[iface] {
 			if m, ok := node.(java.Node); ok && m.Valid() {
-				appendMethodEndpoints(mc.Out, m, base, walker)
+				appendMethodEndpoints(mc.Out, m, base, walker, resolver)
 			}
 		}
 	}
@@ -92,7 +95,7 @@ func resourceBasePath(mods java.Node) string {
 // annotation: verb from @GET/@POST/..., path from the method @Path (else the
 // class base), request body from the non-JAX-RS-annotated parameter, response
 // from the return type (unwrapping reactive Uni<T>/Multi<T> wrappers).
-func appendMethodEndpoints(out *model.Service, method java.Node, base string, walker *schema.Walker) {
+func appendMethodEndpoints(out *model.Service, method java.Node, base string, walker *schema.Walker, resolver responseBodyResolver) {
 	mods := java.ChildByType(method, "modifiers")
 	if !mods.Valid() {
 		return
@@ -119,7 +122,7 @@ func appendMethodEndpoints(out *model.Service, method java.Node, base string, wa
 		}
 	}
 
-	req, resp := methodSchemas(walker, method)
+	req, resp := methodSchemas(walker, method, resolver)
 	for _, sub := range subs {
 		out.Endpoints = append(out.Endpoints, model.Endpoint{
 			Method:     verb,
@@ -135,9 +138,16 @@ func appendMethodEndpoints(out *model.Service, method java.Node, base string, wa
 
 // methodSchemas resolves the request (body entity parameter) and response
 // (return type) schemas. Reactive wrappers Uni<T>/Multi<T> unwrap to T.
-func methodSchemas(w *schema.Walker, method java.Node) (req, resp *model.Schema) {
+func methodSchemas(w *schema.Walker, method java.Node, resolver responseBodyResolver) (req, resp *model.Schema) {
 	if ret := method.ChildByFieldName("type"); ret.Valid() {
-		resp = bodyOrNil(w.Type(unwrapReactive(ret.Text())))
+		// A JAX-RS handler returning the typeless `Response` erases the payload
+		// type; recover it from the method body's entity/ok chain (#64). Fall back
+		// to the declared type for everything else (Uni<T>/RestResponse<T>/DTO).
+		if simpleName(ret.Text()) == "Response" {
+			resp = resolver.resolve(method, w)
+		} else {
+			resp = bodyOrNil(w.Type(unwrapReactive(ret.Text())))
+		}
 	}
 	if params := java.ChildByType(method, "formal_parameters"); params.Valid() {
 		for _, p := range java.NamedChildren(params) {

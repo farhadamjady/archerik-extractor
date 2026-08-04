@@ -300,3 +300,64 @@ func topics(edges []model.KafkaEdge) []string {
 	}
 	return out
 }
+
+// TestJaxrsResponseBodyInference proves #64: a handler returning the typeless
+// javax.ws.rs.core.Response gets its body from the entity/ok chain, resolving the
+// payload method's return type via the field + method-return indexes. Page<T> and
+// List<T> unwrap; a bodyless Response.ok().build() stays empty.
+func TestJaxrsResponseBodyInference(t *testing.T) {
+	src := `
+public interface OrderService {
+	Page<OrderDTO> findAll(Pageable p);
+	List<OrderDTO> findMine();
+}
+public class OrderDTO { public String id; public String name; }
+@Path("/api")
+public class OrderResource {
+	private final OrderService orderService;
+	@GET @Path("/orders")
+	public Response findAll(@BeanParam Pageable p) {
+		return Response.ok().entity(orderService.findAll(p)).build();
+	}
+	@GET @Path("/orders/me")
+	public Response findMine() {
+		return Response.ok(orderService.findMine()).build();
+	}
+	@DELETE @Path("/orders/{id}")
+	public Response delete(@PathParam("id") long id) {
+		return Response.ok().build();
+	}
+}`
+	jf := mustParseJava(t, src)
+	idx := &provider.Index{}
+	idx.Types = java.IndexTypes([]*java.File{jf}, nil)
+	if err := (methodIndexer{}).Index(&provider.IndexContext{Parsed: map[string]provider.ParsedFile{"C.java": jf}}, idx); err != nil {
+		t.Fatalf("methodIndexer: %v", err)
+	}
+	svc := model.NewService("s", "s", "")
+	if err := query.New().Run(jf, []provider.Detector{restDetector{}}, idx, java.NewEvaluator(idx), svc); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	byPath := map[string]model.Endpoint{}
+	for _, e := range svc.Endpoints {
+		byPath[e.Method+" "+e.Path] = e
+	}
+	if r := byPath["GET /api/orders"].Response; r == nil || r.Type != "OrderDTO" {
+		t.Errorf("GET /api/orders resp = %+v, want OrderDTO (Page<OrderDTO> unwrapped)", r)
+	}
+	if r := byPath["GET /api/orders/me"].Response; r == nil || r.Type != "array" || r.Items != "OrderDTO" {
+		t.Errorf("GET /api/orders/me resp = %+v, want array of OrderDTO (List<OrderDTO>)", r)
+	}
+	if r := byPath["DELETE /api/orders/{id}"].Response; r != nil {
+		t.Errorf("DELETE resp = %+v, want nil (Response.ok().build(), no entity)", r)
+	}
+}
+
+func mustParseJava(t *testing.T, src string) *java.File {
+	t.Helper()
+	f, err := java.NewParser().Parse("C.java", []byte(src))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	return f.(*java.File)
+}

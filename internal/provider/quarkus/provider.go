@@ -101,6 +101,7 @@ func (*Provider) Indexers() []provider.Indexer {
 	return []provider.Indexer{
 		symbolIndexer{},
 		typeIndexer{},
+		methodIndexer{},
 		schemaSourceIndexer{},
 		contractIndexer{},
 		configIndexer{},

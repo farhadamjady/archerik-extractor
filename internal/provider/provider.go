@@ -177,6 +177,15 @@ type Index struct {
 	// deterministic and best-effort. Values are lang/golang.Node kept opaque here
 	// (like HTTPContracts).
 	GoFuncBodies map[string]ASTNode
+
+	// MethodReturns maps a type's SIMPLE name to each of its methods' declared
+	// return-type text: MethodReturns["OrderService"]["findAll"] = "Page<OrderDTO>".
+	// Built across parsed+shared files so a detector can resolve the payload of a
+	// method-call expression (`orderService.findAll(page)`) when the declaring
+	// signature erases it — e.g. a JAX-RS handler returning the typeless
+	// `Response` whose body is `Response.ok().entity(orderService.findAll(...))`
+	// (#64). Best-effort, overloads collapse to the first declaration seen.
+	MethodReturns map[string]map[string]string
 }
 
 // TopicBean is one Kafka `@Bean NewTopic` declaration: the bean/method name and
