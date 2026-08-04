@@ -7,7 +7,9 @@ import (
 )
 
 // defaultDepth is how many levels of nested DTOs expand before truncation
-// (config knob, §9). Two levels; deeper fields become {object, truncated}.
+// (config knob, §9; overridable via NewWalkerDepth / --schema-depth). Two levels;
+// the boundary node is {type:<TypeName>, truncated:true} with no nested subtree
+// (see model.Schema.Truncated for the full contract).
 const defaultDepth = 2
 
 // Walker resolves a Java type expression to a model.Schema: it unwraps
@@ -78,7 +80,9 @@ func (w *Walker) walk(te typeExpr, depth int, seen map[string]bool) *model.Schem
 			if td.Kind == KindEnum {
 				return &model.Schema{Type: "string", Enum: td.EnumValues, Confidence: model.Confirmed}
 			}
-			// Truncate on depth exhaustion or a cycle (A -> B -> A).
+			// Truncate on depth exhaustion or a cycle (A -> B -> A): emit the
+			// stable boundary node {type:<TypeName>, truncated:true} with NO nested
+			// subtree — the backend/UI "expand deeper later" contract (N3).
 			if depth <= 0 || seen[td.Name] {
 				return &model.Schema{Type: td.Name, Truncated: true, Confidence: model.Confirmed}
 			}

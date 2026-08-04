@@ -206,3 +206,20 @@ func TestTruncationBoundaryShape(t *testing.T) {
 		t.Errorf("truncated node must carry NO nested, got %d", len(address.Nested))
 	}
 }
+
+// TestArrayTruncationBoundary locks the array-container form of N3's contract: an
+// array whose element hits the depth limit keeps its items name, is flagged
+// truncated, and carries no nested subtree.
+func TestArrayTruncationBoundary(t *testing.T) {
+	// At depth 1, the List<Line> element (Line) is truncated.
+	lines := fieldByName(NewWalkerDepth(nestedFixture(), 1).Type("Order"), "lines")
+	if lines == nil || lines.Type != "array" || lines.Items != "Line" {
+		t.Fatalf("lines = %+v, want array items=Line", lines)
+	}
+	if !lines.Truncated {
+		t.Errorf("array element past the depth limit should flag truncated: %+v", lines)
+	}
+	if len(lines.Nested) != 0 {
+		t.Errorf("truncated array must carry NO nested, got %d", len(lines.Nested))
+	}
+}

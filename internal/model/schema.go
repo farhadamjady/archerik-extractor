@@ -40,8 +40,19 @@ type Schema struct {
 	// sorted, so output stays byte-stable for diffing.
 	Constraints map[string]string `json:"constraints,omitempty"`
 
-	// Truncated marks a field where the nested DTO walk hit its depth limit
-	// (default 2). Deeper fields become {"type":"object","truncated":true}.
+	// Truncated marks a node where the nested walk stopped — the DTO depth limit
+	// (--schema-depth, default 2) or a cycle (A -> B -> A). The boundary node has
+	// a STABLE, complete shape and is the backend/UI contract for "expand deeper
+	// later" (N3):
+	//
+	//   {"type": "<TypeName>", "truncated": true}   // NO "nested" key
+	//
+	// Type carries the declared type NAME (e.g. "Address"), not "object", so the
+	// UI knows which type sits at the boundary and can request a deeper re-scan.
+	// A truncated node never carries a partial `nested` subtree — nesting is
+	// all-or-nothing at each level. An array/map whose element hit the limit
+	// carries `truncated` on the container (keeping its items / key_type+value_type)
+	// with no `nested`.
 	Truncated bool `json:"truncated,omitempty"`
 
 	Confidence Confidence `json:"confidence,omitempty"`
