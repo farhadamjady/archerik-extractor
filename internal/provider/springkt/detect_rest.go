@@ -47,6 +47,8 @@ func (restDetector) onController(mc *provider.MatchContext) {
 	}
 	bases := classBasePaths(mods)
 	walker := schema.NewWalkerDepth(mc.Index.Types, mc.Index.SchemaDepth)
+	// #66: resolve an expression-body handler's response from the delegate call.
+	ctrlFields := controllerFields(class)
 	body := kotlin.ChildByType(class, "class_body")
 	if !body.Valid() {
 		return
@@ -59,7 +61,7 @@ func (restDetector) onController(mc *provider.MatchContext) {
 		if needResponseBody && !kotlin.FindAnnotation(fmods, "ResponseBody").Valid() {
 			continue
 		}
-		req, resp := funcSchemas(walker, fn)
+		req, resp := funcSchemas(walker, fn, ctrlFields, mc.Index.MethodReturns)
 		appendMethodEndpoints(mc.Out, fmods, bases, req, resp)
 	}
 }
@@ -67,9 +69,12 @@ func (restDetector) onController(mc *provider.MatchContext) {
 // funcSchemas resolves a handler function's request (the @RequestBody parameter)
 // and response (the return type) schemas through the shared walker. A void/Unit
 // body yields nil; a nullable return/param (`T?`) marks the schema nullable.
-func funcSchemas(w *schema.Walker, fn kotlin.Node) (req, resp *model.Schema) {
+func funcSchemas(w *schema.Walker, fn kotlin.Node, ctrlFields map[string]string, methodReturns map[string]map[string]string) (req, resp *model.Schema) {
 	if rt, nullable := kotlin.ReturnType(fn); rt != "" {
 		resp = bodyOrNil(w.Type(rt), nullable)
+	} else {
+		// No declared return type — infer from an expression body (#66).
+		resp = inferResponseFromExprBody(fn, ctrlFields, methodReturns, w)
 	}
 	for _, p := range kotlin.Params(fn) {
 		if p.Mods.Valid() && kotlin.FindAnnotation(p.Mods, "RequestBody").Valid() {

@@ -81,7 +81,7 @@ func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 // request/response and topic-payload structure. Symbol/config indexers land
 // with the value-flow evaluator.
 func (*Provider) Indexers() []provider.Indexer {
-	return []provider.Indexer{typeIndexer{}}
+	return []provider.Indexer{typeIndexer{}, methodIndexer{}}
 }
 
 // Detectors: REST endpoints from @RestController classes, outbound HTTP

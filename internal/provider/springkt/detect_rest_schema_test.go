@@ -123,3 +123,48 @@ func nestedTypes(s *model.Schema) map[string]string {
 	}
 	return m
 }
+
+// TestExpressionBodyResponseInference proves #66: an expression-body handler with
+// no declared return type is typed from the delegate call — a query method
+// declared in the repository (findByLastName) and an inherited Spring Data method
+// (findAll, synthesised from CrudRepository<Customer, Long>).
+func TestExpressionBodyResponseInference(t *testing.T) {
+	ctrl := `package x
+@RestController
+class CustomerController(private val repository: CustomerRepository) {
+	@GetMapping("/customers")
+	fun findAll() = repository.findAll()
+	@GetMapping("/customers/{lastName}")
+	fun findByLastName(@PathVariable lastName: String) = repository.findByLastName(lastName)
+}`
+	repo := `package x
+interface CustomerRepository : CrudRepository<Customer, Long> {
+	fun findByLastName(lastName: String): Iterable<Customer>
+}`
+	entity := `package x
+data class Customer(val id: Long, val firstName: String, val lastName: String)`
+
+	cf, _ := kotlin.NewParser().Parse("Controller.kt", []byte(ctrl))
+	rf, _ := kotlin.NewParser().Parse("Repo.kt", []byte(repo))
+	ef, _ := kotlin.NewParser().Parse("Customer.kt", []byte(entity))
+	files := []*kotlin.File{cf.(*kotlin.File), rf.(*kotlin.File), ef.(*kotlin.File)}
+	idx := &provider.Index{Types: kotlin.IndexTypes(files, nil)}
+	parsed := map[string]provider.ParsedFile{"Controller.kt": files[0], "Repo.kt": files[1], "Customer.kt": files[2]}
+	if err := (methodIndexer{}).Index(&provider.IndexContext{Parsed: parsed}, idx); err != nil {
+		t.Fatalf("methodIndexer: %v", err)
+	}
+	svc := model.NewService("s", "s", "")
+	if err := query.New().Run(cf, []provider.Detector{restDetector{}}, idx, nil, svc); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	model.Sort(svc)
+
+	all := findEndpoint(svc.Endpoints, "GET", "/customers")
+	if all == nil || all.Response == nil || all.Response.Type != "array" || all.Response.Items != "Customer" {
+		t.Fatalf("GET /customers = %+v, want array of Customer (Spring Data findAll)", all)
+	}
+	byName := findEndpoint(svc.Endpoints, "GET", "/customers/{lastName}")
+	if byName == nil || byName.Response == nil || byName.Response.Items != "Customer" {
+		t.Fatalf("GET /customers/{lastName} = %+v, want array of Customer (declared findByLastName)", byName)
+	}
+}
