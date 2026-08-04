@@ -158,6 +158,23 @@ func TestWalkResponseEntityUnwrap(t *testing.T) {
 	}
 }
 
+// TestWalkRxJavaUnwrap proves #65: RxJava reactive wrappers unwrap like Mono/Flux
+// so a Micronaut handler returning Maybe<T>/Single<T> resolves to T (and
+// Flowable<T> to an array of T) instead of a fieldless phantom "Maybe".
+func TestWalkRxJavaUnwrap(t *testing.T) {
+	types := fakeTypes{"Result": {Name: "Result", Fields: []FieldDef{field("id", "String")}}}
+	w := NewWalker(types)
+	if s := w.Type("Maybe<Result>"); s.Type != "Result" || len(s.Nested) != 1 {
+		t.Errorf("Maybe<Result> = %+v, want Result with 1 field", s)
+	}
+	if s := w.Type("Single<Result>"); s.Type != "Result" {
+		t.Errorf("Single<Result> = %+v, want Result", s)
+	}
+	if s := w.Type("Flowable<Result>"); s.Type != "array" || s.Items != "Result" {
+		t.Errorf("Flowable<Result> = %+v, want array items=Result", s)
+	}
+}
+
 func TestWalkMap(t *testing.T) {
 	s := NewWalker(nil).Type("Map<String, Order>")
 	if s.Type != "map" || s.KeyType != "String" || s.ValueType != "Order" {

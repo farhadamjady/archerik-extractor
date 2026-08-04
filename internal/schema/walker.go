@@ -445,9 +445,11 @@ var (
 	// spellings. Lower-case scalars (string/number/bool/...) are TS/C#/Go
 	// primitives and never collide with Java's capitalized ones.
 	singleWrapper = set("ResponseEntity", "HttpEntity", "Mono", "Optional", "CompletableFuture", "Callable", "Future", "Page", "Slice", "AtomicReference",
+		"Maybe", "Single", // RxJava single-value (io.reactivex[.rxjava3]) — idiomatic in Micronaut (#65)
 		"Promise", "Observable", // TypeScript async
 		"Task", "ValueTask", "ActionResult", "JsonResult") // C#/.NET
 	arrayWrapper = set("List", "Set", "Collection", "Iterable", "Flux", "Stream", "ArrayList", "LinkedList", "HashSet",
+		"Flowable",               // RxJava stream (#65)
 		"Array", "ReadonlyArray", // TypeScript
 		"IEnumerable", "ICollection", "IList", "IReadOnlyList", "IReadOnlyCollection") // C#/.NET
 	mapWrapper = set("Map", "HashMap", "LinkedHashMap", "TreeMap", "ConcurrentHashMap",
