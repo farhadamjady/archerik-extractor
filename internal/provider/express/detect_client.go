@@ -15,7 +15,7 @@ import (
 // tsjs.StringArgValue) — resolves to its authority (host[:port]) as target_name;
 // a literal relative path or a dynamic expression (template / builder /
 // unresolved variable) emits an honest anonymous uncertain edge — never dropped
-// (CLAUDE.md honesty rule). A value evaluator that resolves a base-URL variable
+// (the honesty rule). A value evaluator that resolves a base-URL variable
 // through config is a later round.
 type clientDetector struct{}
 

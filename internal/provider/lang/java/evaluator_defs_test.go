@@ -135,8 +135,8 @@ func TestSwitchUnion(t *testing.T) {
 	}
 }
 
-// TestFieldInitializer (IMPROVEMENTS #3): an instance field with a literal
-// initializer resolves through it, capped at likely (the field is mutable).
+// TestFieldInitializer: an instance field with a literal initializer resolves
+// through it, capped at likely (the field is mutable).
 func TestFieldInitializer(t *testing.T) {
 	vs := evalTarget(t, nil, `class C {
 		private String hostname = "http://visits-service/";
@@ -165,8 +165,8 @@ func TestFieldWithoutInitializerStaysUnknown(t *testing.T) {
 	}
 }
 
-// TestReturnInlining (IMPROVEMENTS #4): a same-class helper with one return is
-// followed one level.
+// TestReturnInlining: a same-class helper with one return is followed one
+// level.
 func TestReturnInlining(t *testing.T) {
 	vs := evalTarget(t, nil, `class C {
 		private String base() { return "http://payment"; }
@@ -177,8 +177,8 @@ func TestReturnInlining(t *testing.T) {
 	}
 }
 
-// TestDiscoveryClientChain (IMPROVEMENTS #4): getInstances("name") anywhere in
-// the receiver chain resolves to the logical service target at likely.
+// TestDiscoveryClientChain: getInstances("name") anywhere in the receiver
+// chain resolves to the logical service target at likely.
 func TestDiscoveryClientChain(t *testing.T) {
 	vs := evalTarget(t, nil, `class C {
 		private DiscoveryClient discoveryClient;
@@ -219,8 +219,8 @@ func TestMultiReturnHelperNotInlined(t *testing.T) {
 	}
 }
 
-// TestCtorParamValue (IMPROVEMENTS #8): @Value on a constructor parameter
-// assigned to a field resolves through config — the bank-of-anthos pattern.
+// TestCtorParamValue: @Value on a constructor parameter assigned to a field
+// resolves through config — the bank-of-anthos pattern.
 func TestCtorParamValue(t *testing.T) {
 	cfg := fakeConfig{"BALANCES_API_ADDR": "balancereader:8080"}
 	vs := evalTarget(t, cfg, `class C {
@@ -252,8 +252,8 @@ func TestCtorParamValueDifferentName(t *testing.T) {
 	}
 }
 
-// TestGetenvLookup (IMPROVEMENTS #12): the env-var name is a literal; the
-// deploy/config layer knows it.
+// TestGetenvLookup: the env-var name is a literal; the deploy/config layer
+// knows it.
 func TestGetenvLookup(t *testing.T) {
 	cfg := fakeConfig{"PAYMENT_URL": "http://pay:8080"}
 	vs := evalTarget(t, cfg, `class C { void m() { target(System.getenv("PAYMENT_URL") + "/x"); } }`)
@@ -262,7 +262,7 @@ func TestGetenvLookup(t *testing.T) {
 	}
 }
 
-// TestConfigBeanGetter (IMPROVEMENTS #11): props.getServiceUrl() on a
+// TestConfigBeanGetter: props.getServiceUrl() on a
 // @ConfigurationProperties(prefix="payment") bean -> payment.service-url.
 func TestConfigBeanGetter(t *testing.T) {
 	cfg := fakeConfig{"payment.service-url": "http://payment:8080"}
@@ -278,8 +278,8 @@ func TestConfigBeanGetter(t *testing.T) {
 	}
 }
 
-// TestParamCallSiteUnion (IMPROVEMENTS #13): a helper's parameter takes the
-// union of the argument values at its call sites in the same class.
+// TestParamCallSiteUnion: a helper's parameter takes the union of the argument
+// values at its call sites in the same class.
 func TestParamCallSiteUnion(t *testing.T) {
 	vs := evalTarget(t, nil, `class C {
 		void helper(String host) { target(host + "/x"); }
@@ -302,8 +302,8 @@ func TestParamNoCallSitesStaysHole(t *testing.T) {
 	}
 }
 
-// TestCtorArgAcrossClasses (IMPROVEMENTS #22): a field set from a plain ctor
-// param resolves through `new ThisClass(...)` sites in OTHER classes.
+// TestCtorArgAcrossClasses: a field set from a plain ctor param resolves
+// through `new ThisClass(...)` sites in OTHER classes.
 func TestCtorArgAcrossClasses(t *testing.T) {
 	vs := evalTarget(t, nil,
 		`class Config {

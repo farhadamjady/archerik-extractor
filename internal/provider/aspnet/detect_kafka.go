@@ -7,7 +7,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/schema"
 )
 
-// kafkaDetector extracts Kafka edges from Confluent.Kafka call sites (K10):
+// kafkaDetector extracts Kafka edges from Confluent.Kafka call sites:
 //
 //   - IProducer<K, V>.Produce / ProduceAsync(topic, …) -> producer
 //   - IConsumer<K, V>.Subscribe(topic)                 -> consumer

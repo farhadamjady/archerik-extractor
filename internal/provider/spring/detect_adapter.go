@@ -9,7 +9,7 @@ import (
 )
 
 // adapterIndexer loads company wrapper declarations from .ekg-adapters.json at
-// the service root (IMPROVEMENTS #15). Absent file = no adapters, no error.
+// the service root. Absent file = no adapters, no error.
 type adapterIndexer struct{}
 
 func (adapterIndexer) Name() string { return "spring.adapters" }

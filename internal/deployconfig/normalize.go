@@ -1,11 +1,12 @@
 // Package deployconfig reads externalized deployment configuration — Helm
 // values, rendered Kubernetes manifests, and .env files — into env-var bindings
-// that the config resolver can bridge to Spring properties (DESIGN §8.5). It is
+// that the config resolver can bridge to Spring properties. It is
 // framework-neutral: env vars and K8s/Helm are not Spring-specific.
 //
-// This package parses the sources and normalizes their keys (PR 10). Wiring the
-// bindings into the layered ConfigResolver, tracing Helm templates, and emitting
-// overlay candidates land in PR 11.
+// This package parses those sources and normalizes their keys. Wiring the
+// bindings into a layered ConfigResolver and emitting overlay candidates is
+// the framework provider's job (see spring's deployindexer) — this layer
+// stays framework-neutral.
 package deployconfig
 
 import (

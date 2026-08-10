@@ -83,9 +83,9 @@ func TestTraceNonValuesSkipped(t *testing.T) {
 	}
 }
 
-// TestTraceConfigMapData (IMPROVEMENTS #21): a templated ConfigMap's data
-// entries become env bindings — literals directly, {{ .Values.x }} resolved,
-// {{ include }} skipped.
+// TestTraceConfigMapData: a templated ConfigMap's data entries become env
+// bindings — literals directly, {{ .Values.x }} resolved, {{ include }}
+// skipped.
 func TestTraceConfigMapData(t *testing.T) {
 	values := valuesLayer(t, "values.yaml", "catalog:\n  endpoint: http://catalog:8080\n")
 	tpl := NamedSource{Path: "templates/configmap.yaml", Src: []byte(`

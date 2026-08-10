@@ -24,7 +24,8 @@ type Binding struct {
 }
 
 // Layer aggregates bindings by normalized key. Several bindings under one key
-// are divergent overlays (staging vs prod), which PR 11 emits as candidates.
+// are divergent overlays (staging vs prod), which the resolver turns into one
+// candidate edge per value rather than silently picking a winner.
 type Layer struct {
 	byKey map[string][]Binding
 }
@@ -56,8 +57,9 @@ func (l *Layer) Keys() []string {
 
 // Parse reads one deployment-config file into bindings. It recognizes .env
 // files, Helm values, and rendered K8s ConfigMap/workload manifests. Helm
-// TEMPLATE files (containing {{ ... }}) are not valid YAML and are skipped here —
-// PR 11 traces them. Unknown shapes yield no bindings rather than an error.
+// TEMPLATE files (containing {{ ... }}) are not valid YAML and are skipped
+// here — TraceTemplates handles them. Unknown shapes yield no bindings rather
+// than an error.
 func Parse(p string, src []byte) ([]Binding, error) {
 	base := path.Base(p)
 	overlay := OverlayFromName(base)
@@ -72,8 +74,8 @@ func Parse(p string, src []byte) ([]Binding, error) {
 
 // ParseK8s reads a yaml file but keeps ONLY Kubernetes documents (ConfigMap /
 // workload env) — no Helm-values fallback. Used for repo-root discovery in
-// monorepos (IMPROVEMENTS #9), where globbing **/*.yaml would otherwise turn
-// unrelated files (skaffold.yaml, CI configs) into garbage bindings.
+// monorepos, where globbing **/*.yaml would otherwise turn unrelated files
+// (skaffold.yaml, CI configs) into garbage bindings.
 func ParseK8s(p string, src []byte) ([]Binding, error) {
 	if bytes.Contains(src, []byte("{{")) {
 		return nil, nil // Helm template — not valid YAML
@@ -130,7 +132,7 @@ func parseDotenv(source, overlay string, src []byte) []Binding {
 }
 
 func parseYAML(source, overlay string, src []byte) ([]Binding, error) {
-	// Helm templates are not valid YAML; PR 11 traces .Values through them.
+	// Helm templates are not valid YAML; TraceTemplates walks .Values through them.
 	if bytes.Contains(src, []byte("{{")) {
 		return nil, nil
 	}
@@ -203,7 +205,8 @@ func workloadEnvBindings(source, overlay string, doc map[string]any) []Binding {
 }
 
 // valuesBindings flattens a Helm values doc's scalars to dotted paths. The env
-// var name a value maps to comes from the chart template (PR 11); here the key is
+// var name a value maps to comes from the chart template (TraceTemplates);
+// here the key is
 // the values path itself, which relaxed binding still bridges when the values
 // structure mirrors the Spring property (payment.serviceUrl ~ payment.service.url).
 func valuesBindings(source, overlay string, doc map[string]any) []Binding {

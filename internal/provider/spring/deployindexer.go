@@ -13,11 +13,11 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/scan"
 )
 
-// deployIndexer parses externalized deployment config (KindDeployConfig) into an
-// env-var binding layer and attaches it to the Spring ConfigResolver, so
+// deployIndexer parses externalized deployment config (KindDeployConfig) into
+// an env-var binding layer and attaches it to the Spring ConfigResolver, so
 // ${ENV_VAR} placeholders resolve through Helm / K8s / .env when application.*
-// does not carry the value (DESIGN §8.5). It runs after configIndexer, which
-// creates the springConfig this attaches to.
+// does not carry the value. It runs after configIndexer, which creates the
+// springConfig this attaches to.
 type deployIndexer struct{}
 
 func (deployIndexer) Name() string { return "spring.deployconfig" }
@@ -62,9 +62,9 @@ func (deployIndexer) Index(ic *provider.IndexContext, idx *provider.Index) error
 	}
 
 	// Monorepos keep deploy config at the REPO root (kubernetes-manifests/...),
-	// outside the scanned service folder (IMPROVEMENTS #9): walk up to the repo
-	// top and read k8s documents from there too (strict — k8s kinds and
-	// values*.yaml only, so unrelated yaml adds nothing).
+	// outside the scanned service folder: walk up to the repo top and read k8s
+	// documents from there too (strict — k8s kinds and values*.yaml only, so
+	// unrelated yaml adds nothing).
 	addRepoRootDeployConfig(ic.Root, layer)
 
 	sc.setDeploy(layer, ic.Environment)

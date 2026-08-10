@@ -111,8 +111,7 @@ func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 // Indexers build the shared cross-file Index. Round 1 wires the language-neutral
 // indexers (constants, DTOs, Kafka contract files) reused from the Java layer;
 // the config/deploy resolver lands when a benchmark repo demands placeholder
-// resolution (GUIDELINE §3: add the fancy steps only when a benchmark shows a
-// miss).
+// resolution (add the expensive steps only when a benchmark shows a miss).
 func (*Provider) Indexers() []provider.Indexer {
 	return []provider.Indexer{
 		symbolIndexer{},

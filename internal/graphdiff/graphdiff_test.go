@@ -153,7 +153,7 @@ func TestProducerConsumerSeparate(t *testing.T) {
 	}
 }
 
-// TestPathChangeIsRemoveAdd pins the no-rename decision (Q2).
+// TestPathChangeIsRemoveAdd pins the no-rename decision.
 func TestPathChangeIsRemoveAdd(t *testing.T) {
 	head := svc(func(s *model.Service) { s.Endpoints[0].Path = "/v2/orders/{id}" })
 	d := Compute(svc(nil), head)

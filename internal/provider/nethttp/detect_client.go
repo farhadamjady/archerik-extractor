@@ -14,7 +14,7 @@ import (
 // A literal absolute URL resolves to its authority (host[:port]) as the
 // target_name (path variants of one service share a node, like the JVM
 // providers); a dynamic URL emits an honest anonymous uncertain edge — never
-// dropped (CLAUDE.md honesty rule). Calls on an *http.Client receiver
+// dropped (the honesty rule). Calls on an *http.Client receiver
 // (`client.Get(...)`) need type tracking and are a documented later step; this
 // round covers the package-level `http.` calls.
 type clientDetector struct{}

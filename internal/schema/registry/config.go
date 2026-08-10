@@ -1,7 +1,7 @@
 // Package registry models a Kafka Schema Registry's STATIC configuration —
 // whether one is configured and which subject-name strategy is in effect —
 // extracted from a service's config layer without any network access (DESIGN
-// §12, no-network). It is groundwork: a later round uses the URL to fetch
+// no network). It is groundwork: a later round uses the URL to fetch
 // subjects (Confluent/Apicurio REST) and the strategy to compute a topic's
 // subject name; this round only detects and stores the configuration.
 package registry

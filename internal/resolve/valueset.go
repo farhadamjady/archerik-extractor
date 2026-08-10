@@ -1,6 +1,6 @@
 // Package resolve is the protocol- and language-neutral value lattice for
 // recovering in-code target strings (URLs, topics, later gRPC/WS targets). A
-// language evaluator (provider/lang/java, PR 14-15) walks an AST expression and
+// language evaluator (e.g. provider/lang/java) walks an AST expression and
 // produces a ValueSet; detectors turn that into edges. This package owns only
 // the lattice and its algebra — it knows nothing about ASTs or frameworks.
 package resolve
@@ -12,7 +12,7 @@ import (
 )
 
 // maxValues caps candidate fan-out so concatenation/union can't explode
-// (bounding, T5.3). Beyond it, an Exact set degrades to a Template or Unknown.
+// (bounding). Beyond it, an Exact set degrades to a Template or Unknown.
 const maxValues = 32
 
 // Kind is the lattice level of a ValueSet.

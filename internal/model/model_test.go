@@ -8,7 +8,7 @@ import (
 
 // TestNewServiceContract pins the empty output contract: all slices emit as []
 // (never null), field order is stable, and the exact byte shape is the one the
-// backend depends on. This is the golden the CLI's empty-run test builds on (PR 4).
+// backend depends on. This is the golden the CLI's empty-run test builds on.
 func TestNewServiceContract(t *testing.T) {
 	svc := NewService("svc-1", "cart", "github.com/acme/cart")
 

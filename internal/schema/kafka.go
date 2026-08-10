@@ -2,11 +2,11 @@ package schema
 
 import "github.com/farhadamjady/service-discovery/internal/model"
 
-// ResolveKafka resolves a Kafka message payload type to a schema, files-first
-// (DESIGN §12): a matching contract file (Avro/Proto/JSON Schema) wins as
-// confirmed; otherwise an in-code DTO is walked and downgraded to likely; a
-// scalar/opaque/unresolvable payload returns nil (safe-fail — the edge is kept,
-// only the schema is dropped). Registry lookup is deferred (network).
+// ResolveKafka resolves a Kafka message payload type to a schema,
+// files-first: a matching contract file (Avro/Proto/JSON Schema) wins as confirmed;
+// otherwise an in-code DTO is walked and downgraded to likely; a
+// scalar/opaque/unresolvable payload returns nil (safe-fail — the edge is
+// kept, only the schema is dropped). Registry lookup is deferred (network).
 func ResolveKafka(payloadType string, sources SchemaSources, types TypeSource) *model.Schema {
 	name := kafkaPayloadName(payloadType)
 	if name == "" || opaque[name] || scalarJSON[name] != "" {

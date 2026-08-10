@@ -14,7 +14,7 @@ import (
 // service id ("catalogue"), an absolute URL ("http://host:8080"), a relative
 // path ("/pets", the same embedded server), or a ${placeholder}. An explicit
 // id= attribute is always a logical service id. TargetName is the RAW logical
-// name — never a service_id; the backend maps it (CLAUDE.md rule 4).
+// name — never a service_id; the backend maps it (the name-resolution rule).
 type clientDetector struct{}
 
 func (clientDetector) Name() string             { return "micronaut.client" }

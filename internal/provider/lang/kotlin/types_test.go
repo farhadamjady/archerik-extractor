@@ -127,7 +127,7 @@ data class Customer(val name: String, val vip: Boolean)
 }
 
 // TestKotlinRequiredness proves the walker derives tri-state requiredness from
-// Kotlin idioms (H4): a non-null property with no default is required, a nullable
+// Kotlin idioms: a non-null property with no default is required, a nullable
 // `T?` is optional, and a property with a default (`= …`) is optional even though
 // it is non-null. Covered for both a primary-constructor param and a class-body
 // property.

@@ -61,7 +61,7 @@ func TestSubmitUnreachable(t *testing.T) {
 	}
 }
 
-// TestSubmitMetaHeaders (B4): commit metadata travels as X-EKG-* headers and
+// TestSubmitMetaHeaders: commit metadata travels as X-EKG-* headers and
 // the ingest response body comes back to the caller.
 func TestSubmitMetaHeaders(t *testing.T) {
 	var got http.Header

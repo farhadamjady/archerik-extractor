@@ -29,7 +29,7 @@ var (
 //
 // This does NOT render the chart. Named templates (_helpers.tpl), include/tpl,
 // and any value expression that isn't a plain .Values reference are left
-// unresolved — best-effort, honest per DESIGN §8.5. Determinism: input files are
+// unresolved — best-effort, honest Determinism: input files are
 // processed in the order given (the indexer sorts them), line order within each.
 func TraceTemplates(templates []NamedSource, values *Layer) []Binding {
 	var out []Binding
@@ -70,12 +70,12 @@ func traceOne(tpl NamedSource, values *Layer) []Binding {
 	return out
 }
 
-// TraceConfigMapData reads `data:` entries out of TEMPLATED ConfigMap manifests
-// (IMPROVEMENTS #21): real charts put env config in a ConfigMap template and
-// wire it to the container with envFrom + configMapRef, so the keys ARE env
-// vars. Values may be literals or {{ .Values.x }} refs (resolved against the
-// values layer); other expressions ({{ include }}) are skipped. The envFrom
-// link itself is not verified — within one chart this over-approximates safely.
+// TraceConfigMapData reads `data:` entries out of TEMPLATED ConfigMap
+// manifests : real charts put env config in a ConfigMap template and wire it
+// to the container with envFrom + configMapRef, so the keys ARE env vars.
+// Values may be literals or {{ .Values.x }} refs (resolved against the values
+// layer); other expressions ({{ include }}) are skipped. The envFrom link
+// itself is not verified — within one chart this over-approximates safely.
 func TraceConfigMapData(templates []NamedSource, values *Layer) []Binding {
 	var out []Binding
 	for _, tpl := range templates {

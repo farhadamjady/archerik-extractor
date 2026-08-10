@@ -13,7 +13,7 @@ import (
 // target is `configKey` (whose URL lives in config as
 // quarkus.rest-client.<key>.url — resolved later); an explicit `baseUri`
 // hardcodes the URL. With neither, the config key defaults to the interface's
-// name, which we emit as the raw logical target (backend maps it, CLAUDE.md #4).
+// name, which we emit as the raw logical target (backend maps it, the name-resolution rule).
 type restClientDetector struct{}
 
 func (restClientDetector) Name() string             { return "quarkus.restclient" }

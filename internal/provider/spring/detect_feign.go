@@ -12,7 +12,7 @@ import (
 // feignDetector extracts outbound HTTP dependencies from @FeignClient interfaces.
 //
 // TargetName is the raw logical service name (name=/value=/positional) — NOT a
-// service_id; the backend maps it (CLAUDE.md rule 4). An optional url= overrides
+// service_id; the backend maps it (the name-resolution rule). An optional url= overrides
 // service discovery; its ${...} placeholders resolve through Index.Config, which
 // includes the Helm/K8s/.env deploy layer. When a url exists, edge confidence
 // tracks the url (it is what the client actually calls); with no url, it tracks

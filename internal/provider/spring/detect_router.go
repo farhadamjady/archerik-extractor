@@ -8,7 +8,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/provider/lang/java"
 )
 
-// routerDetector extracts endpoints from FUNCTIONAL routing (IMPROVEMENTS #20):
+// routerDetector extracts endpoints from FUNCTIONAL routing:
 //
 //	route(GET("/posts"), handler)                      // RequestPredicates style
 //	RouterFunctions.route().GET("/posts", handler)     // builder style
@@ -45,10 +45,10 @@ func (d routerDetector) onCall(mc *provider.MatchContext) {
 	if !arg.Valid() || arg.Type() != "string_literal" {
 		return // dynamic route paths are rare; literal-only keeps this precise
 	}
-	// IMPROVEMENTS #38: compose enclosing path("/prefix", builder → …) and
-	// nest(path("/prefix"), …) prefixes, like class @RequestMapping + method
-	// mapping. Without this, /accounts/current and /notifications/current both
-	// emit as "/current" and dedup-collapse into one wrong endpoint.
+	// Compose enclosing path("/prefix", builder → …) and nest(path("/prefix"), …)
+	// prefixes, like class @RequestMapping + method mapping. Without this,
+	// /accounts/current and /notifications/current both emit as "/current" and
+	// dedup-collapse into one wrong endpoint.
 	verbCall, _ := mc.Captures["call"].(java.Node)
 	path := joinRoute(append(routePrefixes(verbCall), unquote(arg.Text()))...)
 	mc.Out.Endpoints = append(mc.Out.Endpoints, model.Endpoint{

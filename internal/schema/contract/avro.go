@@ -1,7 +1,7 @@
 // Package contract parses Kafka message-schema files (Avro, Protobuf, JSON
 // Schema) in the repo into model.Schema. These formats carry nullability and
 // requiredness natively, so they are the authoritative source when present
-// (files-first, DESIGN §12).
+// (files-first).
 package contract
 
 import (

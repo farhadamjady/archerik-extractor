@@ -15,7 +15,7 @@ var (
 )
 
 // ParseProto extracts the first top-level message from a .proto file (proto3).
-// Nested messages and imports are not followed (best-effort, DESIGN §8.5-style).
+// Nested messages and imports are not followed (best-effort).
 func ParseProto(src []byte) (name string, sch *model.Schema, err error) {
 	lines := strings.Split(string(src), "\n")
 	for i, line := range lines {

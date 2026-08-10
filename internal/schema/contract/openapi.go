@@ -16,8 +16,7 @@ import (
 //
 // This exists for repos whose controllers are GENERATED from the spec at build
 // time (openapi-generator): there the spec IS the source of the mapping
-// annotations, so reading it recovers endpoints a source-only scan cannot see
-// (IMPROVEMENTS #1).
+// annotations, so reading it recovers endpoints a source-only scan cannot see.
 func ParseOpenAPI(src []byte) ([]model.Endpoint, error) {
 	var raw map[string]any
 	if err := yaml.Unmarshal(src, &raw); err != nil {

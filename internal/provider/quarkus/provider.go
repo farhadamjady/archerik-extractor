@@ -94,9 +94,9 @@ func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 }
 
 // Indexers: the language-neutral set reused from lang/java + the contract
-// indexer for the API-interface pattern (JAX-RS resources very commonly put the
-// @Path/@GET on an interface the resource implements). Config/messaging
-// resolution lands in a later round (GUIDELINE §3).
+// indexer for the API-interface pattern (JAX-RS resources very commonly put
+// the @Path/@GET on an interface the resource implements). Config/messaging
+// resolution lands in a later round.
 func (*Provider) Indexers() []provider.Indexer {
 	return []provider.Indexer{
 		symbolIndexer{},

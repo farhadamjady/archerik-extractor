@@ -1,7 +1,7 @@
-// Package exitcode is the process-exit-code taxonomy (PLAN §B.3). Subsystems
-// return a *Error tagged with the code the CLI should exit with; the CLI calls
-// Of(err) to get it. Keeping the mapping in one leaf package means auth, detect,
-// and submit all agree on what "not entitled" or "detection failed" exits as.
+// Package exitcode is the process-exit-code taxonomy. Subsystems return a
+// *Error tagged with the code the CLI should exit with; the CLI calls Of(err)
+// to get it. Keeping the mapping in one leaf package means auth, detect, and
+// submit all agree on what "not entitled" or "detection failed" exits as.
 package exitcode
 
 import (

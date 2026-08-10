@@ -11,14 +11,14 @@ import (
 )
 
 // outboxIndexer finds Debezium outbox EventRouter topic patterns in
-// Kafka-Connect connector JSONs (IMPROVEMENTS #28). In the outbox pattern the
-// service "produces" by inserting an OutBox row — no KafkaTemplate anywhere —
-// and the destination topic only materializes in the connector config
-// (`transforms.<t>.route.topic.replacement = ${routedByValue}.events`, routed by
-// the row's aggregate-type column). Connector files conventionally live at the
-// repo root, next to docker-compose; we scan the top-level JSONs of the service
-// root, its parent, and the repo top (no recursion — connector registration
-// files do not hide in source trees).
+// Kafka-Connect connector JSONs. In the outbox pattern the service "produces"
+// by inserting an OutBox row — no KafkaTemplate anywhere — and the destination
+// topic only materializes in the connector config
+// (`transforms.<t>.route.topic.replacement = ${routedByValue}.events`, routed
+// by the row's aggregate-type column). Connector files conventionally live at
+// the repo root, next to docker-compose; we scan the top-level JSONs of the
+// service root, its parent, and the repo top (no recursion — connector
+// registration files do not hide in source trees).
 type outboxIndexer struct{}
 
 func (outboxIndexer) Name() string { return "spring.outbox" }

@@ -1,6 +1,6 @@
 // Package schema turns declared code structure into model.Schema. It is
 // framework-neutral: it owns the language-neutral type model (this file) and the
-// resolution walker (PR 20). The language layer (provider/lang/java) builds
+// resolution walker. The language layer (e.g. provider/lang/java) builds
 // TypeDefs from source and satisfies TypeSource; the walker consumes them without
 // knowing about tree-sitter or Java.
 package schema
@@ -20,7 +20,7 @@ const (
 	KindRecord
 	KindInterface
 	KindEnum
-	KindAnnotation // an @interface declaration — carries META-annotations (IMPROVEMENTS #17)
+	KindAnnotation // an @interface declaration — carries META-annotations
 )
 
 // TypeDef is a declared type's structure, the raw material the schema walker

@@ -104,8 +104,8 @@ func writeFile(t *testing.T, root, rel, content string) {
 	}
 }
 
-// TestMountComposition locks IMPROVEMENTS #50: routes declared in a router file
-// are emitted under the composed cross-file app.use/router.use prefixes.
+// TestMountComposition locks a real-world case: routes declared in a router
+// file are emitted under the composed cross-file app.use/router.use prefixes.
 func TestMountComposition(t *testing.T) {
 	sources := map[string]string{
 		"config/express.js":           `const routes = require('../api/routes/v1'); app.use('/v1', routes);`,

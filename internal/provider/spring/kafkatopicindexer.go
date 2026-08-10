@@ -7,10 +7,10 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/provider/lang/java"
 )
 
-// kafkaTopicIndexer records Kafka `@Bean NewTopic` methods that build a topic via
-// TopicBuilder.name(<expr>) (IMPROVEMENTS #24). The idiomatic Spring producer
-// injects such a bean and sends through a Message whose KafkaHeaders.TOPIC header
-// is `topic.name()` — so the destination never appears as a literal at the
+// kafkaTopicIndexer records Kafka `@Bean NewTopic` methods that build a topic
+// via TopicBuilder.name(<expr>). The idiomatic Spring producer injects such a
+// bean and sends through a Message whose KafkaHeaders.TOPIC header is
+// `topic.name()` — so the destination never appears as a literal at the
 // KafkaTemplate.send call site. Indexing the bean's name-argument lets the
 // producer detector resolve that topic through the existing config layer.
 type kafkaTopicIndexer struct{}

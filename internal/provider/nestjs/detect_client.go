@@ -18,7 +18,7 @@ import (
 // so path variants of one host share a node (like the JVM/Go providers). A
 // dynamic URL (variable / `new URL(...).toString()` / template) can't name a
 // service, so it emits an honest anonymous uncertain edge — never dropped
-// (CLAUDE.md honesty rule). Placeholder/config resolution for the base URL is a
+// (the honesty rule). Placeholder/config resolution for the base URL is a
 // later step; today the value evaluator isn't wired for TS.
 type clientDetector struct{}
 

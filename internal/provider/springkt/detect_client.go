@@ -14,7 +14,7 @@ import (
 //   - restTemplate.getForObject/exchange/postForObject/...("http://...", ...)
 //
 // Feign emits the raw logical name as target_name (backend maps name ->
-// service_id; CLAUDE.md rule 4), confirmed. A RestTemplate call with a literal
+// service_id; the name-resolution rule), confirmed. A RestTemplate call with a literal
 // absolute URL resolves to its authority; a relative path or dynamic URL emits
 // an honest uncertain edge. WebClient builder chains (.get().uri(...)) and
 // config-placeholder resolution are later rounds.

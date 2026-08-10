@@ -9,7 +9,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/provider/lang/tsjs"
 )
 
-// mountIndexer builds Index.MountPrefixes (IMPROVEMENTS #50): the real HTTP path
+// mountIndexer builds Index.MountPrefixes: the real HTTP path
 // of an Express route is its declared path PREFIXED by the app.use/router.use
 // mounts, which are usually cross-file and nested —
 //

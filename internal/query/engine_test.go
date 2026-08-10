@@ -42,7 +42,7 @@ func text(t *testing.T, caps map[string]provider.ASTNode, name string) string {
 	return n.Text()
 }
 
-// TestDispatchAndCaptures is the smoke test (T3.5): a class-name rule fires once
+// TestDispatchAndCaptures is the smoke test: a class-name rule fires once
 // per class, in source order, with the right captured text.
 func TestDispatchAndCaptures(t *testing.T) {
 	var got []string
@@ -111,7 +111,7 @@ func TestInvalidQuerySurfaces(t *testing.T) {
 	}
 }
 
-// TestNoRulesNoOp: zero rules is a clean no-op (the state through PR 6).
+// TestNoRulesNoOp: a detector declaring zero rules is a clean no-op.
 func TestNoRulesNoOp(t *testing.T) {
 	if err := New().Run(parse(t), []provider.Detector{det{}}, &provider.Index{}, nil, nil); err != nil {
 		t.Fatalf("Run with no rules: %v", err)

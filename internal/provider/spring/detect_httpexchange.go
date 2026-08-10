@@ -10,10 +10,10 @@ import (
 
 // httpExchangeDetector extracts outbound HTTP dependencies from Spring 6
 // declarative clients: interfaces with @HttpExchange / @GetExchange /
-// @PostExchange / ... methods (IMPROVEMENTS #18). Same shape as Feign: one
-// edge per interface; the target is the interface-level @HttpExchange url
-// (resolved via config) or the interface name as the raw logical name — the
-// backend maps names, like Feign names.
+// @PostExchange / ... methods. Same shape as Feign: one edge per interface;
+// the target is the interface-level @HttpExchange url (resolved via config) or
+// the interface name as the raw logical name — the backend maps names, like
+// Feign names.
 type httpExchangeDetector struct{}
 
 func (httpExchangeDetector) Name() string             { return "spring.httpexchange" }

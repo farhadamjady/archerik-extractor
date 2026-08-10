@@ -113,7 +113,7 @@ spec:
 		t.Fatalf("Parse: %v", err)
 	}
 	if len(bs) != 0 {
-		t.Errorf("Helm template should be skipped in PR 10 (traced in PR 11), got %d bindings", len(bs))
+		t.Errorf("Helm template should be skipped by Parse (TraceTemplates handles it), got %d bindings", len(bs))
 	}
 }
 
@@ -142,8 +142,8 @@ func TestLayerCandidatesAndDedup(t *testing.T) {
 	}
 }
 
-// TestParseK8sStrict (IMPROVEMENTS #9): repo-root discovery keeps only k8s
-// documents — unrelated yaml (skaffold, CI) adds no bindings.
+// TestParseK8sStrict: repo-root discovery keeps only k8s documents — unrelated
+// yaml (skaffold, CI) adds no bindings.
 func TestParseK8sStrict(t *testing.T) {
 	cm, err := ParseK8s("kubernetes-manifests/config.yaml", []byte(`
 apiVersion: v1

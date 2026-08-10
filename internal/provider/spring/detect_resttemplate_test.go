@@ -195,9 +195,9 @@ func TestRestTemplateValueField(t *testing.T) {
 	}
 }
 
-// IMPROVEMENTS #37: the URL host is a runtime Eureka instance host/port, so the
-// URL alone resolves only to an anonymous uncertain edge — but the target service
-// is statically known: the getApplication argument, a @Value field resolved via
+// The URL host is a runtime Eureka instance host/port, so the URL alone
+// resolves only to an anonymous uncertain edge — but the target service is
+// statically known: the getApplication argument, a @Value field resolved via
 // config. We emit that logical name (like a service-discovery @FeignClient),
 // resolved/likely, and NOT the anonymous edge.
 func TestRestTemplateEurekaDiscoveryTarget(t *testing.T) {

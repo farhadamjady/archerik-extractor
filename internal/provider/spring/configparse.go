@@ -12,8 +12,8 @@ import (
 // parseConfig flattens one Spring config file to dotted keys. YAML nesting
 // becomes dot paths (spring.application.name); .properties lines are taken
 // as-is. Values are kept verbatim — ${...} placeholders are NOT resolved here
-// (that is the ConfigResolver's job, PR 9). Relaxed binding (a.b.c == A_B_C) is
-// applied at lookup time by the deploy layer (PR 10), not at parse.
+// (that is the ConfigResolver's job). Relaxed binding (a.b.c == A_B_C) is
+// applied at lookup time by the deploy layer, not at parse.
 func parseConfig(path string, src []byte) (map[string]string, error) {
 	if strings.HasSuffix(path, ".properties") {
 		return parseProperties(src), nil

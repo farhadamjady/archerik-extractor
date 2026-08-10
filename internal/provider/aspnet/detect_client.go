@@ -14,7 +14,7 @@ import (
 // A literal absolute URL resolves to its authority (host[:port]) as target_name;
 // a relative path (`api/orders`, common when the client has a BaseAddress set at
 // registration) or a dynamic/interpolated URL emits an honest uncertain edge —
-// never dropped (CLAUDE.md honesty rule). Receiver-type tracking (proving the
+// never dropped (the honesty rule). Receiver-type tracking (proving the
 // receiver is really an HttpClient) and resolving BaseAddress through DI are
 // later rounds; this covers the call-site verbs, which are HttpClient-shaped.
 type clientDetector struct{}

@@ -9,7 +9,7 @@ import (
 )
 
 // discoveryTarget resolves the logical service name behind a service-registry
-// lookup that an outbound URL is built from (IMPROVEMENTS #37). Netflix/Spring
+// lookup that an outbound URL is built from. Netflix/Spring
 // code routinely asks Eureka for a live instance and assembles the URL from its
 // RUNTIME host/port:
 //

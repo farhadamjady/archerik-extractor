@@ -15,10 +15,10 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/schema/registry"
 )
 
-// maxDeployCandidates caps overlay fan-out per key (bounding, T4.5.8).
+// maxDeployCandidates caps overlay fan-out per key (bounding).
 const maxDeployCandidates = 8
 
-// maxPlaceholderDepth bounds recursive ${a}->${b} chains (D4). Real chains are
+// maxPlaceholderDepth bounds recursive ${a}->${b} chains. Real chains are
 // 1-3 deep; 10 is a safety ceiling, not a target. Deeper → unresolved.
 const maxPlaceholderDepth = 10
 
@@ -28,13 +28,14 @@ const maxPlaceholderDepth = 10
 var placeholderRe = regexp.MustCompile(`\$\{([^{}]*)\}`)
 
 // configIndexer parses Spring config files (KindSpringConfig) into a
-// profile-merged key store and installs it as Index.Config. Merge policy (D3):
+// profile-merged key store and installs it as Index.Config. Merge policy:
 // application.* is the base; application-<p>.* for each ACTIVE profile overrides
 // it; profiles not active remain a lower-precedence fallback so their values are
 // still resolvable. Active profiles come from --profiles (IndexContext.Profiles)
 // or, absent that, spring.profiles.active in the base config.
 //
-// This builds the store only; ${...} resolution + confidence rules land in PR 9.
+// This builds the store only; ${...} resolution and the confidence rules on
+// top of it live in the ConfigResolver.
 type configIndexer struct{}
 
 func (configIndexer) Name() string { return "spring.config" }
@@ -76,7 +77,7 @@ type configVal struct {
 // springConfig implements provider.ConfigResolver over the merged store. Resolve
 // takes an EXPRESSION (the raw attribute string, e.g. "${payment.url}" or
 // "http://${host}:${port}/api") and expands every ${key} / ${key:default}
-// against config, recursively. Config indirection is at most `likely` (B.4).
+// against config, recursively. Config indirection is at most `likely`.
 //
 // It also records every key referenced during resolution, surfaced as
 // config_dependencies for transparency.
@@ -85,7 +86,7 @@ type springConfig struct {
 	fallback map[string]configVal // non-active profiles (lower precedence)
 
 	// Deploy layer (Helm/K8s/.env), attached by the deploy indexer. Consulted
-	// AFTER Spring config, matched by relaxed-bound key (§8.5). env is the
+	// AFTER Spring config, matched by relaxed-bound key. env is the
 	// selected overlay (--environment); "" surfaces divergent overlays as candidates.
 	deploy *deployconfig.Layer
 	env    string
@@ -401,9 +402,9 @@ func buildConfig(ic *provider.IndexContext) (*springConfig, error) {
 		}
 	}
 
-	// External config repo (Spring Cloud Config Server checkout, IMPROVEMENTS
-	// #16): its yml/properties feed the FALLBACK layer — in-repo config always
-	// wins; the config repo fills what the service does not carry itself.
+	// External config repo (a Spring Cloud Config Server checkout): its
+	// yml/properties feed the FALLBACK layer — in-repo config always wins; the
+	// config repo fills what the service does not carry itself.
 	if ic.ConfigRepo != "" {
 		addConfigRepo(ic.ConfigRepo, values, fallback)
 	}

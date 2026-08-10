@@ -9,8 +9,8 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/schema"
 )
 
-// cloudStreamDetector extracts Spring Cloud Stream functional bindings
-// (IMPROVEMENTS #14): a @Bean method returning Consumer<T> / Supplier<T> /
+// cloudStreamDetector extracts Spring Cloud Stream functional bindings: a
+// @Bean method returning Consumer<T> / Supplier<T> /
 // Function<T,R> is a message endpoint. Binding names follow the convention
 // <method>-in-0 / <method>-out-0; the topic comes from
 // spring.cloud.stream.bindings.<binding>.destination, default = binding name.
@@ -40,10 +40,11 @@ func (d cloudStreamDetector) Rules() []provider.Rule {
 	}
 }
 
-// onStreamBridgeSend handles the imperative producer streamBridge.send(binding,
-// payload) (IMPROVEMENTS #34). The binding (arg0, a string literal) maps to its
-// destination(s) via spring.cloud.stream.bindings.<binding>.destination; a
-// composite (comma-separated) destination fans out to one producer edge each.
+// onStreamBridgeSend handles the imperative producer
+// streamBridge.send(binding, payload). The binding (arg0, a string literal)
+// maps to its destination(s) via
+// spring.cloud.stream.bindings.<binding>.destination; a composite
+// (comma-separated) destination fans out to one producer edge each.
 func (cloudStreamDetector) onStreamBridgeSend(mc *provider.MatchContext) {
 	if !hasCloudStreamConfig(mc.Index) {
 		return
@@ -225,11 +226,11 @@ func (cloudStreamDetector) onMethod(mc *provider.MatchContext) {
 		}
 		return
 	}
-	// Composition declared (IMPROVEMENTS #23): only beans named in
-	// spring.cloud.function.definition are active, and a composed chain a|b
-	// exposes ONE input (from the first bean) and ONE output (from the last) on
-	// the composite binding name — the intermediate hand-off is internal, never a
-	// topic. So per bean: emit IN only if it is first, OUT only if it is last.
+	// Composition declared: only beans named in spring.cloud.function.definition
+	// are active, and a composed chain a|b exposes ONE input (from the first
+	// bean) and ONE output (from the last) on the composite binding name — the
+	// intermediate hand-off is internal, never a topic. So per bean: emit IN only
+	// if it is first, OUT only if it is last.
 	for _, chain := range defs {
 		pos := indexOfStr(chain, name)
 		if pos < 0 {

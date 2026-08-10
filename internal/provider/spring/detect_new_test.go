@@ -233,9 +233,9 @@ class WebConfig {
 	}
 }
 
-// IMPROVEMENTS #38: the route().path("/prefix", builder → builder.GET(...))
-// builder style. The prefix must compose onto each verb, and same-named paths
-// under different prefixes must NOT dedup-collapse. Mirrors galleog RouterConfig.
+// TestRouterFunctionPathPrefixComposed covers the route().path("/prefix",
+// builder → builder.GET(...)) builder style. The prefix must compose onto each
+// verb, and same-named paths under different prefixes must NOT dedup-collapse.
 func TestRouterFunctionPathPrefixComposed(t *testing.T) {
 	svc := scanWith(t, routerDetector{}, nil, nil, `
 import static org.springframework.web.reactive.function.server.RouterFunctions.route;

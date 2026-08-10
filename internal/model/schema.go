@@ -43,7 +43,7 @@ type Schema struct {
 	// Truncated marks a node where the nested walk stopped — the DTO depth limit
 	// (--schema-depth, default 2) or a cycle (A -> B -> A). The boundary node has
 	// a STABLE, complete shape and is the backend/UI contract for "expand deeper
-	// later" (N3):
+	// later":
 	//
 	//   {"type": "<TypeName>", "truncated": true}   // NO "nested" key
 	//

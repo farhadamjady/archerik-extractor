@@ -2,7 +2,7 @@ package deployconfig
 
 import "testing"
 
-// TestNormalizeConvergence is the relaxed-binding contract (E4): the four ways a
+// TestNormalizeConvergence is the relaxed-binding contract: the four ways a
 // setting is written must all fold to one canonical key.
 func TestNormalizeConvergence(t *testing.T) {
 	forms := []string{

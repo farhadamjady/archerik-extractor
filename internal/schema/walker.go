@@ -7,7 +7,7 @@ import (
 )
 
 // defaultDepth is how many levels of nested DTOs expand before truncation
-// (config knob, §9; overridable via NewWalkerDepth / --schema-depth). Two levels;
+// (config knob; overridable via NewWalkerDepth / --schema-depth). Two levels;
 // the boundary node is {type:<TypeName>, truncated:true} with no nested subtree
 // (see model.Schema.Truncated for the full contract).
 const defaultDepth = 2
@@ -18,7 +18,7 @@ const defaultDepth = 2
 // language-neutral — it works on type-name strings and TypeDefs.
 //
 // Data-flow recovery of opaque returns (ResponseEntity<?>, raw Object) is
-// deferred (D1): those resolve to an uncertain object rather than being chased.
+// deferred: those resolve to an uncertain object rather than being chased.
 type Walker struct {
 	types    TypeSource
 	maxDepth int
@@ -28,9 +28,9 @@ type Walker struct {
 // then resolves as unresolved/uncertain) at the default nesting depth.
 func NewWalker(types TypeSource) *Walker { return NewWalkerDepth(types, defaultDepth) }
 
-// NewWalkerDepth builds a walker with a configurable nesting depth (--schema-depth,
-// N2). A depth <= 0 falls back to the default, so an unset Index.SchemaDepth (0)
-// keeps today's behavior.
+// NewWalkerDepth builds a walker with a configurable nesting depth
+// (--schema-depth). A depth <= 0 falls back to the default, so an unset
+// Index.SchemaDepth (0) keeps the standard behavior.
 func NewWalkerDepth(types TypeSource, depth int) *Walker {
 	if depth <= 0 {
 		depth = defaultDepth
@@ -82,7 +82,7 @@ func (w *Walker) walk(te typeExpr, depth int, seen map[string]bool) *model.Schem
 			}
 			// Truncate on depth exhaustion or a cycle (A -> B -> A): emit the
 			// stable boundary node {type:<TypeName>, truncated:true} with NO nested
-			// subtree — the backend/UI "expand deeper later" contract (N3).
+			// subtree — the backend/UI "expand deeper later" contract.
 			if depth <= 0 || seen[td.Name] {
 				return &model.Schema{Type: td.Name, Truncated: true, Confidence: model.Confirmed}
 			}
@@ -222,7 +222,7 @@ func wireNameFrom(anns []Annotation, javaName string) string {
 	return javaName
 }
 
-// nullability: may the field's value be null (§11).
+// nullability: may the field's value be null.
 func nullability(anns []Annotation, te typeExpr) bool {
 	switch {
 	case hasAnn(anns, "NotNull") || hasAnn(anns, "NonNull"):
@@ -236,7 +236,7 @@ func nullability(anns []Annotation, te typeExpr) bool {
 	}
 }
 
-// requiredness: must the field be present (§11), tri-state, default unknown.
+// requiredness: must the field be present, tri-state, default unknown.
 // Explicit annotations win, then a declared default (Kotlin `= …`), then
 // Optional<T>, then type/source heuristics.
 func requiredness(anns []Annotation, srcs map[FieldSource]bool, te typeExpr, hasDefault bool) model.Requiredness {

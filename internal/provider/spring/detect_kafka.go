@@ -14,7 +14,7 @@ import (
 // kafkaDetector extracts Kafka edges: producers from KafkaTemplate.send call
 // sites, consumers from @KafkaListener methods. The producer/consumer -> topic
 // edge is ALWAYS emitted when the call is real, independent of whether the topic
-// (or a payload schema, PR 22) resolves — an unresolved topic yields an
+// (or a payload schema) resolves — an unresolved topic yields an
 // uncertain edge, never a dropped one.
 type kafkaDetector struct{}
 
@@ -41,7 +41,7 @@ func (d kafkaDetector) Rules() []provider.Rule {
 
 // onInvocation dispatches call sites: KafkaTemplate.send -> producer; Kafka
 // Streams builder.stream/table/globalTable -> consumer and KStream.to ->
-// producer (IMPROVEMENTS #5). The Streams cases only fire in files that import
+// producer. The Streams cases only fire in files that import
 // org.apache.kafka.streams, so List.stream() and unrelated to() never match.
 func (kafkaDetector) onInvocation(mc *provider.MatchContext) {
 	name, _ := mc.Captures["name"].(java.Node)
@@ -73,11 +73,11 @@ func (kafkaDetector) onInvocation(mc *provider.MatchContext) {
 		emitKafkaTopic(mc, resolveNode(mc, topic), true, group, nil)
 
 	case "aggregateType", "setAggregateType":
-		// Debezium outbox producer (IMPROVEMENTS #28): the service writes an
-		// OutBox row whose aggregate type routes the topic in the connector's
-		// EventRouter config — set through the builder (`.aggregateType(X)`) or
-		// the setter (`outbox.setAggregateType(X)`). Gated on outbox connector
-		// JSONs existing in the repo, so unrelated methods never fire.
+		// Debezium outbox producer: the service writes an OutBox row whose aggregate
+		// type routes the topic in the connector's EventRouter config — set through
+		// the builder (`.aggregateType(X)`) or the setter
+		// (`outbox.setAggregateType(X)`). Gated on outbox connector JSONs existing
+		// in the repo, so unrelated methods never fire.
 		if len(mc.Index.OutboxRoutes) == 0 || !topic.Valid() || args.NamedChildCount() != 1 {
 			return
 		}
@@ -177,12 +177,12 @@ func resolvedValuesToVS(cands []provider.ResolvedValue) resolve.ValueSet {
 	return resolve.ExactValues(vals...)
 }
 
-// producerTopic resolves the destination topic of a KafkaTemplate.send(...) call
-// across its overloads. send(topic, data) / send(topic, key, data) carry the
-// topic as the first argument (resolved as before). send(Message) hides it: the
-// idiomatic Spring form sets the topic in a KafkaHeaders.TOPIC header, usually
-// `topic.name()` on an injected NewTopic bean (IMPROVEMENTS #24). An
-// unresolvable topic stays Unknown — an honest uncertain edge, never dropped.
+// producerTopic resolves the destination topic of a KafkaTemplate.send(...)
+// call across its overloads. send(topic, data) / send(topic, key, data) carry
+// the topic as the first argument (resolved as before). send(Message) hides
+// it: the idiomatic Spring form sets the topic in a KafkaHeaders.TOPIC header,
+// usually `topic.name()` on an injected NewTopic bean. An unresolvable topic
+// stays Unknown — an honest uncertain edge, never dropped.
 func producerTopic(mc *provider.MatchContext, args java.Node) resolve.ValueSet {
 	arg0 := args.NamedChild(0)
 	if args.NamedChildCount() >= 2 {

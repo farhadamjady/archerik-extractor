@@ -9,7 +9,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/schema/contract"
 )
 
-// IngestSpecs implements provider.SpecIngester (IMPROVEMENTS #1): when the
+// IngestSpecs implements provider.SpecIngester: when the
 // build GENERATES controllers from an OpenAPI spec (openapi-generator in
 // pom.xml/build.gradle), the mapping annotations live in generated code the
 // source scan never sees — the spec is the real source. Endpoints from the spec

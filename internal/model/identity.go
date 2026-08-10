@@ -11,7 +11,7 @@ import "sort"
 //   - Sort(svc) — total, deterministic ordering of every slice (and nested schema
 //     fields), so marshaling is byte-stable regardless of detection order.
 //
-// Identity keys are intentionally coarse (per DESIGN §14); the sort comparators
+// Identity keys are intentionally coarse; the sort comparators
 // below add every remaining field as a tiebreak so ordering is TOTAL even when
 // two edges share an identity key (e.g. conditional candidates from one call site).
 

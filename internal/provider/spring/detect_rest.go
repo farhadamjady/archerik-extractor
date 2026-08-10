@@ -21,9 +21,9 @@ func (restDetector) Protocol() model.Protocol { return model.ProtoREST }
 
 // restControllerQuery captures ANY annotated class; the handler decides if it
 // is a controller — directly @RestController, or via a META-annotation whose
-// declaration carries @RestController (IMPROVEMENTS #17). A class with several
-// annotations fires the handler once per annotation; the identical endpoints
-// collapse in the marshal dedup.
+// declaration carries @RestController. A class with several annotations fires
+// the handler once per annotation; the identical endpoints collapse in the
+// marshal dedup.
 const restControllerQuery = `(class_declaration
   (modifiers [
     (marker_annotation name: (identifier) @_ann)
@@ -62,8 +62,8 @@ func (restDetector) onController(mc *provider.MatchContext) {
 		if m.Type() != "method_declaration" {
 			continue
 		}
-		// Classic @Controller style (IMPROVEMENTS #19): only methods marked
-		// @ResponseBody are REST endpoints; the rest render views.
+		// Classic @Controller style: only methods marked @ResponseBody are REST
+		// endpoints; the rest render views.
 		if needResponseBody && !methodHasResponseBody(m) {
 			continue
 		}

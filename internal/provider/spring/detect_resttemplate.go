@@ -13,7 +13,7 @@ import (
 //
 // Matched by method name (in the handler): the distinctive RestTemplate methods.
 // Bare put/delete/execute are omitted for now — they collide with Map/collection
-// methods and need receiver-type info (TypeIndex, PR 19) to disambiguate.
+// methods and need receiver-type info (the TypeIndex) to disambiguate.
 type restTemplateDetector struct{}
 
 func (restTemplateDetector) Name() string             { return "spring.resttemplate" }

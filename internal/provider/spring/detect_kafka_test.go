@@ -26,8 +26,8 @@ func kafkaScan(t *testing.T, cfg provider.ConfigResolver, srcs ...string) *model
 		parsed[name] = pf
 	}
 	idx := &provider.Index{Symbols: java.IndexSymbols(files), Config: cfg, Types: java.IndexTypes(files, nil)}
-	// Populate the NewTopic-bean index so producer topic resolution (IMPROVEMENTS
-	// #24) has the same inputs it gets from the real pipeline.
+	// Populate the NewTopic-bean index so producer topic resolution has the
+	// same inputs it gets from the real pipeline.
 	_ = kafkaTopicIndexer{}.Index(&provider.IndexContext{Parsed: parsed}, idx)
 	res := java.NewEvaluator(idx)
 	svc := model.NewService("s", "s", "")
@@ -136,8 +136,8 @@ func TestKafkaConsumerTopicArray(t *testing.T) {
 	}
 }
 
-// TestKafkaStreamsTopology (IMPROVEMENTS #5): builder.stream/table consume,
-// KStream.to produces — gated on the org.apache.kafka.streams import.
+// TestKafkaStreamsTopology: builder.stream/table consume, KStream.to produces
+// — gated on the org.apache.kafka.streams import.
 func TestKafkaStreamsTopology(t *testing.T) {
 	svc := kafkaScan(t, nil, `
 import org.apache.kafka.streams.StreamsBuilder;
@@ -173,8 +173,8 @@ func TestNoStreamsImportNoMatch(t *testing.T) {
 	}
 }
 
-// TestKafkaProducerNewTopicBeanHeader reproduces IMPROVEMENTS #24: the idiomatic
-// Spring producer injects a NewTopic bean and sends a Message whose
+// TestKafkaProducerNewTopicBeanHeader reproduces a real-world case: the
+// idiomatic Spring producer injects a NewTopic bean and sends a Message whose
 // KafkaHeaders.TOPIC header is `topic.name()` — the destination is never a
 // literal at the send() call site. The topic must resolve through the bean's
 // TopicBuilder.name(@Value) and the config layer, at likely confidence.
@@ -230,9 +230,9 @@ func TestKafkaProducerMessageNoBeanUncertain(t *testing.T) {
 	}
 }
 
-// TestKafkaProducerCrossClassWrapper reproduces IMPROVEMENTS #26: a thin
-// EventProducer wrapper sends with a topic PARAM whose call sites live in OTHER
-// classes with resolvable constants. The topic must resolve through the
+// TestKafkaProducerCrossClassWrapper reproduces a real-world case: a thin
+// EventProducer wrapper sends with a topic PARAM whose call sites live in
+// OTHER classes with resolvable constants. The topic must resolve through the
 // repo-wide call-site index, capped likely (crosses a class boundary).
 func TestKafkaProducerCrossClassWrapper(t *testing.T) {
 	svc := kafkaScan(t, nil,
@@ -270,9 +270,9 @@ func TestKafkaProducerWrapperUnrelatedReceiver(t *testing.T) {
 	}
 }
 
-// TestKafkaOutboxProducer reproduces IMPROVEMENTS #28: the service produces by
-// writing an OutBox row; the topic pattern lives in a Debezium connector JSON
-// and is joined with the resolvable aggregate-type argument.
+// TestKafkaOutboxProducer reproduces a real-world case: the service produces
+// by writing an OutBox row; the topic pattern lives in a Debezium connector
+// JSON and is joined with the resolvable aggregate-type argument.
 func TestKafkaOutboxProducer(t *testing.T) {
 	svcObj := kafkaScanOutbox(t, []string{"${routedByValue}.events"},
 		`class Topics { public static final String ORDER = "ORDER"; }`,

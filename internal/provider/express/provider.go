@@ -78,8 +78,8 @@ func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 }
 
 // Indexers: the mount indexer resolves the cross-file app.use/router.use graph
-// so routes are emitted at their FULL mounted paths (IMPROVEMENTS #50); the type
-// indexer builds the TS DTO index for typed-handler schema inference.
+// so routes are emitted at their FULL mounted paths; the type indexer builds
+// the TS DTO index for typed-handler schema inference.
 func (*Provider) Indexers() []provider.Indexer {
 	return []provider.Indexer{mountIndexer{}, typeIndexer{}}
 }

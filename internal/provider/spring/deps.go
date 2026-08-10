@@ -32,16 +32,16 @@ import (
 // `path`, or a bare "/orders", is not a resolvable target, so it stays empty
 // rather than polluting the graph with a meaningless or duplicate node label
 // (the backend renders the empty case as a runtime-unknown node). Unresolved
-// deps are still emitted (CLAUDE.md); they are just anonymous, which is honest.
+// deps are still emitted; they are just anonymous, which is honest.
 func emitTargets(mc *provider.MatchContext, expr java.Node, detection model.DetectionMethod, protocol model.Protocol) {
 	group := fmt.Sprintf("%s:%d:%s", mc.File.Path(), expr.StartByte(), detection)
 	vs := resolveNode(mc, expr)
-	// IMPROVEMENTS #37: when the URL names no host (a runtime registry
-	// instance host/port), the target service may still be known statically —
-	// it is the argument to a service-registry lookup in the same method
-	// (EurekaClient.getApplication(name) / getNextServerFromEureka(name)).
-	// Emit that logical name as a resolved edge INSTEAD of the anonymous
-	// uncertain one emitValueSet would otherwise produce (one edge, not two).
+	// When the URL names no host (a runtime registry instance host/port), the
+	// target service may still be known statically — it is the argument to a
+	// service-registry lookup in the same method
+	// (EurekaClient.getApplication(name) / getNextServerFromEureka(name)). Emit
+	// that logical name as a resolved edge INSTEAD of the anonymous uncertain one
+	// emitValueSet would otherwise produce (one edge, not two).
 	if hostUnresolved(vs) {
 		if name, src, ok := discoveryTarget(mc, expr); ok {
 			mc.Out.OutboundDependencies = append(mc.Out.OutboundDependencies, model.Dependency{

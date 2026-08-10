@@ -75,7 +75,7 @@ func emitURI(mc *provider.MatchContext, call, uriArg java.Node) {
 	//  - a KNOWN bare path (/pay) is relative to a base captured elsewhere -> skip;
 	//  - an unknown PREFIX (template starting with a hole, or fully unknown) may
 	//    hide the host — dropping it would lose the edge silently, which breaks
-	//    the honesty rule. Emit an uncertain edge instead (IMPROVEMENTS #2).
+	//    the honesty rule. Emit an uncertain edge instead.
 	switch {
 	case looksLikeURL(uri):
 		emitValueSet(mc, uri, model.DetectWebClient, model.ProtoREST, group)

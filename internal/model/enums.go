@@ -19,7 +19,7 @@ const (
 // RestTemplate, and WebClient are three DetectionMethods of one Protocol (rest).
 //
 // DTO is intentionally absent: an in-code DTO is a schema SOURCE, not an edge
-// detection method. OpenAPI is back (IMPROVEMENTS #1) for builds that GENERATE
+// detection method. OpenAPI is back for builds that GENERATE
 // controllers from a spec — there the spec is the real source of the mappings.
 type DetectionMethod string
 
@@ -42,8 +42,8 @@ const (
 	DetectHTTPClient        DetectionMethod = "http-client"        // std-lib HTTP client call (Go http.Get/NewRequest)
 	DetectAxios             DetectionMethod = "axios"              // axios / @nestjs/axios HttpService call (Node)
 	DetectFetch             DetectionMethod = "fetch"              // WHATWG fetch() call (Node/browser)
-	DetectDotNetHTTPClient  DetectionMethod = "dotnet-httpclient" // .NET HttpClient call (GetAsync/PostAsJsonAsync/SendAsync)
-	DetectRefit             DetectionMethod = "refit"             // Refit declarative HTTP client interface (.NET)
+	DetectDotNetHTTPClient  DetectionMethod = "dotnet-httpclient"  // .NET HttpClient call (GetAsync/PostAsJsonAsync/SendAsync)
+	DetectRefit             DetectionMethod = "refit"              // Refit declarative HTTP client interface (.NET)
 )
 
 // Protocol is the communication protocol of an edge — a FIRST-CLASS field, kept

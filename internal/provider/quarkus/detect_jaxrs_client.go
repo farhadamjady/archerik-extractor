@@ -21,7 +21,7 @@ import (
 // or otherwise non-literal base (e.g. fightConfig.villain().clientBaseUrl()) can't
 // be resolved statically this round, so the enclosing bean's simple name is
 // emitted as the raw logical target (uncertain) — honest and named, never an
-// anonymous empty edge (CLAUDE.md #4/#6). A base held in a field and target()'d in
+// anonymous empty edge (the name-resolution and honesty rules). A base held in a field and target()'d in
 // a separate statement (no in-chain newClient()) needs dataflow and is a later
 // round.
 type jaxrsClientDetector struct{}

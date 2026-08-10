@@ -1,6 +1,6 @@
 // Package registry is the single place providers are registered. Adding a
-// framework (Micronaut next) = one line in Default(). Nothing else in the core
-// changes — detection picks the winner from this list by Match score.
+// framework = one line in Default(). Nothing else in the core changes —
+// detection picks the winner from this list by Match score.
 package registry
 
 import (

@@ -25,8 +25,8 @@ const (
 	KindJava         FileKind = iota
 	KindSpringConfig          // application.yml/.yaml/.properties (+ profile variants)
 	KindKafkaSchema           // .avsc / .proto / JSON Schema contract files
-	KindDeployConfig          // Helm values*.yaml + templates, K8s manifests, .env (DESIGN §8.5)
-	KindOpenAPI               // openapi.yml/json — read when controllers are generated from it (IMPROVEMENTS #1)
+	KindDeployConfig          // Helm values*.yaml + templates, K8s manifests, .env
+	KindOpenAPI               // openapi.yml/json — read when controllers are generated from it
 )
 
 // Provider bundles everything a single framework contributes.
@@ -103,10 +103,10 @@ type ParsedFile interface {
 	Kind() FileKind
 }
 
-// Index is the shared cross-file knowledge built by Indexers before detection
-// (DESIGN §7). Non-AST facts are read from here, uniformly: detector handlers
-// resolve placeholders, constants, types, and schema files through the Index
-// instead of parsing anything themselves.
+// Index is the shared cross-file knowledge built by Indexers before
+// detection. Non-AST facts are read from here, uniformly: detector handlers resolve
+// placeholders, constants, types, and schema files through the Index instead
+// of parsing anything themselves.
 type Index struct {
 	Config  ConfigResolver
 	Types   schema.TypeSource
@@ -114,19 +114,18 @@ type Index struct {
 	Schemas schema.SchemaSources
 
 	// Registry is the detected Kafka Schema Registry configuration (URL +
-	// subject-name strategy) read statically from the config layer (K4, no
-	// network), or nil when no registry is configured. Groundwork: a later round
+	// subject-name strategy) read statically from the config layer (no 	// network), or nil when no registry is configured. Groundwork: a later round
 	// uses it to resolve topic subjects; nothing consumes it yet.
 	Registry *registry.Config
 
 	// Adapters are company-specific wrapper declarations from .ekg-adapters.json
-	// in the repo (IMPROVEMENTS #15): internal SDK calls like
-	// platformClient.call("payment-service", ...) that no generic detector can
-	// recognize. Each entry names a method and which argument is the target.
+	// in the repo: internal SDK calls like platformClient.call("payment-service",
+	// ...) that no generic detector can recognize. Each entry names a method and
+	// which argument is the target.
 	Adapters []AdapterSpec
 
-	// TopicBeans are Kafka `@Bean NewTopic` methods built via TopicBuilder.name(x)
-	// (IMPROVEMENTS #24). Big-company producers rarely pass a literal topic to
+	// TopicBeans are Kafka `@Bean NewTopic` methods built via
+	// TopicBuilder.name(x) . Big-company producers rarely pass a literal topic to
 	// KafkaTemplate.send: they inject the NewTopic bean and set the destination
 	// through a Message header (KafkaHeaders.TOPIC, topic.name()). Indexing each
 	// bean's name-argument lets the producer detector resolve that topic through
@@ -134,7 +133,7 @@ type Index struct {
 	TopicBeans []TopicBean
 
 	// OutboxRoutes are Debezium outbox EventRouter topic patterns found in
-	// Kafka-Connect connector JSONs near the repo root (IMPROVEMENTS #28), e.g.
+	// Kafka-Connect connector JSONs near the repo root, e.g.
 	// "${routedByValue}.events". In the outbox pattern the service "produces" by
 	// inserting a row — the topic only materializes in the connector config, so
 	// the producer detector joins these patterns with the aggregate-type values
@@ -144,9 +143,9 @@ type Index struct {
 	// MountPrefixes maps a source file (repo-relative path) to the URL prefix(es)
 	// its routes are mounted under. Express composes routes across files —
 	// app.use('/v1', routes) in one file mounts a router module defined in
-	// another (often NESTED: '/v1' -> '/users' -> the route file, IMPROVEMENTS
-	// #50) — so a mount indexer resolves the require/import graph and stores the
-	// composed prefixes here; the route detector prepends them. A file absent
+	// another (often NESTED: '/v1' -> '/users' -> the route file) — so a mount
+	// indexer resolves the require/import graph and stores the composed
+	// prefixes here; the route detector prepends them. A file absent
 	// from the map (or an empty list) is unmounted: its routes are emitted at
 	// their declared paths.
 	MountPrefixes map[string][]string
@@ -162,7 +161,7 @@ type Index struct {
 	// base path. Values are lang/java.Node kept opaque (like TopicBeans.NameArg).
 	HTTPContracts map[string][]ASTNode
 
-	// SchemaDepth is the nested-DTO walk depth (--schema-depth, N2), threaded to
+	// SchemaDepth is the nested-DTO walk depth (--schema-depth), threaded to
 	// every REST schema walker. 0 means unset — the walker falls back to its
 	// default (2).
 	SchemaDepth int
@@ -211,14 +210,14 @@ type IndexContext struct {
 	Root        string
 	Files       FileTree
 	Parsed      map[string]ParsedFile // keyed by repo-relative path
-	Profiles    []string              // active Spring profiles (D3); overrides spring.profiles.active
-	Environment string                // deploy overlay selection (E3)
-	ConfigRepo  string                // local checkout of an external config repo (IMPROVEMENTS #16)
+	Profiles    []string              // active Spring profiles; overrides spring.profiles.active
+	Environment string                // deploy overlay selection
+	ConfigRepo  string                // local checkout of an external config repo
 
-	// Shared holds parsed files from SIBLING Maven modules of the same repo
-	// (a shared contracts/domain module). Indexers may read types and constants
-	// from them, but detectors never run on them — edges belong to the scanned
-	// service only (IMPROVEMENTS #6).
+	// Shared holds parsed files from SIBLING Maven modules of the same repo (a
+	// shared contracts/domain module). Indexers may read types and constants from
+	// them, but detectors never run on them — edges belong to the scanned service
+	// only.
 	Shared map[string]ParsedFile
 }
 
@@ -230,10 +229,10 @@ type Indexer interface {
 
 // ConfigResolver resolves ${...} placeholders through the LAYERED config
 // sources: Spring application.* (active profiles) first, then externalized
-// deployment config (Helm values / K8s env / .env, DESIGN §8.5), then
+// deployment config (Helm values / K8s env / .env), then
 // ${x:default}.
 //
-// Declared in its final layered shape now (PLAN T4.5.5) so the seam doesn't
+// Declared in its final layered shape now so the seam doesn't
 // change when the deploy layer lands: Resolve returns the single best value;
 // Candidates surfaces divergent env overlays (staging vs prod) so detectors
 // can emit one edge per candidate.
@@ -298,8 +297,8 @@ type ASTNode interface{}
 
 // SpecIngester is an OPTIONAL provider capability: after detection, ingest
 // endpoints declared in spec files (OpenAPI) that the source scan cannot see —
-// e.g. controllers generated from openapi.yml at build time (IMPROVEMENTS #1).
-// The provider decides when ingestion applies (e.g. only when the build uses
+// e.g. controllers generated from openapi.yml at build time. The provider
+// decides when ingestion applies (e.g. only when the build uses
 // openapi-generator) and must dedup against endpoints already found in code.
 type SpecIngester interface {
 	IngestSpecs(ic *IndexContext, svc *model.Service) error
@@ -319,10 +318,10 @@ type QueryRunner interface {
 	RunQuery(patterns []string, onMatch func(patternIndex int, captures map[string]ASTNode)) error
 }
 
-// Resolver is the shared protocol-agnostic value/target resolver (DESIGN §8):
-// handlers hand it an ASTNode expression and get back the possible string values
-// as a lattice ValueSet. The Java implementation lands in provider/lang/java
-// (PR 14-15); MatchContext.Resolver is nil until then.
+// Resolver is the shared protocol-agnostic value/target resolver: handlers
+// hand it an ASTNode expression and get back the possible string values as a
+// lattice ValueSet. The Java implementation lands in provider/lang/java (PR
+// 14-15); MatchContext.Resolver is nil until then.
 type Resolver interface {
 	Resolve(node ASTNode) resolve.ValueSet
 }

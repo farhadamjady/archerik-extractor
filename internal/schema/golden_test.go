@@ -32,10 +32,10 @@ func nestedFixture() fakeTypes {
 }
 
 // goldenNested is the byte-stable JSON for nestedFixture's "Order" after
-// model.Sort. It documents the contract other repos ingest/render (N4/N7): fields
+// model.Sort. It documents the contract other repos ingest/render: fields
 // ordered by wire name; an array carries items + hoisted element fields; a map
 // carries key_type/value_type; the depth-2 boundary (address) is
-// {type, truncated:true} with NO nested (N3).
+// {type, truncated:true} with NO nested.
 const goldenNested = `{
   "type": "Order",
   "required": "unknown",
@@ -114,7 +114,7 @@ func sortedJSON(t *testing.T, types TypeSource, name string) string {
 	return string(b)
 }
 
-// TestGoldenNested locks the emitted nested shape byte-for-byte (N1).
+// TestGoldenNested locks the emitted nested shape byte-for-byte.
 func TestGoldenNested(t *testing.T) {
 	if got := sortedJSON(t, nestedFixture(), "Order"); got != goldenNested {
 		t.Errorf("nested schema JSON drifted from golden:\n--- got ---\n%s\n--- want ---\n%s", got, goldenNested)
@@ -123,7 +123,7 @@ func TestGoldenNested(t *testing.T) {
 
 // TestNestedDeterministic proves the output is order-independent: the same DTO
 // graph with fields declared in a different order sorts to identical bytes, so
-// the backend's diffing sees no spurious change (N1).
+// the backend's diffing sees no spurious change.
 func TestNestedDeterministic(t *testing.T) {
 	shuffled := nestedFixture()
 	// Reverse the field declaration order of every type.

@@ -13,9 +13,9 @@ import (
 // signal is weaker than NestJS's @Body / return type — everything resolved here
 // is capped at `likely`. Sources, in priority order:
 //
-//   request  : Request<_, _, ReqBody> generic (3rd arg) > `req.body as Foo` cast
-//   response : Response<Body> generic (1st arg) > Request<_, ResBody, _> (2nd arg)
-//              > the local type of the `res.json(x)` / `res.send(x)` argument
+//	request  : Request<_, _, ReqBody> generic (3rd arg) > `req.body as Foo` cast
+//	response : Response<Body> generic (1st arg) > Request<_, ResBody, _> (2nd arg)
+//	           > the local type of the `res.json(x)` / `res.send(x)` argument
 //
 // Only .ts handlers carry types; plain JS yields (nil, nil). The handler is an
 // inline arrow/function expression or a same-file named function.

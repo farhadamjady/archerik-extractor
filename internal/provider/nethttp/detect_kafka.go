@@ -9,9 +9,9 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/schema"
 )
 
-// kafkaDetector extracts Kafka edges from the three common Go client libraries
-// (K11), gated on the file importing one of them so generic types (io.Writer,
-// a `Message` struct) are never mistaken for Kafka:
+// kafkaDetector extracts Kafka edges from the three common Go client
+// libraries, gated on the file importing one of them so generic types
+// (io.Writer, a `Message` struct) are never mistaken for Kafka:
 //
 //   - segmentio/kafka-go: kafka.Writer{Topic} -> producer;
 //     kafka.ReaderConfig{Topic} -> consumer.

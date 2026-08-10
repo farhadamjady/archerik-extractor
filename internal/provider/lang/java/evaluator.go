@@ -10,8 +10,9 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/schema"
 )
 
-// maxEvalDepth bounds expression recursion (defensive; deep chains and variable
-// following are the real risk, guarded further in PR 15).
+// maxEvalDepth bounds expression recursion (defensive; deep chains and
+// variable following are the real risk, guarded further by the per-step
+// depth checks below).
 const maxEvalDepth = 20
 
 // Evaluator implements provider.Resolver for Java: it walks a target expression
@@ -160,11 +161,11 @@ func (c *evalCtx) evalName(n Node, name string, depth int) resolve.ValueSet {
 	return resolve.NewUnknown()
 }
 
-// ctorArgFromCreationSites follows a field ACROSS classes (IMPROVEMENTS #22):
-// the field is set from a plain constructor parameter (`this.url = url`, no
-// @Value), so its value comes from whoever writes `new ThisClass(...)`. We find
-// those creation sites in the whole repo (Types index) and union the argument
-// values, capped at likely. No sites / nothing resolvable -> stays a hole.
+// ctorArgFromCreationSites follows a field ACROSS classes: the field is set
+// from a plain constructor parameter (`this.url = url`, no @Value), so its
+// value comes from whoever writes `new ThisClass(...)`. We find those creation
+// sites in the whole repo (Types index) and union the argument values, capped
+// at likely. No sites / nothing resolvable -> stays a hole.
 func (c *evalCtx) ctorArgFromCreationSites(n Node, field string, depth int) (resolve.ValueSet, bool) {
 	types, ok := c.e.types.(*Types)
 	if !ok {
@@ -228,10 +229,10 @@ func ctorParamIndexForField(cls Node, field string) int {
 	return -1
 }
 
-// paramCallSites is the mirror of return-inlining (IMPROVEMENTS #13): when the
-// name is a PARAMETER of the enclosing method, union the argument values from
-// this method's call sites — first within the same class, then (IMPROVEMENTS
-// #26) from receiver-qualified call sites across the whole repo where the
+// paramCallSites is the mirror of return-inlining: when the name is a
+// PARAMETER of the enclosing method, union the argument values from this
+// method's call sites — first within the same class, then from
+// receiver-qualified call sites across the whole repo where the
 // receiver's declared type is this class (the thin-wrapper pattern:
 // `eventProducer.send(TOPIC, msg)` feeding `kafkaTemplate.send(topic, ...)`).
 // No resolvable call site anywhere -> stays a hole.
@@ -278,10 +279,10 @@ func (c *evalCtx) paramCallSites(n Node, name string, depth int) (resolve.ValueS
 }
 
 // crossClassCallSites unions the argument values from receiver-qualified call
-// sites of `<cls>.<methodName>` anywhere in the repo (IMPROVEMENTS #26). The
-// receiver's DECLARED type must be the wrapper's class, so an unrelated `send`
-// on some other type never contributes. Values are capped at likely — the flow
-// crosses a class boundary.
+// sites of `<cls>.<methodName>` anywhere in the repo. The receiver's DECLARED
+// type must be the wrapper's class, so an unrelated `send` on some other type
+// never contributes. Values are capped at likely — the flow crosses a class
+// boundary.
 func (c *evalCtx) crossClassCallSites(cls Node, methodName string, argIdx, depth int) (resolve.ValueSet, bool) {
 	types, ok := c.e.types.(*Types)
 	if !ok {
@@ -331,10 +332,10 @@ func paramIndex(method Node, name string) int {
 	return -1
 }
 
-// fieldInitializer resolves an instance field of the enclosing type through its
-// initializer: `private String hostname = "http://visits-service/";`. The field
-// is not final and could be reassigned at runtime, so the result is capped at
-// likely (IMPROVEMENTS #3).
+// fieldInitializer resolves an instance field of the enclosing type through
+// its initializer: `private String hostname = "http://visits-service/";`. The
+// field is not final and could be reassigned at runtime, so the result is
+// capped at likely.
 func (c *evalCtx) fieldInitializer(n Node, name string, depth int) (resolve.ValueSet, bool) {
 	cls := enclosingType(n)
 	if !cls.Valid() {
@@ -467,8 +468,8 @@ func (c *evalCtx) evalFieldAccess(n Node, depth int) resolve.ValueSet {
 }
 
 // evalMethodInvocation handles: String.format; a DiscoveryClient chain
-// (getInstances("name")... -> http://name, IMPROVEMENTS #4); and a same-class
-// helper method with a single return statement, which is inlined one level
+// (getInstances("name")... -> http://name); and a same-class helper method
+// with a single return statement, which is inlined one level
 // (return-inlining). Everything else (getenv, getProperty, external calls)
 // stays opaque.
 func (c *evalCtx) evalMethodInvocation(n Node, depth int) resolve.ValueSet {
@@ -479,7 +480,7 @@ func (c *evalCtx) evalMethodInvocation(n Node, depth int) resolve.ValueSet {
 		return c.evalStringFormat(n, depth)
 	}
 	// System.getenv("KEY") / getProperty: the KEY is a literal, and the
-	// deploy/config layer may know it (IMPROVEMENTS #12).
+	// deploy/config layer may know it.
 	if obj.Text() == "System" && (name == "getenv" || name == "getProperty") {
 		args := n.ChildByFieldName("arguments")
 		if a := args.NamedChild(0); a.Valid() && a.Type() == "string_literal" {
@@ -488,7 +489,7 @@ func (c *evalCtx) evalMethodInvocation(n Node, depth int) resolve.ValueSet {
 		return resolve.NewUnknown()
 	}
 	// props.getPaymentUrl() on a @ConfigurationProperties bean — THE standard
-	// enterprise config style (IMPROVEMENTS #11).
+	// enterprise config style.
 	if v, ok := c.configBeanGetter(n, obj, name); ok {
 		return v
 	}
@@ -713,8 +714,8 @@ func (c *evalCtx) resolveConfig(expr string) resolve.ValueSet {
 
 // valueFieldPlaceholder finds the @Value("...") string behind a field named
 // `name` in the enclosing type: on the field declaration itself, or — the
-// idiomatic constructor-injection style (IMPROVEMENTS #8) — on a constructor
-// parameter that is assigned to the field (`this.name = param`).
+// idiomatic constructor-injection style — on a constructor parameter that is
+// assigned to the field (`this.name = param`).
 func (c *evalCtx) valueFieldPlaceholder(n Node, name string) (string, bool) {
 	cls := enclosingType(n)
 	if !cls.Valid() {

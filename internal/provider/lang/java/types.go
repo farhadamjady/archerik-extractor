@@ -11,12 +11,12 @@ import (
 type Types struct {
 	byName map[string]*schema.TypeDef
 	// newSites: `new ClassName(...)` expressions per simple class name, so the
-	// evaluator can follow constructor arguments across classes (IMPROVEMENTS #22).
+	// evaluator can follow constructor arguments across classes.
 	newSites map[string][]Node
 	// callSites: receiver-qualified method invocations per method name, so the
 	// evaluator can follow a wrapper method's parameters to call sites in OTHER
-	// classes (IMPROVEMENTS #26). Receiverless (same-class) calls are already
-	// covered by the intra-class walk and are not recorded.
+	// classes. Receiverless (same-class) calls are already covered by the
+	// intra-class walk and are not recorded.
 	callSites map[string][]Node
 }
 
@@ -42,11 +42,11 @@ func (t *Types) Lookup(name string) (*schema.TypeDef, bool) {
 }
 
 // IndexTypes builds the DTO index. `files` are the scanned service's own
-// sources; `shared` are sibling-module sources (IMPROVEMENTS #6/#25/#29), which
-// contribute TYPE DEFINITIONS only — never creation/call sites. Under a reactor
-// the shared set includes sibling SERVICES, and following value flow through
-// their code would leak one service's topics/URLs into another's graph (every
-// service tends to have its own same-named EventProducer wrapper).
+// sources; `shared` are sibling-module sources, which contribute TYPE
+// DEFINITIONS only — never creation/call sites. Under a reactor the shared set
+// includes sibling SERVICES, and following value flow through their code would
+// leak one service's topics/URLs into another's graph (every service tends to
+// have its own same-named EventProducer wrapper).
 func IndexTypes(files, shared []*File) *Types {
 	t := &Types{byName: map[string]*schema.TypeDef{}, newSites: map[string][]Node{}, callSites: map[string][]Node{}}
 	for _, f := range sortedByPath(shared) {

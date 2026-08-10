@@ -181,9 +181,9 @@ func (f *File) RunQuery(patterns []string, onMatch func(int, map[string]provider
 }
 
 // Compiled tree-sitter queries are immutable and reusable across files and
-// cursors, so they are cached by their combined pattern text (compile once, per
-// DESIGN §6). The cache is process-lifetime — a single scan uses one detector
-// set, so it holds one entry.
+// cursors, so they are cached by their combined pattern text (compile once,
+// reuse for every file). The cache is process-lifetime — a single scan uses
+// one detector set, so it holds one entry.
 var (
 	queryCacheMu sync.Mutex
 	queryCache   = map[string]*sitter.Query{}

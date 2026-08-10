@@ -9,7 +9,7 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/schema"
 )
 
-// kafkaDetector extracts Kafka edges from NestJS/Node services (K8, topics only —
+// kafkaDetector extracts Kafka edges from NestJS/Node services (topics only —
 // payload schema is K9). Two idioms are covered:
 //
 //   - NestJS microservice handlers: @MessagePattern('t') / @EventPattern('t') on
@@ -74,7 +74,7 @@ func (kafkaDetector) onClass(mc *provider.MatchContext) {
 	}
 }
 
-// consumerPayloadSchema resolves a message handler's payload schema (K9): the
+// consumerPayloadSchema resolves a message handler's payload schema: the
 // type of the @Payload()-decorated parameter, or the first typed non-@Ctx
 // parameter, resolved files-first via schema.ResolveKafka. Returns nil when no
 // payload type is found or it doesn't resolve (edge kept, schema dropped).

@@ -10,9 +10,9 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/resolve"
 )
 
-// reactiveKafkaDetector extracts reactor-kafka / spring-kafka reactive edges
-// (IMPROVEMENTS #39), the style used by galleog/piggymetrics-k8s and other
-// WebFlux services — neither KafkaTemplate nor @KafkaListener nor Cloud Stream:
+// reactiveKafkaDetector extracts reactor-kafka / spring-kafka reactive edges —
+// the style used by WebFlux services that use neither KafkaTemplate nor
+// @KafkaListener nor Cloud Stream:
 //
 //   - Producer: producerTemplate.send(SenderRecord.create(
 //     new ProducerRecord<>(topic, key, value), meta)). The topic is arg0 of
