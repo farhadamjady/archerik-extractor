@@ -1,12 +1,14 @@
-// Package pipeline orchestrates a scan end to end, in the phase order of
-// DESIGN §3:
+// Package pipeline orchestrates a scan end to end, in a fixed phase order:
 //
 //	auth-gate → detect → collect → parse → index → detect(query engine)
-//	          → schema pass → marshal(deterministic) → submit
+//	          → spec-ingest → marshal(deterministic) → submit
 //
-// Every phase is wired here even though several are still structured no-ops
-// (auth, query engine, schema, submit land in their own PRs) — the shape of the
-// run never changes again, only phase bodies fill in.
+// The order is the contract: cross-file facts (config, types, contract files)
+// must be indexed before detectors run, and marshalling must be the only place
+// a Service becomes bytes. Schemas are attached by the detectors themselves,
+// through the shared walker, at the point an endpoint or edge is emitted.
+// Adding a framework fills in phase bodies via a provider; it never reorders
+// or adds a phase.
 package pipeline
 
 import (
@@ -31,18 +33,17 @@ import (
 )
 
 // Options carries everything a run needs. APIKey/APIURL/DryRun are consumed by
-// the auth and submit phases; ConfigFile/Profiles/Environment by the config and
+// the auth and submit phases; Profiles/Environment/ConfigRepo by the config and
 // deploy-config indexers.
 type Options struct {
 	Root        string
 	Repository  string // repo identifier emitted as service.repository — the backend's read-API key
 	APIKey      string
-	ConfigFile  string
-	Profiles    []string    // active Spring profiles (D3)
-	Environment string      // deploy overlay selection, e.g. "staging" (E3)
-	SchemaDepth int         // nested-DTO walk depth (--schema-depth, N2); 0 = default (2)
-	ConfigRepo  string      // local checkout of the Spring Cloud Config repo (IMPROVEMENTS #16)
-	APIURL      string      // backend base URL (auth validate + submit); empty = local/dev
+	Profiles    []string    // active Spring profiles merged over the base config
+	Environment string      // deploy overlay selection, e.g. "staging"
+	SchemaDepth int         // nested-DTO walk depth (--schema-depth); 0 = default (2)
+	ConfigRepo  string      // local checkout of an external Spring Cloud Config repo
+	APIURL      string      // control-plane base URL (auth validate + submit); empty = fully local
 	DryRun      bool        // skip submit
 	CI          submit.Meta // commit metadata sent with the submission (headers)
 
@@ -78,7 +79,7 @@ func Run(ctx context.Context, opt Options) (*model.Service, error) {
 	}
 
 	// ServiceID: the extractor emits the raw service name; the backend maps
-	// names to canonical ids (CLAUDE.md coverage rule 4). Until submit carries
+	// names to canonical ids (the name-resolution rule). Until submit carries
 	// a configured identity, both default to the repo directory name.
 	name := filepath.Base(root)
 	svc := model.NewService(name, name, opt.Repository)
@@ -104,7 +105,7 @@ func Run(ctx context.Context, opt Options) (*model.Service, error) {
 	}
 
 	// Spec ingestion (optional capability): endpoints generated from an OpenAPI
-	// spec at build time — the source scan cannot see them (IMPROVEMENTS #1).
+	// spec at build time — the source scan cannot see them.
 	if ing, ok := p.(provider.SpecIngester); ok {
 		if err := ing.IngestSpecs(ic, svc); err != nil {
 			return nil, err
@@ -112,10 +113,6 @@ func Run(ctx context.Context, opt Options) (*model.Service, error) {
 	}
 
 	collectConfigDeps(idx, svc)
-
-	if err := schemaPass(idx, svc); err != nil {
-		return nil, err
-	}
 
 	// marshal-phase ordering: deterministic identity + byte-stable output.
 	model.Sort(svc)
@@ -137,9 +134,9 @@ func Marshal(svc *model.Service) ([]byte, error) {
 	return append(b, '\n'), nil
 }
 
-// authGate validates the API key before anything is scanned (fail-closed): no
-// valid key means nothing runs. auth.Validate is a presence-only stub for now;
-// the phone-home validation lands in PR 23.
+// authGate runs before anything is scanned. A local run (no APIURL) passes
+// straight through; a run targeting a control plane must present a key that
+// validates, fail-closed, so a rejected run costs no scanning work.
 func authGate(ctx context.Context, opt Options) error {
 	_, err := auth.Validate(ctx, opt.APIKey, opt.APIURL)
 	return err
@@ -193,7 +190,7 @@ func parse(p provider.Provider, tree provider.FileTree, spec provider.FileSpec, 
 }
 
 // index builds the shared cross-file Index by running the provider's indexers
-// in order. Indexers own all cross-file/non-Java parsing (DESIGN §7).
+// in order. Indexers own all cross-file/non-Java parsing.
 func index(root string, tree provider.FileTree, p provider.Provider, parsed map[string]provider.ParsedFile, opt Options) (*provider.Index, *provider.IndexContext, error) {
 	idx := &provider.Index{SchemaDepth: opt.SchemaDepth}
 	ic := &provider.IndexContext{
@@ -243,16 +240,16 @@ func sortedKeys(m map[string]provider.ParsedFile) []string {
 // shared DTOs and constants. Only types are read from them — detectors never see
 // these files. Three repo layouts qualify a sibling:
 //
-//   - Maven reactor module (IMPROVEMENTS #6): ../pom.xml lists the service under
+//   - Maven reactor module: ../pom.xml lists the service under
 //     <modules> — every sibling module is shared;
-//   - Maven GAV-matched library (IMPROVEMENTS #25): no aggregator pom — the
+//   - Maven GAV-matched library: no aggregator pom — the
 //     sibling is a standalone project whose groupId:artifactId the service's own
 //     pom declares as a <dependency>;
-//   - Gradle project dependency (IMPROVEMENTS #29): ../settings.gradle includes
+//   - Gradle project dependency: ../settings.gradle includes
 //     the service, and the service's build.gradle depends on `project(':x')`.
 //
 // A qualifying Maven sibling that is ITSELF an aggregator (a nested module tree
-// like common-lib/common-kafka, IMPROVEMENTS #27) is expanded one level into its
+// like common-lib/common-kafka) is expanded one level into its
 // listed <modules>. Returns nil when no layout applies.
 func collectSharedModules(root string, p provider.Provider) map[string]provider.ParsedFile {
 	javaParser, ok := p.Parsers()[provider.KindJava]
@@ -347,11 +344,10 @@ func sharedSourceDirs(reactor bool, deps []mavenGAV, modDir, pomPath string) []s
 // dependency references in a build.gradle(.kts).
 var gradleProjectDepRe = regexp.MustCompile(`project\(\s*['"]:?([^'")]+)['"]\s*\)`)
 
-// gradleSharedDirs lists sibling module dirs a Gradle service depends on
-// (IMPROVEMENTS #29): ../settings.gradle(.kts) must include the service, and
-// each `project(':x')` reference in the service's build.gradle(.kts) names a
-// shared module (`:a:b` maps to the a/b directory). Text-parse only — Gradle is
-// never executed.
+// gradleSharedDirs lists sibling module dirs a Gradle service depends on:
+// ../settings.gradle(.kts) must include the service, and each `project(':x')`
+// reference in the service's build.gradle(.kts) names a shared module (`:a:b`
+// maps to the a/b directory). Text-parse only — Gradle is never executed.
 func gradleSharedDirs(root string) []string {
 	parentDir := filepath.Dir(root)
 	settings := readFirst(parentDir, "settings.gradle", "settings.gradle.kts")
@@ -392,7 +388,7 @@ func readFirst(dir string, names ...string) []byte {
 }
 
 // isReactorModule reports whether the service is listed as a <module> of an
-// aggregator pom one directory up (the IMPROVEMENTS #6 layout).
+// aggregator pom one directory up (the multi-module reactor layout).
 func isReactorModule(root string) bool {
 	parentPom, err := os.ReadFile(filepath.Join(root, "..", "pom.xml"))
 	return err == nil && strings.Contains(string(parentPom), "<modules>") &&
@@ -494,13 +490,9 @@ func collectConfigDeps(idx *provider.Index, svc *model.Service) {
 	}
 }
 
-// schemaPass attaches request/response and topic schemas after endpoints and
-// edges exist. Lands with the schema ladder.
-func schemaPass(idx *provider.Index, svc *model.Service) error { return nil }
-
 // submitGraph POSTs the full graph to the ingest API with the key, where the
-// backend re-validates it (the robust gate). Skipped when --dry-run is set or no
-// submit URL is configured. submit.Submit is a stub until PR 24.
+// backend re-validates it (the robust gate). Skipped when --dry-run is set or
+// no submit URL is configured — the default local run submits nothing.
 func submitGraph(ctx context.Context, opt Options, svc *model.Service) error {
 	if opt.DryRun || opt.APIURL == "" {
 		return nil

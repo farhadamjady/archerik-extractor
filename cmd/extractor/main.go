@@ -1,7 +1,9 @@
-// Command extractor is the service-discovery CLI: it scans a single service repo
-// and emits its architecture graph as JSON (see docs/DESIGN.md). The tool is
-// paid — a run requires a valid API key (resolved here, validated fail-closed
-// before any scan).
+// Command extractor is the service-discovery CLI: it scans a single service
+// repo and emits its architecture graph as JSON.
+//
+// Extraction is free and offline — no key, no network. Pointing the run at a
+// control-plane backend (--api-url) submits the graph, and that path requires
+// an API key: resolved here, validated fail-closed before any scan.
 package main
 
 import (
@@ -30,14 +32,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	var (
 		root        = fs.String("root", ".", "repository root to scan")
 		repository  = fs.String("repository", "", "repository identifier emitted as service.repository (e.g. github.com/owner/repo); auto-detected from CI env / git remote")
-		apiKey      = fs.String("api-key", "", "API key (overrides EKG_API_KEY and config file)")
-		configFile  = fs.String("config", "", "path to config file")
+		apiKey      = fs.String("api-key", "", "API key for --api-url runs (overrides EKG_API_KEY and config file); not needed locally")
+		configFile  = fs.String("config", "", "path to a config file holding the API key (api_key = <value>)")
 		profiles    = fs.String("profiles", "", "comma-separated active Spring profiles")
 		environment = fs.String("environment", "", "deploy overlay to resolve (e.g. staging)")
 		configRepo  = fs.String("config-repo", "", "local checkout of the Spring Cloud Config repo (its yml/properties feed resolution)")
 		schemaDepth = fs.Int("schema-depth", 2, "nested-DTO schema walk depth before truncation")
 		out         = fs.String("out", "-", "output path for the JSON, or - for stdout")
-		apiURL      = fs.String("api-url", "", "backend base URL for key validation + submit; empty runs local/dev")
+		apiURL      = fs.String("api-url", "", "control-plane base URL for key validation + submit; empty runs fully local")
 		dryRun      = fs.Bool("dry-run", false, "produce JSON but do not submit")
 		branch      = fs.String("branch", "", "branch being scanned (auto-detected from CI env)")
 		sha         = fs.String("sha", "", "commit sha (auto-detected from CI env)")
@@ -52,8 +54,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	// Key precedence: --api-key > EKG_API_KEY > config file. Never logged. An
-	// empty result is not an error here — the auth gate reports the missing key
-	// (exit 10) so the message lives in one place.
+	// empty result is not an error here — a local run needs no key at all, and
+	// when one IS required the auth gate reports it (exit 10), so the message
+	// lives in one place.
 	key, err := resolveKey(*apiKey, os.Getenv("EKG_API_KEY"), *configFile)
 	if err != nil {
 		fmt.Fprintln(stderr, "extractor:", err)
@@ -82,7 +85,6 @@ func runScanRepo(a scanRepoArgs, key string, stdout, stderr io.Writer) int {
 		Root:        a.root,
 		Repository:  resolveRepository(a.repository, a.root),
 		APIKey:      key,
-		ConfigFile:  a.configFile,
 		Profiles:    splitCSV(a.profiles),
 		Environment: a.environment,
 		ConfigRepo:  a.configRepo,
@@ -113,8 +115,8 @@ func runScanRepo(a scanRepoArgs, key string, stdout, stderr io.Writer) int {
 }
 
 // resolveKey applies key precedence. The config-file lookup is intentionally
-// tiny (a single `api_key = <value>` / `api_key: <value>` line) — the full
-// config file is parsed by the config indexer in PR 8; this only needs the key.
+// tiny (a single `api_key = <value>` / `api_key: <value>` line) — the service's
+// own config is parsed later by the config indexer; this only needs the key.
 func resolveKey(flagKey, envKey, configFile string) (string, error) {
 	if flagKey != "" {
 		return flagKey, nil

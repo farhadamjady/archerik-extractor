@@ -1,7 +1,12 @@
-// Package auth is the startup entitlement gate. The tool is paid: a run resolves
-// a per-user API key and validates it BEFORE any scanning, fail-closed. The
-// robust gate is server-side at submit (a local check is bypassable); this is
-// the fail-fast UX + soft deterrent.
+// Package auth is the startup entitlement gate for runs that talk to a
+// control-plane backend.
+//
+// Extraction itself is free and offline: with no backend URL configured the
+// gate is a no-op and no key is needed. A run that targets a backend
+// (--api-url) resolves a per-user API key and validates it BEFORE any
+// scanning, fail-closed, so a rejected key costs nothing. That startup check
+// is fail-fast UX only — it is bypassable in a local build, and the real
+// enforcement is the server-side re-validation at submit.
 package auth
 
 import (
@@ -26,17 +31,19 @@ type Entitlement struct {
 	ExpiresAt      time.Time `json:"expires_at"`
 }
 
-// Validate checks the key before scanning. An empty key fails fast (exit 10). If
-// no backend URL is configured the gate is presence-only (dev; the robust check
-// is server-side at submit). With a URL, it calls the validation API and is
-// FAIL-CLOSED: an unreachable server refuses the run rather than proceeding.
+// Validate gates a run before anything is scanned.
+//
+// No backend URL: local extraction, no key required, nothing sent anywhere.
+// With a URL: an empty key fails fast (exit 10) and a present key is checked
+// against the validation API, FAIL-CLOSED — an unreachable server refuses the
+// run rather than proceeding to scan and submit.
 func Validate(ctx context.Context, key, baseURL string) (*Entitlement, error) {
+	if strings.TrimSpace(baseURL) == "" {
+		return &Entitlement{Plan: "local"}, nil
+	}
 	if strings.TrimSpace(key) == "" {
 		return nil, exitcode.Errorf(exitcode.AuthMissingKey,
-			"no API key: set --api-key, the EKG_API_KEY env var, or a config file")
-	}
-	if strings.TrimSpace(baseURL) == "" {
-		return &Entitlement{Plan: "unvalidated"}, nil
+			"no API key for --api-url: set --api-key, the EKG_API_KEY env var, or a config file")
 	}
 	return validateHTTP(ctx, key, strings.TrimRight(baseURL, "/")+validatePath)
 }

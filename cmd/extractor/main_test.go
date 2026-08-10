@@ -31,7 +31,7 @@ func TestRunEmptyJSON(t *testing.T) {
 	root := springRepo(t)
 	var stdout, stderr bytes.Buffer
 
-	code := run([]string{"--root", root, "--api-key", "k", "--dry-run"}, &stdout, &stderr)
+	code := run([]string{"--root", root, "--dry-run"}, &stdout, &stderr)
 	if code != int(exitcode.OK) {
 		t.Fatalf("exit = %d, want 0; stderr: %s", code, stderr.String())
 	}
@@ -45,8 +45,9 @@ func TestRunEmptyJSON(t *testing.T) {
 	}
 }
 
-// TestExitCodes pins the taxonomy at the CLI boundary: missing key -> 10 (before
-// any scan), unrecognized repo -> 2.
+// TestExitCodes pins the taxonomy at the CLI boundary: a local scan needs no
+// key, a backend-targeting scan without one exits 10 before any scan, and an
+// unrecognized repo exits 2.
 func TestExitCodes(t *testing.T) {
 	spring := springRepo(t)
 
@@ -59,8 +60,9 @@ func TestExitCodes(t *testing.T) {
 		env  string // EKG_API_KEY
 		want exitcode.Code
 	}{
-		{"missing key", []string{"--root", spring, "--dry-run"}, "", exitcode.AuthMissingKey},
-		{"no provider", []string{"--root", nonSpring, "--api-key", "k", "--dry-run"}, "", exitcode.Detect},
+		{"local run needs no key", []string{"--root", spring, "--dry-run"}, "", exitcode.OK},
+		{"missing key for backend", []string{"--root", spring, "--api-url", "https://api.example.com"}, "", exitcode.AuthMissingKey},
+		{"no provider", []string{"--root", nonSpring, "--dry-run"}, "", exitcode.Detect},
 		{"env key ok", []string{"--root", spring, "--dry-run"}, "env-key", exitcode.OK},
 	}
 	for _, c := range cases {
@@ -74,8 +76,8 @@ func TestExitCodes(t *testing.T) {
 	}
 }
 
-// TestKeyNeverLeaks guards the masking invariant (PLAN §B.3 / PR 24 audit): the
-// resolved key value must appear in NEITHER stdout nor stderr on a normal run.
+// TestKeyNeverLeaks guards the masking invariant: the resolved key value must
+// appear in NEITHER stdout nor stderr on a normal run.
 func TestKeyNeverLeaks(t *testing.T) {
 	root := springRepo(t)
 	const secret = "super-secret-key-DO-NOT-PRINT"
@@ -128,7 +130,7 @@ func write(t *testing.T, root, rel, content string) {
 	}
 }
 
-// TestCIMetaFromGitHubEnv (B4): PR event env -> branch/sha/pr/default-branch.
+// TestCIMetaFromGitHubEnv: PR event env -> branch/sha/pr/default-branch.
 func TestCIMetaFromGitHubEnv(t *testing.T) {
 	t.Setenv("GITHUB_SHA", "abc123")
 	t.Setenv("GITHUB_HEAD_REF", "feature/add-payment")

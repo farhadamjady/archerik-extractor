@@ -12,8 +12,8 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/model"
 )
 
-// testKey satisfies the presence-only auth gate so pipeline tests can run
-// without real validation (auth is a stub until PR 23).
+// testKey is the key pipeline tests pass when they exercise a control-plane
+// path; local scans need none.
 const testKey = "test-key"
 
 // springRepo lays out a minimal Spring Boot service the detector recognizes.
@@ -91,13 +91,28 @@ func TestRunFailsLoudOnNoProvider(t *testing.T) {
 	}
 }
 
-// TestRunRequiresKey pins the fail-closed auth gate: no key means nothing runs.
-// The error must carry exit 10 AND fire before detection (a Spring repo with no
-// key still fails with the auth code, not by scanning).
-func TestRunRequiresKey(t *testing.T) {
+// TestRunLocalNeedsNoKey pins the open-core contract at the pipeline boundary:
+// with no control plane configured, a scan runs keyless and produces a graph.
+func TestRunLocalNeedsNoKey(t *testing.T) {
 	root := springRepo(t)
 
-	_, err := Run(context.Background(), Options{Root: root}) // no APIKey
+	svc, err := Run(context.Background(), Options{Root: root}) // no APIKey, no APIURL
+	if err != nil {
+		t.Fatalf("local run: %v", err)
+	}
+	if svc == nil {
+		t.Fatal("expected a graph from a keyless local run")
+	}
+}
+
+// TestRunRequiresKeyForBackend pins the fail-closed auth gate: targeting a
+// control plane with no key means nothing runs. The error must carry exit 10
+// AND fire before detection (a Spring repo still fails with the auth code
+// rather than by scanning).
+func TestRunRequiresKeyForBackend(t *testing.T) {
+	root := springRepo(t)
+
+	_, err := Run(context.Background(), Options{Root: root, APIURL: "https://api.example.com"})
 	if err == nil {
 		t.Fatal("expected missing-key error, got nil")
 	}
@@ -117,8 +132,8 @@ func write(t *testing.T, root, rel, content string) {
 	}
 }
 
-// TestSharedModuleTypes (IMPROVEMENTS #6): the Kafka payload DTO lives in a
-// SIBLING Maven module; the schema must still resolve (types only).
+// TestSharedModuleTypes: the Kafka payload DTO lives in a SIBLING Maven
+// module; the schema must still resolve (types only).
 func TestSharedModuleTypes(t *testing.T) {
 	repo := t.TempDir()
 	// parent pom listing both modules
@@ -149,10 +164,10 @@ func TestSharedModuleTypes(t *testing.T) {
 	}
 }
 
-// TestSharedLibraryByGAV (IMPROVEMENTS #25): no aggregator pom — the shared lib
-// is a standalone sibling project the service consumes as a versioned Maven
-// dependency (published artifact). Its types must still feed the schema pass; a
-// sibling the service does NOT depend on must stay invisible.
+// TestSharedLibraryByGAV: no aggregator pom — the shared lib is a standalone
+// sibling project the service consumes as a versioned Maven dependency
+// (published artifact). Its types must still feed the schema pass; a sibling
+// the service does NOT depend on must stay invisible.
 func TestSharedLibraryByGAV(t *testing.T) {
 	repo := t.TempDir()
 	// the shared lib: own GAV, no reactor
@@ -204,9 +219,9 @@ func TestSharedLibraryByGAV(t *testing.T) {
 	}
 }
 
-// TestOpenAPIIngestion (IMPROVEMENTS #1): when the build generates controllers
-// from openapi.yml (openapi-generator in pom.xml), spec endpoints are ingested
-// at likely; without the generator plugin, the spec is ignored (docs drift).
+// TestOpenAPIIngestion: when the build generates controllers from openapi.yml
+// (openapi-generator in pom.xml), spec endpoints are ingested at likely;
+// without the generator plugin, the spec is ignored (docs drift).
 func TestOpenAPIIngestion(t *testing.T) {
 	spec := "openapi: 3.0.1\npaths:\n  /owners:\n    get:\n      responses:\n        \"200\":\n          description: ok\n"
 
@@ -241,9 +256,8 @@ func TestOpenAPIIngestion(t *testing.T) {
 	}
 }
 
-// TestRepoRootDeployConfig (IMPROVEMENTS #9): a monorepo keeps its k8s config
-// at the repo top; a service scanned from a subfolder still resolves env vars
-// through it.
+// TestRepoRootDeployConfig: a monorepo keeps its k8s config at the repo top; a
+// service scanned from a subfolder still resolves env vars through it.
 func TestRepoRootDeployConfig(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
@@ -270,8 +284,8 @@ func TestRepoRootDeployConfig(t *testing.T) {
 	}
 }
 
-// TestConfigRepo (IMPROVEMENTS #16): a value that lives only in the external
-// Spring Cloud Config repo resolves when --config-repo points at its checkout.
+// TestConfigRepo: a value that lives only in the external Spring Cloud Config
+// repo resolves when --config-repo points at its checkout.
 func TestConfigRepo(t *testing.T) {
 	cfgRepo := t.TempDir()
 	write(t, cfgRepo, "orders-service.yml", "payment:\n  url: http://payment:8080\n")
@@ -294,8 +308,8 @@ func TestConfigRepo(t *testing.T) {
 	}
 }
 
-// TestNestedAggregatorSharedModule (IMPROVEMENTS #27): the shared lib listed in
-// the reactor is ITSELF an aggregator — sources live one level down
+// TestNestedAggregatorSharedModule: the shared lib listed in the reactor is
+// ITSELF an aggregator — sources live one level down
 // (common-lib/common-kafka/src/...). The walk must expand its <modules>.
 func TestNestedAggregatorSharedModule(t *testing.T) {
 	repo := t.TempDir()
@@ -323,9 +337,9 @@ func TestNestedAggregatorSharedModule(t *testing.T) {
 	}
 }
 
-// TestGradleSharedModule (IMPROVEMENTS #29): a Gradle repo — no pom anywhere.
-// settings.gradle includes the service; its build.gradle depends on
-// project(':shared-lib'), whose types must feed the schema pass.
+// TestGradleSharedModule: a Gradle repo — no pom anywhere. settings.gradle
+// includes the service; its build.gradle depends on project(':shared-lib'),
+// whose types must feed the schema pass.
 func TestGradleSharedModule(t *testing.T) {
 	repo := t.TempDir()
 	write(t, repo, "settings.gradle", "include \"shared-lib\"\ninclude \"order-service\"\n")
@@ -384,8 +398,8 @@ func TestSharedSiblingServiceNoValueLeak(t *testing.T) {
 	}
 }
 
-// TestOutboxConnectorProducer (IMPROVEMENTS #28, end to end): the Debezium
-// connector JSON sits at the repo root; the service only writes OutBox rows.
+// TestOutboxConnectorProducer (end to end): the Debezium connector JSON sits
+// at the repo root; the service only writes OutBox rows.
 func TestOutboxConnectorProducer(t *testing.T) {
 	repo := t.TempDir()
 	write(t, repo, "outbox_order_connector.json",

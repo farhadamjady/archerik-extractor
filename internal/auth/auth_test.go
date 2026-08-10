@@ -9,18 +9,33 @@ import (
 	"github.com/farhadamjady/service-discovery/internal/exitcode"
 )
 
-func TestValidateMissingKey(t *testing.T) {
+// TestValidateMissingKeyWithBackend: targeting a backend without a key is the
+// one missing-key failure — it fails before the request is built.
+func TestValidateMissingKeyWithBackend(t *testing.T) {
 	_, err := Validate(context.Background(), "", "https://api.example.com")
 	if exitcode.Of(err) != int(exitcode.AuthMissingKey) {
 		t.Errorf("empty key exit = %d, want %d", exitcode.Of(err), exitcode.AuthMissingKey)
 	}
 }
 
-func TestValidateNoURLPresenceOnly(t *testing.T) {
-	// No backend configured: any non-empty key is accepted (dev).
+// TestValidateLocalNeedsNoKey pins the open-core contract: extraction with no
+// backend URL runs keyless. Breaking this makes the tool unusable offline.
+func TestValidateLocalNeedsNoKey(t *testing.T) {
+	ent, err := Validate(context.Background(), "", "")
+	if err != nil {
+		t.Fatalf("local run with no key: %v", err)
+	}
+	if ent == nil || ent.Plan != "local" {
+		t.Errorf("entitlement = %+v, want plan=local", ent)
+	}
+}
+
+// TestValidateLocalIgnoresKey: a key set in the environment must not turn a
+// local run into a network call.
+func TestValidateLocalIgnoresKey(t *testing.T) {
 	ent, err := Validate(context.Background(), "some-key", "")
 	if err != nil || ent == nil {
-		t.Fatalf("presence-only = (%+v, %v), want ok", ent, err)
+		t.Fatalf("local run = (%+v, %v), want ok", ent, err)
 	}
 }
 
