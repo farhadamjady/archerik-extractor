@@ -1,0 +1,38 @@
+name: Coverage gap
+description: A pattern the extractor does not recognize yet (new framework, idiom, or client)
+labels: [coverage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this when the extractor isn't *wrong* so much as **blind** — an idiom
+        it doesn't know about yet. Real-world examples are worth far more than
+        hypothetical ones.
+
+  - type: textarea
+    id: pattern
+    attributes:
+      label: The pattern
+      description: The code idiom that should produce an edge, endpoint, or schema.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: prevalence
+    attributes:
+      label: Where does this appear?
+      description: A public repo using it, or how common it is in your codebase.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should be emitted
+      description: |
+        Which edge, with what `protocol` / `detection` / `confidence`? If the
+        target can only be resolved at runtime, say so — `uncertain` is a valid
+        expected answer.
+    validations:
+      required: true

@@ -1,0 +1,67 @@
+name: Bug report
+description: Something the extractor got wrong — a missed edge, a wrong edge, or a crash
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The most useful bug reports include the **source
+        snippet** that was misread and the **JSON** the extractor produced for it.
+
+  - type: dropdown
+    id: stack
+    attributes:
+      label: Stack
+      options:
+        - Spring Boot (Java)
+        - Spring Boot (Kotlin)
+        - Micronaut
+        - Quarkus
+        - NestJS
+        - Express
+        - ASP.NET Core
+        - Go net/http
+        - Not stack-specific / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: snippet
+    attributes:
+      label: Source that reproduces it
+      description: The smallest controller/client/config that shows the problem.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What the extractor emitted
+      description: The relevant slice of the output JSON.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: Output of `git rev-parse --short HEAD`, or the release tag.
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: Go version and OS
+      placeholder: "go1.26.4, macOS 15 arm64"
+    validations:
+      required: true

@@ -1,5 +1,6 @@
 # Compiled binary / build output
 /extractor
+/ekgd
 /bin/
 /dist/
 *.exe
@@ -8,13 +9,23 @@
 
 # Go
 vendor/
+coverage.txt
 
-# IDE
+# IDE / editor
 .idea/
+.vscode/
 *.iml
+*.swp
+
+# Local agent + tool state
+.claude/
 
 # OS
 .DS_Store
+Thumbs.db
 
-# Internal planning docs — kept locally, not published
+# Internal working docs — kept locally, not published
 /docs/
+/IMPROVEMENTS.md
+/GUIDELINE.md
+/CLAUDE.md
