@@ -6,9 +6,10 @@
   <img alt="Archerik" src="assets/archerik-banner-light.svg" width="400">
 </picture>
 
-**Read a service's repository, get its architecture as JSON.**
+**Your architecture diagram, generated from the code that actually runs —
+every endpoint, dependency, Kafka topic, and schema, on every commit.**
 
-[![CI](https://github.com/farhadamjady/service-discovery/actions/workflows/ci.yml/badge.svg)](https://github.com/farhadamjady/service-discovery/actions/workflows/ci.yml)
+[![CI](https://github.com/farhadamjady/archerik-extractor/actions/workflows/ci.yml/badge.svg)](https://github.com/farhadamjady/archerik-extractor/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/go-1.26%2B-00B3CB?logo=go&logoColor=white)](https://go.dev)
 [![License](https://img.shields.io/badge/license-MIT-008598)](LICENSE)
 [![Stacks](https://img.shields.io/badge/stacks-8-005865)](#supported-stacks)
@@ -17,79 +18,50 @@
 
 ---
 
-Archerik maps what a service actually talks to. It reads the REST endpoints the
-service exposes, the services it calls, the Kafka topics it produces and
-consumes, and the declared request/response and message schemas behind them.
+Every engineering org has the same problem: nobody can say with confidence what
+talks to what. The wiki diagram was accurate the week it was drawn. The only
+artifact that tells the truth is the source code — and reading it by hand across
+a few hundred services is not a plan.
 
-Static analysis only — no LLM, no code execution, no network. Point it at a
-checkout and it prints a graph:
+Archerik reads it for you. Point the extractor at a service repository and it
+produces a complete, machine-readable map of how that service participates in
+your system:
 
-```sh
-extractor --root ./order-service
-```
+- **REST endpoints it exposes** — full composed paths, HTTP verbs, path
+  variables preserved.
+- **Services it calls** — Feign, RestTemplate, WebClient, axios, `HttpClient`,
+  Refit and more, with the target URL resolved through the service's real
+  configuration.
+- **Kafka topics it produces and consumes**, with the topic name resolved
+  rather than left as `${orders.topic}`.
+- **The declared schemas** behind each endpoint and message, walked from the
+  source DTOs and contract files.
 
-```json
-{
-  "service_id": "order-service",
-  "service_name": "order-service",
-  "repository": "github.com/acme/order-service",
-  "language": "Java",
-  "endpoints": [
-    { "method": "GET",  "path": "/api/orders/{id}", "response": { "type": "Order", "…": "…" },
-      "protocol": "rest", "detection": "annotation", "confidence": "confirmed" },
-    { "method": "POST", "path": "/api/orders",      "request":  { "type": "Order", "…": "…" },
-      "protocol": "rest", "detection": "annotation", "confidence": "confirmed" }
-  ],
-  "outbound_dependencies": [
-    { "target_name": "payment-service", "url": "http://payment-service:8080",
-      "protocol": "rest", "detection": "feign", "confidence": "likely",
-      "resolved": true, "resolved_via": "application.yml" }
-  ],
-  "kafka_producers": [
-    { "topic": "orders.v1", "resolved": true, "schema": { "type": "Order", "…": "…" },
-      "protocol": "kafka", "detection": "kafka", "confidence": "likely",
-      "resolved_via": "application.yml" }
-  ],
-  "kafka_consumers": [ "…" ],
-  "config_dependencies": [
-    { "key": "orders.topic", "value": "orders.v1", "resolved": true,
-      "confidence": "likely", "resolved_via": "application.yml" }
-  ]
-}
-```
+The hard part is not finding `@RestController` — it is that URLs and topic names
+are almost never literals. Archerik resolves placeholders through a layered
+config source (application config and active profiles → Helm `values*.yaml`
+traced through chart template `env:` blocks → rendered Kubernetes ConfigMap and
+Deployment env → `.env` files), unified by relaxed binding so
+`payment.service.url` and `PAYMENT_SERVICE_URL` are the same key. Every edge
+reports how confident it is and which file supplied the value — and an edge that
+cannot be resolved is emitted honestly rather than dropped or guessed.
 
-Note what happened in that example: the Feign client was declared as
-`url = "${payment.service.url}"` and the Kafka topic came from a
-`@Value("${orders.topic}")` field. Neither is a literal in the source. Both were
-resolved through the service's config, and each edge says so — `likely`, not
-`confirmed`, with the file that supplied the value.
+Wire it into CI and the map maintains itself, commit by commit, with no one
+assigned to keep it up to date.
 
-Run it in CI on every commit and you have a per-commit architecture graph for
-every service in the fleet.
+## The Archerik platform
 
-## Why this is harder than grepping for annotations
+Archerik is three components. This repository is the first one; it is useful on
+its own, and the other two turn per-service output into a fleet-wide graph.
 
-Finding `@RestController` is easy. The reason a naive scan produces a graph
-nobody trusts is that **targets are almost never hardcoded**:
+| Component | Repository | Role | Depends on |
+|---|---|---|---|
+| **Extractor** | [`archerik-extractor`](https://github.com/farhadamjady/archerik-extractor) *(this repo)* | Scans one service repository and emits its architecture as JSON. Runs locally or in CI. | — |
+| **API** | [`archerik-api`](https://github.com/farhadamjady/archerik-api) | Ingests graphs from the extractor, stores them, derives inbound edges across services, and diffs each commit against the last. | Extractor output |
+| **UI** | [`archerik-ui`](https://github.com/farhadamjady/archerik-ui) | Explores the fleet graph — services, dependencies, topics, and schemas — and visualizes what changed. | API |
 
-- **Config indirection.** URLs and topics hide behind placeholders. The
-  extractor resolves them through a layered config source — application
-  config (with active profiles) → Helm `values*.yaml` traced through chart
-  template `env:` blocks → rendered Kubernetes ConfigMap/Deployment env →
-  `.env` files — unified by relaxed binding, so `payment.service.url` and
-  `PAYMENT_SERVICE_URL` are the same key. Deployment config is read
-  **statically as text**; `helm` and `kustomize` are never executed.
-- **Path composition.** An endpoint path is the class-level mapping plus the
-  method-level one. Method paths are never emitted in isolation, and path
-  variables are preserved.
-- **Values that are computed.** String concatenation, builders, and variables
-  are followed where they can be followed (constants, `@Value` fields,
-  reaching definitions, call-site unions) — and where they can't, the edge is
-  still emitted, marked `uncertain`.
-
-That last point is the design rule the whole project bends around: **an edge we
-cannot resolve is emitted honestly rather than dropped or guessed.** A graph
-that quietly omits what it couldn't figure out is worse than one that admits it.
+The extractor never talks to the UI directly. It produces JSON; the API is the
+only thing that consumes it, and the UI reads everything through the API.
 
 ## Supported stacks
 
@@ -104,17 +76,6 @@ that quietly omits what it couldn't figure out is worse than one that admits it.
 | C# | ASP.NET Core | ✅ attribute routing + Minimal APIs | ✅ `HttpClient` · Refit | ✅ Confluent.Kafka |
 | Go | `net/http` (no framework) | ✅ incl. Go 1.22 method patterns | ✅ std-lib client | ✅ kafka-go · sarama · confluent |
 
-Request/response and message **schemas** are attached wherever the declared
-types resolve — walked from the source DTOs, two levels deep by default
-(`--schema-depth`), with containers unwrapped (`List<User>` → array of `User`,
-`Optional<String>` → nullable string, `Page<Invoice>` → `Invoice`). For Kafka,
-contract files in the repo (`.avsc`, `.proto`, JSON Schema) win over in-code
-types when both exist.
-
-Each language has its own tree-sitter parsing layer and each framework is a
-provider on top of it, so adding a framework to an existing language is one
-package and one registry line. See [CONTRIBUTING.md](CONTRIBUTING.md).
-
 ## Install
 
 Requires **Go 1.26+ and a C toolchain** — the tree-sitter grammars are C, so
@@ -127,8 +88,8 @@ go install github.com/farhadamjady/service-discovery/cmd/extractor@latest
 Or from a checkout:
 
 ```sh
-git clone https://github.com/farhadamjady/service-discovery
-cd service-discovery
+git clone https://github.com/farhadamjady/archerik-extractor
+cd archerik-extractor
 go build -o extractor ./cmd/extractor
 ```
 
@@ -166,69 +127,6 @@ standard layout.
 | `--branch`, `--sha`, `--pr` | auto | Commit metadata; auto-detected on GitHub Actions |
 | `--comment-out` | | Write the backend's PR-comment markdown to this file |
 
-### Exit codes
-
-| Code | Meaning |
-|---|---|
-| `0` | Success |
-| `1` | Runtime error (parse, IO, usage) |
-| `2` | Detection failed — no provider matched the repo, or the match was ambiguous |
-| `10`–`14` | Auth: missing key · invalid · not entitled · quota exceeded · validation server unreachable |
-| `20` | Submission failed |
-
-Detection failing loudly (exit 2) is deliberate: an unrecognized repo should not
-quietly produce an empty graph that looks like a service with no dependencies.
-
-### In CI
-
-```yaml
-- uses: actions/setup-go@v5
-  with: { go-version: '1.26' }
-- run: go install github.com/farhadamjady/service-discovery/cmd/extractor@latest
-- run: extractor --root . --out architecture.json
-- uses: actions/upload-artifact@v4
-  with: { name: architecture, path: architecture.json }
-```
-
-Every commit runs a **full scan of the service**, not a scan of the changed
-files — a commit's architectural impact is not confined to its diff (a config
-edit ripples into edges in files it never touched, and deletions have to remove
-nodes). The output is **byte-stable**: identical input always produces identical
-bytes, so a consumer can diff commit-to-commit reliably.
-
-## Output contract
-
-One JSON object per service, with these top-level fields: `service_id`,
-`service_name`, `repository`, `language`, `endpoints`,
-`outbound_dependencies`, `kafka_producers`, `kafka_consumers`,
-`databases_used`, `config_dependencies`.
-
-Every communication edge carries three **orthogonal** fields, so the graph is
-queryable along any of them:
-
-- **`protocol`** — what it is: `rest` · `kafka` · `grpc` · `websocket` · `unknown`.
-  Feign, RestTemplate, and WebClient are three detections of *one* protocol.
-- **`detection`** — how it was found: `annotation`, `feign`, `resttemplate`,
-  `webclient`, `httpexchange`, `cloudstream`, `router`, `micronaut-client`,
-  `mp-rest-client`, `jaxrs-client`, `reactive-messaging`, `kafka`, `axios`,
-  `fetch`, `http-client`, `dotnet-httpclient`, `refit`, `openapi`, `config`,
-  `adapter`.
-- **`confidence`** — how sure we are: `confirmed` (a literal value) ·
-  `likely` (resolved through one config indirection) · `uncertain` (dynamic or
-  unresolvable — still emitted, never dropped).
-
-Two deliberate omissions:
-
-- **`inbound_dependencies` is never emitted.** Inbound edges are derived by
-  whoever aggregates the graphs, from everyone else's outbound edges. A service
-  cannot know who calls it.
-- **Logical names are emitted raw.** `@FeignClient(name="payment-service")` is a
-  logical name, not a service ID. Mapping names to identities is the
-  aggregator's job — the extractor does not guess it.
-
-Identity keys are stable by design: an endpoint is `verb + path`, a dependency
-is `target + detection`, a Kafka edge is `topic + direction`.
-
 ## Sending results somewhere
 
 Extraction is free, local, and offline — everything above needs no key and no
@@ -249,17 +147,6 @@ and the server re-validates at submit. Key precedence is `--api-key` >
 contract — enough to run the whole loop locally, and a starting point if you
 want to build your own. Hosting one is optional; the extractor is fully useful
 without it.
-
-## Scope
-
-Deliberately **not** in the extractor, by design rather than omission: any LLM
-inference, executing or building the scanned code, rendering Helm/Kustomize
-templates, and uploading source code (only the derived JSON ever leaves).
-
-Not implemented yet: database detection (JPA/JDBC — the field is present but
-empty), gRPC, OpenAPI as a primary source (it is read only when the build
-*generates* controllers from a spec), full Kubernetes topology, and runtime
-config sources such as Spring Cloud Config Server or secret managers.
 
 ## Contributing
 

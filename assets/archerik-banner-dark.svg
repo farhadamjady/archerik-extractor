@@ -7,6 +7,6 @@
     <circle cx="34" cy="32" r="9.5" fill="#9FE5F1"/>
     <path d="M44 32 L58 32" stroke="#35C6DB" stroke-width="2.8" stroke-linecap="round"/>
   </g>
-  <text x="150" y="72" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="52" font-weight="650" letter-spacing="-0.5" fill="#9FE5F1">Archerik</text>
-  <text x="152" y="100" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" letter-spacing="2.6" fill="#35C6DB">SERVICE DISCOVERY</text>
+  <text x="128" y="72" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="52" font-weight="650" letter-spacing="-0.5" fill="#9FE5F1">Archerik</text>
+  <text x="130" y="100" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" letter-spacing="2.6" fill="#35C6DB">SERVICE DISCOVERY</text>
 </svg>
