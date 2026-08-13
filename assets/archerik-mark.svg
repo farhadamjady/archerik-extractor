@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="512" height="512" fill="none">
+  <path d="M32 6 L32 58" stroke="oklch(0.42 0.08 210)" stroke-width="2"></path>
+  <path d="M32 6 A26 26 0 0 1 32 58" stroke="oklch(0.56 0.11 210)" stroke-width="3" stroke-linecap="round"></path>
+  <path d="M28 24 A12 12 0 0 0 20 14 M28 32 A14 14 0 0 0 18 32 M28 40 A12 12 0 0 1 20 50" stroke="oklch(0.70 0.13 210)" stroke-width="2.8" stroke-linecap="round"></path>
+  <path d="M40 24 A14 14 0 0 1 52 16 M40 40 A14 14 0 0 0 52 48" stroke="oklch(0.70 0.13 210)" stroke-width="2.8" stroke-linecap="round"></path>
+  <circle cx="34" cy="32" r="9.5" fill="oklch(0.84 0.09 210)"></circle>
+  <path d="M44 32 L58 32" stroke="oklch(0.84 0.09 210)" stroke-width="2.8" stroke-linecap="round"></path>
+</svg>

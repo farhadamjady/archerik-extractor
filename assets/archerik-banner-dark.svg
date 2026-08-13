@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 132" width="400" height="132" fill="none" role="img" aria-label="Archerik">
+  <g transform="translate(28 20) scale(1.4)">
+    <path d="M32 6 L32 58" stroke="#007A8C" stroke-width="2"/>
+    <path d="M32 6 A26 26 0 0 1 32 58" stroke="#00A5BC" stroke-width="3" stroke-linecap="round"/>
+    <path d="M28 24 A12 12 0 0 0 20 14 M28 32 A14 14 0 0 0 18 32 M28 40 A12 12 0 0 1 20 50" stroke="#35C6DB" stroke-width="2.8" stroke-linecap="round"/>
+    <path d="M40 24 A14 14 0 0 1 52 16 M40 40 A14 14 0 0 0 52 48" stroke="#35C6DB" stroke-width="2.8" stroke-linecap="round"/>
+    <circle cx="34" cy="32" r="9.5" fill="#9FE5F1"/>
+    <path d="M44 32 L58 32" stroke="#35C6DB" stroke-width="2.8" stroke-linecap="round"/>
+  </g>
+  <text x="150" y="72" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="52" font-weight="650" letter-spacing="-0.5" fill="#9FE5F1">Archerik</text>
+  <text x="152" y="100" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="15" font-weight="500" letter-spacing="2.6" fill="#35C6DB">SERVICE DISCOVERY</text>
+</svg>

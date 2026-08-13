@@ -1,7 +1,24 @@
-# service-discovery
+<div align="center">
 
-**Read a service's repository, get its architecture as JSON.** The REST
-endpoints it exposes, the services it calls, the Kafka topics it produces and
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/archerik-banner-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/archerik-banner-light.svg">
+  <img alt="Archerik" src="assets/archerik-banner-light.svg" width="400">
+</picture>
+
+**Read a service's repository, get its architecture as JSON.**
+
+[![CI](https://github.com/farhadamjady/service-discovery/actions/workflows/ci.yml/badge.svg)](https://github.com/farhadamjady/service-discovery/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/badge/go-1.26%2B-00B3CB?logo=go&logoColor=white)](https://go.dev)
+[![License](https://img.shields.io/badge/license-MIT-008598)](LICENSE)
+[![Stacks](https://img.shields.io/badge/stacks-8-005865)](#supported-stacks)
+
+</div>
+
+---
+
+Archerik maps what a service actually talks to. It reads the REST endpoints the
+service exposes, the services it calls, the Kafka topics it produces and
 consumes, and the declared request/response and message schemas behind them.
 
 Static analysis only — no LLM, no code execution, no network. Point it at a
@@ -114,6 +131,9 @@ git clone https://github.com/farhadamjady/service-discovery
 cd service-discovery
 go build -o extractor ./cmd/extractor
 ```
+
+The binary is `extractor` — the scanning component of Archerik, and the only
+thing you need for everything below.
 
 ## Usage
 
@@ -251,3 +271,10 @@ must respect, and how to add a framework or a language.
 ## License
 
 [MIT](LICENSE).
+
+<div align="center">
+<br>
+<img src="assets/archerik-mark.svg" alt="" width="44">
+<br><br>
+<sub><b>Archerik</b> — static architecture intelligence, straight from the source.</sub>
+</div>

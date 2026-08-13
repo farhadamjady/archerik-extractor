@@ -1,4 +1,4 @@
-# Contributing
+# Contributing to Archerik
 
 Thanks for considering a contribution. This document is the working guide for
 the codebase — read §1 and §3 before your first change; they are what keep the
