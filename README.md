@@ -65,16 +65,16 @@ only thing that consumes it, and the UI reads everything through the API.
 
 ## Supported stacks
 
-| Language | Framework | REST endpoints | Outbound HTTP | Kafka |
-|---|---|:--:|:--:|:--:|
-| Java | Spring Boot | ✅ | ✅ Feign · RestTemplate · WebClient · `@HttpExchange` · WebMvc.fn | ✅ `KafkaTemplate` · `@KafkaListener` · Cloud Stream · reactor-kafka |
-| Java | Micronaut | ✅ | ✅ `@Client` | ✅ `@KafkaClient` / `@KafkaListener` |
-| Java | Quarkus | ✅ JAX-RS | ✅ `@RegisterRestClient` · JAX-RS client | ✅ reactive messaging |
-| Kotlin | Spring Boot | ✅ | ✅ | ✅ |
-| TypeScript | NestJS | ✅ | ✅ axios · fetch | ✅ |
-| JavaScript | Express | ✅ call-based routing | ✅ axios · fetch | — |
-| C# | ASP.NET Core | ✅ attribute routing + Minimal APIs | ✅ `HttpClient` · Refit | ✅ Confluent.Kafka |
-| Go | `net/http` (no framework) | ✅ incl. Go 1.22 method patterns | ✅ std-lib client | ✅ kafka-go · sarama · confluent |
+| Language | Framework |
+|---|---|
+| Java | Spring Boot |
+| Java | Micronaut |
+| Java | Quarkus |
+| Kotlin | Spring Boot |
+| TypeScript | NestJS |
+| JavaScript | Express |
+| C# | ASP.NET Core |
+| Go | `net/http` (no framework) |
 
 ## Install
 
