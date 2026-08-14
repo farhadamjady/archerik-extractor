@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
 )
 
 // maxItemsPerSection caps rendered lines per section, so a first scan (empty
@@ -29,7 +29,7 @@ func Markdown(d *Diff) string {
 	renderCategory(&b, "Kafka — produced topics", d.KafkaProducers, kafkaLine)
 	renderCategory(&b, "Kafka — consumed topics", d.KafkaConsumers, kafkaLine)
 
-	b.WriteString("\n<sub>service-discovery · confidence: confirmed = found literally · " +
+	b.WriteString("\n<sub>Archerik · confidence: confirmed = found literally · " +
 		"likely = resolved through config · uncertain = not statically resolvable (still real)</sub>\n")
 	return b.String()
 }

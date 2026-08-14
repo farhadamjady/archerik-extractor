@@ -18,7 +18,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	ts "github.com/smacker/go-tree-sitter/typescript/typescript"
 
-	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
 )
 
 // Parser parses TS/JS sources into a tree-sitter AST. Not concurrency-safe, so

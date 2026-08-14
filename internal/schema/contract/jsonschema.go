@@ -3,7 +3,7 @@ package contract
 import (
 	"encoding/json"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
 )
 
 // ParseJSONSchema parses a JSON Schema document. The name comes from "title".

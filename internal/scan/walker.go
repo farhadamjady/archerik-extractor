@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
 )
 
 // osFileTree implements provider.FileTree over the local filesystem.

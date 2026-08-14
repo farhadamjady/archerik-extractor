@@ -6,8 +6,8 @@
 package query
 
 import (
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
 )
 
 // Engine dispatches detector rules over parsed files. It is stateless; the

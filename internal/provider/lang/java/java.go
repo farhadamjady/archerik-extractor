@@ -14,7 +14,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	tsjava "github.com/smacker/go-tree-sitter/java"
 
-	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
 )
 
 // Parser parses Java sources into a tree-sitter AST. A parser is not safe for

@@ -1,6 +1,6 @@
 package micronaut
 
-import "github.com/farhadamjady/service-discovery/internal/provider"
+import "github.com/farhadamjady/archerik-extractor/internal/provider"
 
 // rawParser carries raw bytes for kinds whose real parsing lives in the
 // indexers (config, Kafka schema, deploy, OpenAPI). Same shape as Spring's.

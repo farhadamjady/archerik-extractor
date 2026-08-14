@@ -3,7 +3,7 @@ package spring
 import (
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
 )
 
 // buildStore runs the config indexer over a set of virtual config files and

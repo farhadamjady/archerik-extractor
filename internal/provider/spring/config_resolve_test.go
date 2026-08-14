@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
 )
 
 // store builds a resolver from flat key=value lines via a .properties file

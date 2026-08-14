@@ -3,7 +3,7 @@ package resolve
 import (
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
 )
 
 func strings(vs ValueSet) []string {

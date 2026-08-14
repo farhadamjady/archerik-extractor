@@ -3,10 +3,10 @@ package spring
 import (
 	"fmt"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/java"
-	"github.com/farhadamjady/service-discovery/internal/resolve"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/java"
+	"github.com/farhadamjady/archerik-extractor/internal/resolve"
 )
 
 // webClientDetector extracts outbound HTTP dependencies from WebClient, whose

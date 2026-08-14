@@ -3,10 +3,10 @@ package aspnet
 import (
 	"strings"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/csharp"
-	"github.com/farhadamjady/service-discovery/internal/schema"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/csharp"
+	"github.com/farhadamjady/archerik-extractor/internal/schema"
 )
 
 // minimalDetector extracts REST endpoints from ASP.NET Core Minimal APIs — the

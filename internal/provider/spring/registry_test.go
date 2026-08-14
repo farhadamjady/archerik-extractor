@@ -3,8 +3,8 @@ package spring
 import (
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/schema/registry"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/schema/registry"
 )
 
 // buildIndex runs the config indexer over virtual config files and returns the

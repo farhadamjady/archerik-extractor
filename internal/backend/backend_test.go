@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/pipeline"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/pipeline"
 )
 
 func newTestServer(t *testing.T) *httptest.Server {
@@ -44,8 +44,8 @@ func ingest(t *testing.T, srv *httptest.Server, key, branch string, body []byte)
 	req, _ := http.NewRequest("POST", srv.URL+"/v1/ingest", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+key)
 	if branch != "" {
-		req.Header.Set("X-EKG-Branch", branch)
-		req.Header.Set("X-EKG-Default-Branch", "main")
+		req.Header.Set("X-Archerik-Branch", branch)
+		req.Header.Set("X-Archerik-Default-Branch", "main")
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

@@ -4,10 +4,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/resolve"
-	"github.com/farhadamjady/service-discovery/internal/schema"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/resolve"
+	"github.com/farhadamjady/archerik-extractor/internal/schema"
 )
 
 // maxEvalDepth bounds expression recursion (defensive; deep chains and

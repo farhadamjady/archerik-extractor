@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
 )
 
 // buildLayered runs the config + deploy indexers over virtual files and returns

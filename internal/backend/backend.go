@@ -1,11 +1,11 @@
-// Package backend is the MVP control-plane server (ekgd): API-key validation
-// and result ingestion with per-commit architecture diffing — the server side
-// of the "PR impact comment" feature.
+// Package backend is a reference implementation of the Archerik API (archerikd):
+// API-key validation and result ingestion with per-commit architecture
+// diffing — the server side of the "PR impact comment" feature.
 //
-// Design (per the feature spec):
+// Design:
 //   - The extractor stays stateless; the body of /v1/ingest is EXACTLY the
 //     extractor's byte-stable Service JSON. Commit metadata travels in headers
-//     (X-EKG-Branch, X-EKG-Sha, X-EKG-PR, X-EKG-Default-Branch), so the
+//     (X-Archerik-Branch, X-Archerik-Sha, X-Archerik-PR, X-Archerik-Default-Branch), so the
 //     byte-identical fast path is a plain bytes comparison with the baseline.
 //   - One baseline per service (the default branch). A default-branch scan
 //     updates the baseline; a PR scan only diffs against it.
@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/farhadamjady/service-discovery/internal/graphdiff"
-	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/graphdiff"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
 )
 
 // Server holds the MVP state: the accepted API keys, the baseline store, and
@@ -165,8 +165,8 @@ func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	branch := r.Header.Get("X-EKG-Branch")
-	defaultBranch := r.Header.Get("X-EKG-Default-Branch")
+	branch := r.Header.Get("X-Archerik-Branch")
+	defaultBranch := r.Header.Get("X-Archerik-Default-Branch")
 	if defaultBranch == "" {
 		defaultBranch = "main"
 	}

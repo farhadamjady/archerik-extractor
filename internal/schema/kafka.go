@@ -1,6 +1,6 @@
 package schema
 
-import "github.com/farhadamjady/service-discovery/internal/model"
+import "github.com/farhadamjady/archerik-extractor/internal/model"
 
 // ResolveKafka resolves a Kafka message payload type to a schema,
 // files-first: a matching contract file (Avro/Proto/JSON Schema) wins as confirmed;

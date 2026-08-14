@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/exitcode"
+	"github.com/farhadamjady/archerik-extractor/internal/exitcode"
 )
 
 // TestAuthGateAbortsBeforeScan: a rejecting validation server stops the run at

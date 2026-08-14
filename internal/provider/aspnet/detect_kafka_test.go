@@ -3,10 +3,10 @@ package aspnet
 import (
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/csharp"
-	"github.com/farhadamjady/service-discovery/internal/query"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/csharp"
+	"github.com/farhadamjady/archerik-extractor/internal/query"
 )
 
 // kafkaFor runs the Kafka detector over one C# source with the DTO type index

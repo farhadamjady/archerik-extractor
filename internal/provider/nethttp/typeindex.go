@@ -3,8 +3,8 @@ package nethttp
 import (
 	"strings"
 
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/golang"
-	"github.com/farhadamjady/service-discovery/internal/schema"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/golang"
+	"github.com/farhadamjady/archerik-extractor/internal/schema"
 )
 
 // goTypeIndex is a schema.TypeSource over the repo's Go struct types, so the

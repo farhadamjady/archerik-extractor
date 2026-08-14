@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
 )
 
 // nestedFixture is a DTO graph exercising every nesting shape the contract must

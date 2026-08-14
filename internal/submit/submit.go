@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/farhadamjady/service-discovery/internal/exitcode"
+	"github.com/farhadamjady/archerik-extractor/internal/exitcode"
 )
 
 // ingestPath is the submission endpoint on the backend base URL for a
@@ -48,10 +48,10 @@ func post(ctx context.Context, url, key string, body []byte, meta Meta) ([]byte,
 	}
 	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("Content-Type", "application/json")
-	setIf(req, "X-EKG-Sha", meta.Sha)
-	setIf(req, "X-EKG-Branch", meta.Branch)
-	setIf(req, "X-EKG-PR", meta.PR)
-	setIf(req, "X-EKG-Default-Branch", meta.DefaultBranch)
+	setIf(req, "X-Archerik-Sha", meta.Sha)
+	setIf(req, "X-Archerik-Branch", meta.Branch)
+	setIf(req, "X-Archerik-PR", meta.PR)
+	setIf(req, "X-Archerik-Default-Branch", meta.DefaultBranch)
 
 	resp, err := client.Do(req)
 	if err != nil {

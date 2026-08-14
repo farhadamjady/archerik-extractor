@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/exitcode"
-	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/exitcode"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
 )
 
 // testKey is the key pipeline tests pass when they exercise a control-plane

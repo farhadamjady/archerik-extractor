@@ -3,19 +3,19 @@ package spring
 import (
 	"encoding/json"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/java"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/java"
 )
 
-// adapterIndexer loads company wrapper declarations from .ekg-adapters.json at
+// adapterIndexer loads company wrapper declarations from .archerik-adapters.json at
 // the service root. Absent file = no adapters, no error.
 type adapterIndexer struct{}
 
 func (adapterIndexer) Name() string { return "spring.adapters" }
 
 func (adapterIndexer) Index(ic *provider.IndexContext, idx *provider.Index) error {
-	b, err := ic.Files.Read(".ekg-adapters.json")
+	b, err := ic.Files.Read(".archerik-adapters.json")
 	if err != nil {
 		return nil // optional file
 	}

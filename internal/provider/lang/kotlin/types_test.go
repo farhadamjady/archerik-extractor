@@ -3,8 +3,8 @@ package kotlin
 import (
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/schema"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/schema"
 )
 
 // indexOf parses one Kotlin source into a Types index.

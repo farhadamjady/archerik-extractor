@@ -8,7 +8,7 @@ package resolve
 import (
 	"sort"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
 )
 
 // maxValues caps candidate fan-out so concatenation/union can't explode

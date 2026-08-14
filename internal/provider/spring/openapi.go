@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"sort"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/schema/contract"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/schema/contract"
 )
 
 // IngestSpecs implements provider.SpecIngester: when the

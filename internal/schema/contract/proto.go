@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
 )
 
 var (

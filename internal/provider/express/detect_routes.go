@@ -3,10 +3,10 @@ package express
 import (
 	"strings"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/tsjs"
-	"github.com/farhadamjady/service-discovery/internal/schema"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/tsjs"
+	"github.com/farhadamjady/archerik-extractor/internal/schema"
 )
 
 // routeDetector extracts REST endpoints from Express route registrations:

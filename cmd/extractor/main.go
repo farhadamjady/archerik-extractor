@@ -1,8 +1,8 @@
-// Command extractor is the service-discovery CLI: it scans a single service
+// Command extractor is the Archerik extractor CLI: it scans a single service
 // repo and emits its architecture graph as JSON.
 //
-// Extraction is free and offline — no key, no network. Pointing the run at a
-// control-plane backend (--api-url) submits the graph, and that path requires
+// Extraction is free and offline — no key, no network. Pointing the run at
+// an Archerik API (--api-url) submits the graph, and that path requires
 // an API key: resolved here, validated fail-closed before any scan.
 package main
 
@@ -17,9 +17,9 @@ import (
 
 	"encoding/json"
 
-	"github.com/farhadamjady/service-discovery/internal/exitcode"
-	"github.com/farhadamjady/service-discovery/internal/pipeline"
-	"github.com/farhadamjady/service-discovery/internal/submit"
+	"github.com/farhadamjady/archerik-extractor/internal/exitcode"
+	"github.com/farhadamjady/archerik-extractor/internal/pipeline"
+	"github.com/farhadamjady/archerik-extractor/internal/submit"
 )
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
@@ -32,14 +32,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	var (
 		root        = fs.String("root", ".", "repository root to scan")
 		repository  = fs.String("repository", "", "repository identifier emitted as service.repository (e.g. github.com/owner/repo); auto-detected from CI env / git remote")
-		apiKey      = fs.String("api-key", "", "API key for --api-url runs (overrides EKG_API_KEY and config file); not needed locally")
+		apiKey      = fs.String("api-key", "", "API key for --api-url runs (overrides ARCHERIK_API_KEY and config file); not needed locally")
 		configFile  = fs.String("config", "", "path to a config file holding the API key (api_key = <value>)")
 		profiles    = fs.String("profiles", "", "comma-separated active Spring profiles")
 		environment = fs.String("environment", "", "deploy overlay to resolve (e.g. staging)")
 		configRepo  = fs.String("config-repo", "", "local checkout of the Spring Cloud Config repo (its yml/properties feed resolution)")
 		schemaDepth = fs.Int("schema-depth", 2, "nested-DTO schema walk depth before truncation")
 		out         = fs.String("out", "-", "output path for the JSON, or - for stdout")
-		apiURL      = fs.String("api-url", "", "control-plane base URL for key validation + submit; empty runs fully local")
+		apiURL      = fs.String("api-url", "", "Archerik API base URL for key validation + submit; empty runs fully local")
 		dryRun      = fs.Bool("dry-run", false, "produce JSON but do not submit")
 		branch      = fs.String("branch", "", "branch being scanned (auto-detected from CI env)")
 		sha         = fs.String("sha", "", "commit sha (auto-detected from CI env)")
@@ -53,11 +53,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return int(exitcode.Runtime) // flag already printed the usage error
 	}
 
-	// Key precedence: --api-key > EKG_API_KEY > config file. Never logged. An
+	// Key precedence: --api-key > ARCHERIK_API_KEY > config file. Never logged. An
 	// empty result is not an error here — a local run needs no key at all, and
 	// when one IS required the auth gate reports it (exit 10), so the message
 	// lives in one place.
-	key, err := resolveKey(*apiKey, os.Getenv("EKG_API_KEY"), *configFile)
+	key, err := resolveKey(*apiKey, os.Getenv("ARCHERIK_API_KEY"), *configFile)
 	if err != nil {
 		fmt.Fprintln(stderr, "extractor:", err)
 		return exitcode.Of(err)

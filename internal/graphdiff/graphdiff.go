@@ -14,7 +14,7 @@ package graphdiff
 import (
 	"sort"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
 )
 
 // Diff is the renderer-agnostic result. Every entry keeps the full edge (with

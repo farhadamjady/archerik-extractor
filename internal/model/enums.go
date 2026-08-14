@@ -33,7 +33,7 @@ const (
 	DetectOpenAPI           DetectionMethod = "openapi"            // read from an OpenAPI spec the build generates code from
 	DetectHTTPExchange      DetectionMethod = "httpexchange"       // Spring 6 @HttpExchange declarative client
 	DetectCloudStream       DetectionMethod = "cloudstream"        // Spring Cloud Stream functional binding
-	DetectAdapter           DetectionMethod = "adapter"            // company wrapper declared in .ekg-adapters.json
+	DetectAdapter           DetectionMethod = "adapter"            // company wrapper declared in .archerik-adapters.json
 	DetectRouter            DetectionMethod = "router"             // WebFlux/WebMvc.fn functional routing (RouterFunction)
 	DetectMicronautClient   DetectionMethod = "micronaut-client"   // Micronaut @Client declarative HTTP client
 	DetectMPRestClient      DetectionMethod = "mp-rest-client"     // MicroProfile @RegisterRestClient (Quarkus)

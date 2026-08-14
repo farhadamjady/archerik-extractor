@@ -15,7 +15,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	cs "github.com/smacker/go-tree-sitter/csharp"
 
-	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
 )
 
 // Parser parses C# sources into a tree-sitter AST. Not concurrency-safe.

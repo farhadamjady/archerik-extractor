@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/farhadamjady/service-discovery/internal/schema"
+	"github.com/farhadamjady/archerik-extractor/internal/schema"
 )
 
 // Types is the cross-file DTO index. It implements schema.TypeSource.

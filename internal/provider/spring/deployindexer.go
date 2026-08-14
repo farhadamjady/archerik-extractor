@@ -8,9 +8,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/farhadamjady/service-discovery/internal/deployconfig"
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/scan"
+	"github.com/farhadamjady/archerik-extractor/internal/deployconfig"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/scan"
 )
 
 // deployIndexer parses externalized deployment config (KindDeployConfig) into

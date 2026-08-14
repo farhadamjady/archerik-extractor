@@ -1,9 +1,9 @@
 package nestjs
 
 import (
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/tsjs"
-	"github.com/farhadamjady/service-discovery/internal/schema"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/tsjs"
+	"github.com/farhadamjady/archerik-extractor/internal/schema"
 )
 
 // classMethodReturns maps a class's method names to their declared return-type

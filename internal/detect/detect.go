@@ -7,8 +7,8 @@ package detect
 import (
 	"sort"
 
-	"github.com/farhadamjady/service-discovery/internal/exitcode"
-	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/exitcode"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
 )
 
 // ModuleInfo records what detection concluded about the repo.

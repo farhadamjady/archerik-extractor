@@ -9,8 +9,8 @@ package aspnet
 import (
 	"bytes"
 
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/csharp"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/csharp"
 )
 
 // Provider detects and extracts from ASP.NET Core services.

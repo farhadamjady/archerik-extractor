@@ -8,8 +8,8 @@ package express
 import (
 	"bytes"
 
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/tsjs"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/tsjs"
 )
 
 // Provider detects and extracts from Express services.

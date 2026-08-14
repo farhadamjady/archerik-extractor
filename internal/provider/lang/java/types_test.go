@@ -4,8 +4,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/schema"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/schema"
 )
 
 func indexOne(t *testing.T, srcs ...string) *Types {

@@ -3,7 +3,7 @@ package contract
 import (
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
 )
 
 func nested(s *model.Schema) map[string]model.Schema {

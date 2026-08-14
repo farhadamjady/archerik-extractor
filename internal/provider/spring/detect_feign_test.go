@@ -3,10 +3,10 @@ package spring
 import (
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/java"
-	"github.com/farhadamjady/service-discovery/internal/query"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/java"
+	"github.com/farhadamjady/archerik-extractor/internal/query"
 )
 
 // feignDeps runs the Feign detector over src with the given resolver (nil for

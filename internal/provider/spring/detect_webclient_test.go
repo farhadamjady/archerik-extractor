@@ -3,7 +3,7 @@ package spring
 import (
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
 )
 
 func wcDeps(t *testing.T, src string) []model.Dependency {

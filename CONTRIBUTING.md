@@ -10,8 +10,8 @@ You need **Go 1.26+ and a C toolchain** — the tree-sitter grammars are C, so
 cgo must be enabled (it is by default; `CGO_ENABLED=0` will not build).
 
 ```sh
-git clone https://github.com/farhadamjady/service-discovery
-cd service-discovery
+git clone https://github.com/farhadamjady/archerik-extractor
+cd archerik-extractor
 go build ./...
 go test ./...
 ```

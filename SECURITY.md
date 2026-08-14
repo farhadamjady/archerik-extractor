@@ -7,7 +7,7 @@ Please report security issues **privately**. Do not open a public issue.
 Use [GitHub's private vulnerability reporting][advisory] on this repository, or
 email <farhadamjadytoosi@gmail.com> with the details.
 
-[advisory]: https://github.com/farhadamjady/service-discovery/security/advisories/new
+[advisory]: https://github.com/farhadamjady/archerik-extractor/security/advisories/new
 
 Please include what you did, what happened, and what you expected — a minimal
 reproducing repository or file is the most useful thing you can send. You can
@@ -32,7 +32,7 @@ vulnerability:
 - **Only derived JSON leaves.** When `--api-url` is set, the extractor submits
   the architecture graph — endpoint paths, dependency targets, topic names, and
   declared type structures. It does not upload source files.
-- **Secrets.** The API key is read from `--api-key`, `EKG_API_KEY`, or a config
+- **Secrets.** The API key is read from `--api-key`, `ARCHERIK_API_KEY`, or a config
   file, and is never logged; a test pins that it appears in neither stdout nor
   stderr. Note that a scanned repository's *config values* may themselves
   contain secrets, and resolved values can appear in the output graph — treat

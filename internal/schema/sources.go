@@ -1,6 +1,6 @@
 package schema
 
-import "github.com/farhadamjady/service-discovery/internal/model"
+import "github.com/farhadamjady/archerik-extractor/internal/model"
 
 // SchemaSources resolves a payload type name to a schema parsed from a contract
 // file in the repo (Avro/Proto/JSON Schema) — the query surface of the Kafka

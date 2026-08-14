@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/exitcode"
+	"github.com/farhadamjady/archerik-extractor/internal/exitcode"
 )
 
 // backend is a fake control plane handling both the validate and ingest paths.

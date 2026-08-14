@@ -3,8 +3,8 @@ package aspnet
 import (
 	"strings"
 
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/csharp"
-	"github.com/farhadamjady/service-discovery/internal/schema"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/csharp"
+	"github.com/farhadamjady/archerik-extractor/internal/schema"
 )
 
 // csTypeIndex is a schema.TypeSource over the repo's C# classes, records, and

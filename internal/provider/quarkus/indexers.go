@@ -5,11 +5,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/java"
-	"github.com/farhadamjady/service-discovery/internal/schema"
-	"github.com/farhadamjady/service-discovery/internal/schema/contract"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/java"
+	"github.com/farhadamjady/archerik-extractor/internal/schema"
+	"github.com/farhadamjady/archerik-extractor/internal/schema/contract"
 )
 
 // Thin wrappers over the language-neutral machinery in lang/java and

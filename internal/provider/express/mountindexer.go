@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/tsjs"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/tsjs"
 )
 
 // mountIndexer builds Index.MountPrefixes: the real HTTP path

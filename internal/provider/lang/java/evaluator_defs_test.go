@@ -4,7 +4,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/resolve"
+	"github.com/farhadamjady/archerik-extractor/internal/resolve"
 )
 
 func sortedVals(vs resolve.ValueSet) []string {

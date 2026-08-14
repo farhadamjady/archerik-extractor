@@ -3,8 +3,8 @@ package springkt
 import (
 	"sort"
 
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/kotlin"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/kotlin"
 )
 
 // typeIndexer builds the repo DTO index (Index.Types) that the schema pass walks

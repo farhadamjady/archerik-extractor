@@ -3,7 +3,7 @@ package schema
 import (
 	"strings"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
 )
 
 // defaultDepth is how many levels of nested DTOs expand before truncation

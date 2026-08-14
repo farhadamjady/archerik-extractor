@@ -1,5 +1,5 @@
-// Package auth is the startup entitlement gate for runs that talk to a
-// control-plane backend.
+// Package auth is the startup entitlement gate for runs that talk to the
+// Archerik API.
 //
 // Extraction itself is free and offline: with no backend URL configured the
 // gate is a no-op and no key is needed. A run that targets a backend
@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/farhadamjady/service-discovery/internal/exitcode"
+	"github.com/farhadamjady/archerik-extractor/internal/exitcode"
 )
 
 // validatePath is the validation endpoint on the backend base URL.
@@ -43,7 +43,7 @@ func Validate(ctx context.Context, key, baseURL string) (*Entitlement, error) {
 	}
 	if strings.TrimSpace(key) == "" {
 		return nil, exitcode.Errorf(exitcode.AuthMissingKey,
-			"no API key for --api-url: set --api-key, the EKG_API_KEY env var, or a config file")
+			"no API key for --api-url: set --api-key, the ARCHERIK_API_KEY env var, or a config file")
 	}
 	return validateHTTP(ctx, key, strings.TrimRight(baseURL, "/")+validatePath)
 }

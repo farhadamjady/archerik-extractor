@@ -1,8 +1,8 @@
 package quarkus
 
 import (
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/java"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/java"
 )
 
 // contractIndexer builds Index.HTTPContracts for the JAX-RS API-interface

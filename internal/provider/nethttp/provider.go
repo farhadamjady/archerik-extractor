@@ -10,8 +10,8 @@ package nethttp
 import (
 	"bytes"
 
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/golang"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/golang"
 )
 
 // Provider detects and extracts from Go net/http services.

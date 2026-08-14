@@ -5,10 +5,10 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/java"
-	"github.com/farhadamjady/service-discovery/internal/query"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/java"
+	"github.com/farhadamjady/archerik-extractor/internal/query"
 )
 
 func scanSrc(t *testing.T, src string, dets ...provider.Detector) *model.Service {

@@ -3,7 +3,7 @@ package schema
 import (
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
 )
 
 // fakeTypes is an in-memory TypeSource for walker tests.

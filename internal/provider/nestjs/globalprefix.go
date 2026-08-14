@@ -3,8 +3,8 @@ package nestjs
 import (
 	"sort"
 
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/tsjs"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/tsjs"
 )
 
 // globalPrefixIndexer finds NestJS's app-wide route prefix —

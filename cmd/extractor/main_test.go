@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/backend"
-	"github.com/farhadamjady/service-discovery/internal/exitcode"
+	"github.com/farhadamjady/archerik-extractor/internal/backend"
+	"github.com/farhadamjady/archerik-extractor/internal/exitcode"
 )
 
 func springRepo(t *testing.T) string {
@@ -57,7 +57,7 @@ func TestExitCodes(t *testing.T) {
 	cases := []struct {
 		name string
 		args []string
-		env  string // EKG_API_KEY
+		env  string // ARCHERIK_API_KEY
 		want exitcode.Code
 	}{
 		{"local run needs no key", []string{"--root", spring, "--dry-run"}, "", exitcode.OK},
@@ -67,7 +67,7 @@ func TestExitCodes(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			t.Setenv("EKG_API_KEY", c.env)
+			t.Setenv("ARCHERIK_API_KEY", c.env)
 			var stdout, stderr bytes.Buffer
 			if got := run(c.args, &stdout, &stderr); got != int(c.want) {
 				t.Errorf("exit = %d, want %d; stderr: %s", got, c.want, stderr.String())
@@ -93,7 +93,7 @@ func TestKeyNeverLeaks(t *testing.T) {
 	}
 }
 
-// TestResolveKeyPrecedence pins --api-key > EKG_API_KEY > config file.
+// TestResolveKeyPrecedence pins --api-key > ARCHERIK_API_KEY > config file.
 func TestResolveKeyPrecedence(t *testing.T) {
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "cfg")

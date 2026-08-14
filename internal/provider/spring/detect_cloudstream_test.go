@@ -3,7 +3,7 @@ package spring
 import (
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
 )
 
 // TestFunctionComposition proves K3: with spring.cloud.function.definition=a|b,

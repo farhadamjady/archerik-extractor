@@ -17,7 +17,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	tskotlin "github.com/smacker/go-tree-sitter/kotlin"
 
-	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
 )
 
 // Parser parses Kotlin sources into a tree-sitter AST. Not concurrency-safe, so

@@ -3,10 +3,10 @@ package nestjs
 import (
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/tsjs"
-	"github.com/farhadamjady/service-discovery/internal/query"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/tsjs"
+	"github.com/farhadamjady/archerik-extractor/internal/query"
 )
 
 // schemaFor parses one source, indexes its types, runs the REST detector, and

@@ -3,7 +3,7 @@ package java
 import (
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
 )
 
 const sample = `package com.acme;

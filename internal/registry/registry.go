@@ -4,15 +4,15 @@
 package registry
 
 import (
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/aspnet"
-	"github.com/farhadamjady/service-discovery/internal/provider/express"
-	"github.com/farhadamjady/service-discovery/internal/provider/micronaut"
-	"github.com/farhadamjady/service-discovery/internal/provider/nestjs"
-	"github.com/farhadamjady/service-discovery/internal/provider/nethttp"
-	"github.com/farhadamjady/service-discovery/internal/provider/quarkus"
-	"github.com/farhadamjady/service-discovery/internal/provider/spring"
-	"github.com/farhadamjady/service-discovery/internal/provider/springkt"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/aspnet"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/express"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/micronaut"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/nestjs"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/nethttp"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/quarkus"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/spring"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/springkt"
 )
 
 // Default returns every registered provider. Detection picks the single winner

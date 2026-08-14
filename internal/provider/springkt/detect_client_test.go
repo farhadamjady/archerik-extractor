@@ -5,10 +5,10 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/kotlin"
-	"github.com/farhadamjady/service-discovery/internal/query"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/kotlin"
+	"github.com/farhadamjady/archerik-extractor/internal/query"
 )
 
 func outbound(t *testing.T, src string) []string {

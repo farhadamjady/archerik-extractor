@@ -7,7 +7,7 @@ package contract
 import (
 	"encoding/json"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
 )
 
 // maxDepth bounds nested record recursion in a contract file.

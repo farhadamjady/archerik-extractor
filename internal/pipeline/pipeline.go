@@ -22,14 +22,14 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/farhadamjady/service-discovery/internal/auth"
-	"github.com/farhadamjady/service-discovery/internal/detect"
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/query"
-	"github.com/farhadamjady/service-discovery/internal/registry"
-	"github.com/farhadamjady/service-discovery/internal/scan"
-	"github.com/farhadamjady/service-discovery/internal/submit"
+	"github.com/farhadamjady/archerik-extractor/internal/auth"
+	"github.com/farhadamjady/archerik-extractor/internal/detect"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/query"
+	"github.com/farhadamjady/archerik-extractor/internal/registry"
+	"github.com/farhadamjady/archerik-extractor/internal/scan"
+	"github.com/farhadamjady/archerik-extractor/internal/submit"
 )
 
 // Options carries everything a run needs. APIKey/APIURL/DryRun are consumed by

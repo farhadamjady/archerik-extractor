@@ -3,10 +3,10 @@ package springkt
 import (
 	"strings"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/kotlin"
-	"github.com/farhadamjady/service-discovery/internal/schema"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/kotlin"
+	"github.com/farhadamjady/archerik-extractor/internal/schema"
 )
 
 // restDetector extracts REST endpoints from @RestController classes written in

@@ -1,8 +1,8 @@
 package spring
 
 import (
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/java"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/java"
 )
 
 // typeIndexer builds the repo DTO index (Index.Types) that the schema pass walks

@@ -10,8 +10,8 @@ package springkt
 import (
 	"bytes"
 
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/kotlin"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/kotlin"
 )
 
 // Provider detects and extracts from Spring Boot services written in Kotlin.

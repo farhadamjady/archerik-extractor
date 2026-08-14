@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
 )
 
 func TestMarkdownEmptyDiffRendersNothing(t *testing.T) {
@@ -36,7 +36,7 @@ func TestMarkdownMixedDiff(t *testing.T) {
 		"#### Endpoints",
 		"🔀 **GET /orders/{id}** — response_schema",
 		"`response.total`: type changed integer → number",
-		"<sub>service-discovery",
+		"<sub>Archerik",
 	} {
 		if !strings.Contains(md, want) {
 			t.Errorf("missing %q in:\n%s", want, md)

@@ -8,11 +8,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/farhadamjady/service-discovery/internal/deployconfig"
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/scan"
-	"github.com/farhadamjady/service-discovery/internal/schema/registry"
+	"github.com/farhadamjady/archerik-extractor/internal/deployconfig"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/scan"
+	"github.com/farhadamjady/archerik-extractor/internal/schema/registry"
 )
 
 // maxDeployCandidates caps overlay fan-out per key (bounding).

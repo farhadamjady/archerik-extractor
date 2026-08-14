@@ -3,8 +3,8 @@ package quarkus
 import (
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/schema/registry"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/schema/registry"
 )
 
 // TestRegistryConfigAttached proves K4 wiring on Quarkus: the config indexer

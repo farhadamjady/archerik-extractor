@@ -1,10 +1,10 @@
 package aspnet
 
 import (
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/provider"
-	"github.com/farhadamjady/service-discovery/internal/provider/lang/csharp"
-	"github.com/farhadamjady/service-discovery/internal/schema"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/csharp"
+	"github.com/farhadamjady/archerik-extractor/internal/schema"
 )
 
 // kafkaDetector extracts Kafka edges from Confluent.Kafka call sites:

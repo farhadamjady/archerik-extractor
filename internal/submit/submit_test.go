@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/farhadamjady/service-discovery/internal/exitcode"
+	"github.com/farhadamjady/archerik-extractor/internal/exitcode"
 )
 
 func TestSubmitSuccess(t *testing.T) {
@@ -61,7 +61,7 @@ func TestSubmitUnreachable(t *testing.T) {
 	}
 }
 
-// TestSubmitMetaHeaders: commit metadata travels as X-EKG-* headers and
+// TestSubmitMetaHeaders: commit metadata travels as X-Archerik-* headers and
 // the ingest response body comes back to the caller.
 func TestSubmitMetaHeaders(t *testing.T) {
 	var got http.Header
@@ -78,8 +78,8 @@ func TestSubmitMetaHeaders(t *testing.T) {
 		t.Fatal(err)
 	}
 	for h, want := range map[string]string{
-		"X-Ekg-Sha": "abc123", "X-Ekg-Branch": "feature/x",
-		"X-Ekg-Pr": "42", "X-Ekg-Default-Branch": "main",
+		"X-Archerik-Sha": "abc123", "X-Archerik-Branch": "feature/x",
+		"X-Archerik-Pr": "42", "X-Archerik-Default-Branch": "main",
 	} {
 		if got.Get(h) != want {
 			t.Errorf("header %s = %q, want %q", h, got.Get(h), want)

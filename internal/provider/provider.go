@@ -11,10 +11,10 @@
 package provider
 
 import (
-	"github.com/farhadamjady/service-discovery/internal/model"
-	"github.com/farhadamjady/service-discovery/internal/resolve"
-	"github.com/farhadamjady/service-discovery/internal/schema"
-	"github.com/farhadamjady/service-discovery/internal/schema/registry"
+	"github.com/farhadamjady/archerik-extractor/internal/model"
+	"github.com/farhadamjady/archerik-extractor/internal/resolve"
+	"github.com/farhadamjady/archerik-extractor/internal/schema"
+	"github.com/farhadamjady/archerik-extractor/internal/schema/registry"
 )
 
 // FileKind routes a collected file to its parser. The scanner buckets files by
@@ -118,7 +118,7 @@ type Index struct {
 	// uses it to resolve topic subjects; nothing consumes it yet.
 	Registry *registry.Config
 
-	// Adapters are company-specific wrapper declarations from .ekg-adapters.json
+	// Adapters are company-specific wrapper declarations from .archerik-adapters.json
 	// in the repo: internal SDK calls like platformClient.call("payment-service",
 	// ...) that no generic detector can recognize. Each entry names a method and
 	// which argument is the target.

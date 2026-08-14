@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
 )
 
 // outboxIndexer finds Debezium outbox EventRouter topic patterns in

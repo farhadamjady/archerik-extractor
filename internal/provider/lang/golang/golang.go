@@ -15,7 +15,7 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 	tsgo "github.com/smacker/go-tree-sitter/golang"
 
-	"github.com/farhadamjady/service-discovery/internal/provider"
+	"github.com/farhadamjady/archerik-extractor/internal/provider"
 )
 
 // Parser parses Go sources into a tree-sitter AST. Not concurrency-safe.
