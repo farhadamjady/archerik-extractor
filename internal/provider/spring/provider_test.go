@@ -102,3 +102,35 @@ func writeFile(t *testing.T, root, rel, content string) {
 		t.Fatal(err)
 	}
 }
+
+// TestMatchNeedsSpringNotJustABuildFile locks the rule that keeps an
+// unrecognized JVM repo unrecognized: a pom.xml or build.gradle with no Spring
+// anywhere is NOT a Spring service. Matching on the build file alone claimed
+// every Maven repo in existence — a plain library was scanned as a service and
+// emitted an empty graph, which is exactly what exit 2 exists to prevent.
+func TestMatchNeedsSpringNotJustABuildFile(t *testing.T) {
+	plain := t.TempDir()
+	writeFile(t, plain, "pom.xml", "<project><artifactId>string-utils</artifactId></project>")
+	writeFile(t, plain, "src/main/java/Utils.java", "public class Utils { }")
+	if m, score := New().Match(plain, scan.NewOSFileTree(plain, nil)); m {
+		t.Errorf("plain Maven library matched Spring (score %d); a build file alone must not match", score)
+	}
+
+	gradle := t.TempDir()
+	writeFile(t, gradle, "build.gradle", "dependencies { implementation 'com.google.guava:guava:32.0' }")
+	writeFile(t, gradle, "src/main/java/Utils.java", "public class Utils { }")
+	if m, _ := New().Match(gradle, scan.NewOSFileTree(gradle, nil)); m {
+		t.Error("plain Gradle library matched Spring; a build file alone must not match")
+	}
+
+	// A module inheriting its dependencies from a parent POM has no spring-boot
+	// coordinates and no @SpringBootApplication, but its sources import Spring —
+	// that is a real Spring module and must still match.
+	module := t.TempDir()
+	writeFile(t, module, "pom.xml", "<project><parent><artifactId>acme-parent</artifactId></parent></project>")
+	writeFile(t, module, "src/main/java/OrderController.java",
+		"import org.springframework.web.bind.annotation.RestController;\n@RestController public class OrderController {}")
+	if m, _ := New().Match(module, scan.NewOSFileTree(module, nil)); !m {
+		t.Error("a Spring module inheriting deps from a parent POM must still match")
+	}
+}

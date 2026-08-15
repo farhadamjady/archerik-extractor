@@ -288,3 +288,105 @@ func main() {
 		t.Fatalf("response = %+v, want User (success branch wins over error envelope)", get.Response)
 	}
 }
+
+// fieldOf returns a schema's nested field by name, or nil.
+func fieldOf(s *model.Schema, name string) *model.Schema {
+	if s == nil {
+		return nil
+	}
+	for i := range s.Nested {
+		if s.Nested[i].Name == name {
+			return &s.Nested[i]
+		}
+	}
+	return nil
+}
+
+// TestResponseFromMapLiteralKeys proves the Go half of #67: an inline
+// `map[string]any{...}` payload typed as a bare map — key_type/value_type and no
+// fields — even though its keys are literals sitting in the source. They are now
+// read as the object the map serializes to.
+func TestResponseFromMapLiteralKeys(t *testing.T) {
+	src := `
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+type User struct {
+	ID   string ` + "`json:\"id\"`" + `
+	Name string ` + "`json:\"name\"`" + `
+}
+
+func getUser(w http.ResponseWriter, r *http.Request) {
+	var user User
+	json.NewEncoder(w).Encode(map[string]any{"data": user, "total": 1, "status": "ok"})
+}
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /users/{id}", getUser)
+}`
+	r := schemaFor(t, src)["GET /users/{id}"].Response
+	if r == nil || r.Type != "object" {
+		t.Fatalf("response = %+v, want an object read from the map keys", r)
+	}
+	if len(r.Nested) != 3 {
+		t.Fatalf("fields = %d, want 3 (data, total, status)", len(r.Nested))
+	}
+	d := fieldOf(r, "data")
+	if d == nil || d.Type != "User" || len(d.Nested) != 2 {
+		t.Fatalf("data = %+v, want User expanded to 2 fields", d)
+	}
+	if d.Confidence != model.Likely {
+		t.Errorf("data was resolved through a local, want %q, got %q", model.Likely, d.Confidence)
+	}
+	if n := fieldOf(r, "total"); n == nil || n.Type != "number" || n.Confidence != model.Confirmed {
+		t.Errorf("total = %+v, want a confirmed number", n)
+	}
+	if s := fieldOf(r, "status"); s == nil || s.Type != "string" {
+		t.Errorf("status = %+v, want string", s)
+	}
+}
+
+// TestMapLiteralDoesNotOverrideNamedStruct locks that the map path is additive:
+// a struct payload still types as that struct, and the #58 rule still holds —
+// an error-branch map is never promoted to the contract just because its keys
+// are now readable.
+func TestMapLiteralDoesNotOverrideNamedStruct(t *testing.T) {
+	src := `
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+type User struct {
+	ID string ` + "`json:\"id\"`" + `
+}
+
+func getUser(w http.ResponseWriter, r *http.Request) {
+	var user User
+	if user.ID == "" {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+		return
+	}
+	json.NewEncoder(w).Encode(user)
+}
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /users/{id}", getUser)
+}`
+	r := schemaFor(t, src)["GET /users/{id}"].Response
+	if r == nil || r.Type != "User" {
+		t.Fatalf("response = %+v, want User (the success payload)", r)
+	}
+	if fieldOf(r, "error") != nil {
+		t.Error("the 404 envelope must never become the contract, readable keys or not")
+	}
+}

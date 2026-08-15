@@ -93,3 +93,22 @@ func writeFile(t *testing.T, root, rel, content string) {
 		t.Fatal(err)
 	}
 }
+
+// TestMatchNeedsMicronautCoordinates locks that a bare "micronaut" substring is
+// not a match — it hits module names, comments and doc links. Claiming such a
+// repo emits an empty graph instead of failing detection honestly.
+func TestMatchNeedsMicronautCoordinates(t *testing.T) {
+	mention := t.TempDir()
+	writeFile(t, mention, "build.gradle", "// TODO: evaluate micronaut for the next service\ndependencies { }")
+	writeFile(t, mention, "src/main/java/App.java", "public class App {}")
+	if m, score := New().Match(mention, scan.NewOSFileTree(mention, nil)); m {
+		t.Errorf("a repo merely mentioning micronaut matched (score %d); only the coordinates count", score)
+	}
+
+	declared := t.TempDir()
+	writeFile(t, declared, "build.gradle", `dependencies { implementation("io.micronaut:micronaut-http-server-netty") }`)
+	writeFile(t, declared, "src/main/java/BookController.java", "class BookController {}")
+	if m, _ := New().Match(declared, scan.NewOSFileTree(declared, nil)); !m {
+		t.Error("io.micronaut coordinates must match even without an io.micronaut source import")
+	}
+}

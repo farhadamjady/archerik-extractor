@@ -3,6 +3,7 @@ package nestjs
 import (
 	"github.com/farhadamjady/archerik-extractor/internal/model"
 	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/tsjs"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/tsobj"
 )
 
 // classMethodReturns maps a class's method names to their declared return-type
@@ -94,7 +95,7 @@ func isParamProperty(p tsjs.Node) bool {
 //   - `return [await] this.<field>.<method>(...)` — the thin controller delegating
 //     to a service. The field's declared type + that type's method return, walked
 //     like a normal response (#62).
-//   - `return { … }` — the controller assembling the wire object inline (#64).
+//   - `return { … }` — the controller assembling the wire object inline (#67).
 //     The literal IS the body, so it is read as the response shape.
 //
 // Delegation is checked first across the whole body: it names a declared type,
@@ -115,8 +116,8 @@ func inferResponseFromBody(method tsjs.Node, rc respCtx) *model.Schema {
 			return s
 		}
 	}
-	if obj := firstReturn(body, returnObject); obj.Valid() {
-		return objectLiteralSchema(obj, method, rc, rc.fieldWalker.Depth())
+	if obj := firstReturn(body, tsobj.ReturnedObject); obj.Valid() {
+		return objectLiteralSchema(obj, method, rc, rc.walker.Depth())
 	}
 	return nil
 }
@@ -159,24 +160,6 @@ func (rc respCtx) callReturnType(call tsjs.Node) string {
 		return ""
 	}
 	return byMethod[methodName]
-}
-
-// returnObject returns the object literal a return statement yields, unwrapping a
-// leading `await`. An invalid node when the return isn't an object literal.
-func returnObject(ret tsjs.Node) tsjs.Node {
-	for _, c := range tsjs.NamedChildren(ret) {
-		switch c.Type() {
-		case "await_expression", "parenthesized_expression":
-			for _, cc := range tsjs.NamedChildren(c) {
-				if cc.Type() == "object" {
-					return cc
-				}
-			}
-		case "object":
-			return c
-		}
-	}
-	return tsjs.Node{}
 }
 
 // returnCall returns the call_expression a return statement yields, unwrapping a

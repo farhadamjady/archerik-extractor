@@ -5,6 +5,7 @@ import (
 
 	"github.com/farhadamjady/archerik-extractor/internal/model"
 	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/tsjs"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/tsobj"
 )
 
 // maxExprHops bounds the value-expression chase (identifier -> initializer ->
@@ -13,114 +14,19 @@ const maxExprHops = 6
 
 // objectLiteralSchema types a `return { … }` handler — the envelope pattern,
 // where the controller assembles the wire object inline rather than returning a
-// DTO (#64). The literal IS the response body, which makes its KEYS the contract:
-// they are read straight off the AST, so the object itself is confirmed even when
-// no value inside it can be typed.
-//
-// Each value is then chased to a declared type where one exists. A key whose
-// value stays unresolvable still ships as an uncertain object — the honesty rule:
-// a named field of unknown shape is a better contract than silence.
-//
-// depth is the remaining nesting budget for literals inside literals; at zero the
-// inner object becomes the standard truncation boundary.
+// DTO (#67). The literal's structure is read by the shared tsobj reader; what
+// this provider contributes is how a VALUE is chased back to a declared type.
 func objectLiteralSchema(obj tsjs.Node, method tsjs.Node, rc respCtx, depth int) *model.Schema {
-	if depth <= 0 {
-		return &model.Schema{Type: "object", Required: model.ReqUnknown, Truncated: true, Confidence: model.Confirmed}
-	}
-	s := &model.Schema{Type: "object", Required: model.ReqUnknown, Confidence: model.Confirmed}
-	for _, p := range tsjs.NamedChildren(obj) {
-		switch p.Type() {
-		case "pair":
-			name, ok := literalKey(p.ChildByFieldName("key"))
-			if !ok {
-				// A computed key (`{ [k]: v }`) means the key set isn't static.
-				s.Confidence = model.Uncertain
-				continue
+	return tsobj.Schema(obj, depth,
+		func(expr tsjs.Node) string { return rc.exprType(expr, method, 0) },
+		func(t string) *model.Schema {
+			nt, nullable := normalizeTypeAlias(t, rc.aliases)
+			s := bodyOrNil(rc.fieldWalker.Type(nt))
+			if s != nil && nullable {
+				s.Nullable = true
 			}
-			s.Nested = append(s.Nested, rc.valueSchema(name, p.ChildByFieldName("value"), method, depth))
-		case "shorthand_property_identifier":
-			// `{ data }` — the key names its own value.
-			s.Nested = append(s.Nested, rc.valueSchema(p.Text(), p, method, depth))
-		case "spread_element":
-			// `{ ...rest }` merges in keys we cannot enumerate statically, so the
-			// field list is no longer known to be complete.
-			s.Confidence = model.Uncertain
-		}
-	}
-	return s
-}
-
-// literalKey returns a property key's name when it is statically known — a bare
-// identifier (`data:`), a quoted key (`'data':`), or a numeric key. A computed
-// key is not, and reports ok=false.
-func literalKey(key tsjs.Node) (string, bool) {
-	if !key.Valid() {
-		return "", false
-	}
-	switch key.Type() {
-	case "property_identifier":
-		return key.Text(), true
-	case "string":
-		return tsjs.StringValue(key), true
-	case "number":
-		return key.Text(), true
-	}
-	return "", false
-}
-
-// valueSchema types one key of a returned object literal. The NAME is always
-// confirmed — it is written in the source. The TYPE carries its own confidence:
-// an inline literal value is confirmed, a value chased through a declared type is
-// `likely` (it took an indirection to get there), and an expression that resolves
-// to nothing is an uncertain object.
-func (rc respCtx) valueSchema(name string, val tsjs.Node, method tsjs.Node, depth int) model.Schema {
-	if s, ok := literalValueSchema(val); ok {
-		s.Name = name
-		s.Required = model.ReqUnknown
-		return s
-	}
-	if val.Valid() && val.Type() == "object" {
-		s := objectLiteralSchema(val, method, rc, depth-1)
-		s.Name = name
-		return *s
-	}
-	if t := rc.exprType(val, method, 0); t != "" {
-		nt, nullable := normalizeTypeAlias(t, rc.aliases)
-		if s := bodyOrNil(rc.fieldWalker.Type(nt)); s != nil {
-			s.Name = name
-			s.Nullable = s.Nullable || nullable
-			// Reached through the code rather than declared at this position, so a
-			// resolved type is `likely`, not confirmed. A type the walker itself
-			// could not resolve (`Promise<any>` -> opaque object) stays uncertain —
-			// chasing an expression to a declaration that says nothing is not
-			// evidence, and must not read as though it were.
-			if s.Confidence == model.Confirmed {
-				s.Confidence = model.Likely
-			}
-			return *s
-		}
-	}
-	return model.Schema{Name: name, Type: "object", Required: model.ReqUnknown, Confidence: model.Uncertain}
-}
-
-// literalValueSchema types an inline literal value — the one case where the
-// source states the type outright.
-func literalValueSchema(val tsjs.Node) (model.Schema, bool) {
-	if !val.Valid() {
-		return model.Schema{}, false
-	}
-	switch val.Type() {
-	case "string", "template_string":
-		return model.Schema{Type: "string", Confidence: model.Confirmed}, true
-	case "number":
-		return model.Schema{Type: "number", Confidence: model.Confirmed}, true
-	case "true", "false":
-		return model.Schema{Type: "boolean", Confidence: model.Confirmed}, true
-	case "null", "undefined":
-		// A literal null names the field but says nothing about its type.
-		return model.Schema{Type: "object", Nullable: true, Confidence: model.Uncertain}, true
-	}
-	return model.Schema{}, false
+			return s
+		})
 }
 
 // exprType chases a value expression to a declared TYPE NAME, or "" when the

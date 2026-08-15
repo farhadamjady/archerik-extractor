@@ -147,8 +147,13 @@ func actionResponse(method csharp.Node, walker *schema.Walker) *model.Schema {
 	// A bare async wrapper with no type argument (`Task`/`ValueTask`) is an async
 	// no-result — treat it as void rather than an unknown "Task" type.
 	switch strings.TrimSpace(rt.Text()) {
-	case "Task", "ValueTask", "void", "Task<IActionResult>", "Task<ActionResult>":
+	case "Task", "ValueTask", "void":
 		return nil
+	case "IActionResult", "ActionResult", "Task<IActionResult>", "Task<ActionResult>",
+		"ValueTask<IActionResult>", "ValueTask<ActionResult>", "ActionResult<object>":
+		// Opaque by design: the type says "some HTTP result", so the payload lives
+		// in the method body. Read it there rather than reporting no contract (#67).
+		return inferResponseFromBody(method, walker)
 	}
 	return bodyOrNil(walker.Type(rt.Text()))
 }

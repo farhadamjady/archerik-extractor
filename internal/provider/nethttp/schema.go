@@ -82,10 +82,111 @@ func handlerSchemas(file *golang.File, handler golang.Node, walker *schema.Walke
 	if rt := decodeArgType(body, locals); rt != "" {
 		req = bodyOrNil(walker.Type(normalizeGoType(rt)))
 	}
-	if rt := encodeArgType(body, locals); rt != "" {
-		resp = bodyOrNil(walker.Type(normalizeGoType(rt)))
+	if rt, arg := encodeArg(body, locals); rt != "" {
+		// An inline `map[string]any{"data": u}` types as a bare map — key_type and
+		// value_type, no fields — even though the keys are right there in the
+		// source. Read them as the object they serialize to (#67).
+		if s := mapLiteralSchema(arg, locals, walker); s != nil {
+			resp = s
+		} else {
+			resp = bodyOrNil(walker.Type(normalizeGoType(rt)))
+		}
 	}
 	return req, resp
+}
+
+// mapLiteralSchema reads a string-keyed map literal as the object it becomes on
+// the wire: `map[string]any{"data": u, "total": 1}` -> {data, total}. nil when
+// the expression is not such a literal, leaving the caller's type-name path
+// untouched.
+//
+// Only string keys qualify — a map keyed by anything else does not serialize to
+// a JSON object with known field names. A non-literal key (a constant or
+// variable) means the key set is not static, which downgrades the object rather
+// than dropping it.
+func mapLiteralSchema(arg golang.Node, locals map[string]string, walker *schema.Walker) *model.Schema {
+	if !arg.Valid() || arg.Type() != "composite_literal" {
+		return nil
+	}
+	mt := arg.ChildByFieldName("type")
+	if !mt.Valid() || mt.Type() != "map_type" {
+		return nil
+	}
+	if k := mt.ChildByFieldName("key"); !k.Valid() || k.Text() != "string" {
+		return nil
+	}
+	lv := arg.ChildByFieldName("body")
+	if !lv.Valid() {
+		return nil
+	}
+
+	fields := walker.Nested()
+	s := &model.Schema{Type: "object", Required: model.ReqUnknown, Confidence: model.Confirmed}
+	for _, el := range golang.NamedChildren(lv) {
+		if el.Type() != "keyed_element" {
+			continue
+		}
+		kids := golang.NamedChildren(el)
+		if len(kids) != 2 {
+			continue
+		}
+		name, ok := golang.StringLit(unwrapElement(kids[0]))
+		if !ok {
+			s.Confidence = model.Uncertain // computed key: the field list isn't complete
+			continue
+		}
+		s.Nested = append(s.Nested, mapValueSchema(name, unwrapElement(kids[1]), locals, fields))
+	}
+	if len(s.Nested) == 0 {
+		return nil // an empty map says nothing the map type didn't already say
+	}
+	return s
+}
+
+// unwrapElement unwraps the `literal_element` wrapper the Go grammar puts around
+// a keyed element's key and value.
+func unwrapElement(n golang.Node) golang.Node {
+	if n.Type() == "literal_element" {
+		if kids := golang.NamedChildren(n); len(kids) == 1 {
+			return kids[0]
+		}
+	}
+	return n
+}
+
+// mapValueSchema types one entry of a map literal. Same rule as everywhere else:
+// an inline literal is confirmed, a value resolved through a declared type is
+// likely, and anything else keeps its NAME with an uncertain type.
+func mapValueSchema(name string, val golang.Node, locals map[string]string, fields *schema.Walker) model.Schema {
+	if t := goLiteralKind(val); t != "" {
+		return model.Schema{Name: name, Type: t, Required: model.ReqUnknown, Confidence: model.Confirmed}
+	}
+	if t := argType(val, locals); t != "" && !strings.Contains(t, "Error") {
+		if s := bodyOrNil(fields.Type(normalizeGoType(t))); s != nil {
+			s.Name = name
+			if s.Confidence == model.Confirmed {
+				s.Confidence = model.Likely
+			}
+			return *s
+		}
+	}
+	return model.Schema{Name: name, Type: "object", Required: model.ReqUnknown, Confidence: model.Uncertain}
+}
+
+// goLiteralKind maps a Go literal node to its JSON type, "" when not a literal.
+func goLiteralKind(n golang.Node) string {
+	if !n.Valid() {
+		return ""
+	}
+	switch n.Type() {
+	case "interpreted_string_literal", "raw_string_literal", "rune_literal":
+		return "string"
+	case "int_literal", "float_literal":
+		return "number"
+	case "true", "false":
+		return "boolean"
+	}
+	return ""
 }
 
 // handlerBody resolves the block body of a handler argument: a func literal
@@ -230,7 +331,16 @@ func decodeArgType(body golang.Node, locals map[string]string) string {
 // presented as the response (finding #58). Among the remaining success/neutral
 // Encodes the last resolvable argument wins (the happy path, after early returns).
 func encodeArgType(body golang.Node, locals map[string]string) string {
+	t, _ := encodeArg(body, locals)
+	return t
+}
+
+// encodeArg is encodeArgType plus the argument NODE it chose, so a caller that
+// can do better than the type name — reading the keys of an inline map literal —
+// has the expression to work with.
+func encodeArg(body golang.Node, locals map[string]string) (string, golang.Node) {
 	found := ""
+	var node golang.Node
 	var scan func(block golang.Node)
 	scan = func(block golang.Node) {
 		branchErr := false // an error-status WriteHeader seen earlier in THIS block
@@ -250,7 +360,7 @@ func encodeArgType(body golang.Node, locals map[string]string) string {
 						if t == "" || strings.Contains(t, "Error") {
 							continue
 						}
-						found = t // last qualifying success Encode wins
+						found, node = t, a // last qualifying success Encode wins
 					}
 				}
 			}
@@ -260,7 +370,7 @@ func encodeArgType(body golang.Node, locals map[string]string) string {
 		}
 	}
 	scan(body)
-	return found
+	return found, node
 }
 
 // topCall returns the top-level call expression of a statement (an

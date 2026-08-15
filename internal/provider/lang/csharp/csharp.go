@@ -112,6 +112,28 @@ func (n Node) StartByte() uint32 {
 	return n.inner.StartByte()
 }
 
+func (n Node) EndByte() uint32 {
+	if n.inner == nil {
+		return 0
+	}
+	return n.inner.EndByte()
+}
+
+// Between returns the source text separating two sibling nodes. The C# grammar
+// flattens some constructs into a bare token list with no wrapper node and no
+// fields — an anonymous object's `new { a = x, b }` is [a, x, b] — so the
+// punctuation between siblings is the only thing that says which is which.
+func (n Node) Between(next Node) string {
+	if n.inner == nil || next.inner == nil || n.file == nil {
+		return ""
+	}
+	start, end := n.EndByte(), next.StartByte()
+	if start > end || int(end) > len(n.file.src) {
+		return ""
+	}
+	return string(n.file.src[start:end])
+}
+
 func (n Node) Walk(fn func(Node) bool) {
 	if n.inner == nil || !fn(n) {
 		return

@@ -31,20 +31,28 @@ func (*Provider) Language() string { return "Java" }
 // io.quarkus marker is required to distinguish Quarkus from a plain JAX-RS app.
 func (*Provider) Match(root string, fs provider.FileTree) (bool, int) {
 	score := 0
+	// The `io.quarkus` GROUP ID is a deliberate declaration and counts. A bare
+	// "quarkus" substring does not — same reasoning as Micronaut: a repo that only
+	// mentions the framework would be claimed and emit an empty graph rather than
+	// failing detection honestly.
+	quarkus := false
 	for _, bf := range []string{"pom.xml", "build.gradle", "build.gradle.kts"} {
-		if b, err := fs.Read(bf); err == nil {
-			if bytes.Contains(b, []byte("io.quarkus")) || bytes.Contains(b, []byte("quarkus")) {
-				score += 2
-			}
+		if b, err := fs.Read(bf); err == nil && bytes.Contains(b, []byte("io.quarkus")) {
+			quarkus = true
+			score += 2
 		}
 	}
 	for _, f := range fs.Glob("**/*.java") {
 		if b, err := fs.Read(f); err == nil && bytes.Contains(b, []byte("import io.quarkus")) {
+			quarkus = true
 			score += 3
 			break
 		}
 	}
-	return score > 0, score
+	if !quarkus {
+		return false, 0
+	}
+	return true, score
 }
 
 // FileSpec: same file kinds as the other JVM providers (Quarkus uses

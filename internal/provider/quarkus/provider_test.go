@@ -86,3 +86,27 @@ func writeFile(t *testing.T, root, rel, content string) {
 		t.Fatal(err)
 	}
 }
+
+// TestMatchNeedsQuarkusCoordinates locks that a bare "quarkus" mention is not a
+// match: the substring hits module names, comments and doc links, and claiming
+// such a repo emits an empty graph instead of failing detection honestly. The
+// io.quarkus group id (or an io.quarkus import) is the real signal.
+func TestMatchNeedsQuarkusCoordinates(t *testing.T) {
+	mention := t.TempDir()
+	writeFile(t, mention, "pom.xml",
+		"<project><artifactId>quarkus-migration-notes</artifactId><!-- we may move to quarkus later --></project>")
+	writeFile(t, mention, "src/main/java/App.java", "public class App {}")
+	if m, score := New().Match(mention, scan.NewOSFileTree(mention, nil)); m {
+		t.Errorf("a repo merely mentioning quarkus matched (score %d); only the coordinates count", score)
+	}
+
+	// The group id alone, with no io.quarkus import in sources, is still a real
+	// declaration — a JAX-RS resource need never import io.quarkus.
+	declared := t.TempDir()
+	writeFile(t, declared, "pom.xml", "<project><dependency><groupId>io.quarkus</groupId></dependency></project>")
+	writeFile(t, declared, "src/main/java/HeroResource.java",
+		"import jakarta.ws.rs.Path;\n@Path(\"/heroes\") class HeroResource {}")
+	if m, _ := New().Match(declared, scan.NewOSFileTree(declared, nil)); !m {
+		t.Error("io.quarkus coordinates must match even without an io.quarkus source import")
+	}
+}
