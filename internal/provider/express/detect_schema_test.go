@@ -117,3 +117,89 @@ func TestPlainJSNoSchema(t *testing.T) {
 		t.Errorf("plain JS should have no schema, got req=%+v resp=%+v", e.Request, e.Response)
 	}
 }
+
+// field returns a schema's nested field by name, or nil.
+func field(s *model.Schema, name string) *model.Schema {
+	if s == nil {
+		return nil
+	}
+	for i := range s.Nested {
+		if s.Nested[i].Name == name {
+			return &s.Nested[i]
+		}
+	}
+	return nil
+}
+
+// TestResponseFromResJsonObjectLiteral proves the Express half of #67: a handler
+// that states its response inline — `res.status(200).json({ … })`, the dominant
+// idiom in plain-JS Express apps, where no named type exists anywhere in the
+// file — now yields the literal's keys as the contract. The chained form is
+// covered on purpose: `res.status(200).json(x)` is far more common than a bare
+// `res.json(x)`, and the receiver there is a call, not `res`.
+func TestResponseFromResJsonObjectLiteral(t *testing.T) {
+	src := `
+		class User { id: string; name: string; }
+		app.get('/users/:id', (req, res) => {
+			const user = new User();
+			res.status(200).json({ data: user, total: 1, status: 'ok' });
+		});`
+	r := schemaFor(t, src)["GET /users/{id}"].Response
+	if r == nil || r.Type != "object" {
+		t.Fatalf("response = %+v, want the returned literal as an object", r)
+	}
+	// Express caps its weaker inference at likely, literal keys included.
+	if r.Confidence != model.Likely {
+		t.Errorf("confidence = %q, want %q (Express caps inference)", r.Confidence, model.Likely)
+	}
+	if len(r.Nested) != 3 {
+		t.Fatalf("fields = %d, want 3 (data, total, status)", len(r.Nested))
+	}
+	if d := field(r, "data"); d == nil || d.Type != "User" || len(d.Nested) != 2 {
+		t.Errorf("data = %+v, want User expanded to 2 fields", d)
+	}
+	if n := field(r, "total"); n == nil || n.Type != "number" {
+		t.Errorf("total = %+v, want number", n)
+	}
+	if s := field(r, "status"); s == nil || s.Type != "string" {
+		t.Errorf("status = %+v, want string", s)
+	}
+}
+
+// TestResJsonLiteralKeepsUnresolvableKeys proves the honesty rule on the Express
+// path, and is the plain-JS case: no types exist, so no value resolves — but
+// every key still ships. This is the only contract such a file contains.
+func TestResJsonLiteralKeepsUnresolvableKeys(t *testing.T) {
+	src := `
+		app.post('/room/send_text', function (req, res) {
+			var result = doWork(req.body);
+			res.status(200).json({ Result: true, data: result, meta: { code: 200 } });
+		});`
+	r := schemaFor(t, src)["POST /room/send_text"].Response
+	if r == nil || len(r.Nested) != 3 {
+		t.Fatalf("response = %+v, want 3 named fields even with nothing typed", r)
+	}
+	if b := field(r, "Result"); b == nil || b.Type != "boolean" {
+		t.Errorf("Result = %+v, want boolean", b)
+	}
+	if d := field(r, "data"); d == nil || d.Confidence != model.Uncertain {
+		t.Errorf("data = %+v, want an uncertain field that still keeps its name", d)
+	}
+	if m := field(r, "meta"); m == nil || m.Type != "object" || field(m, "code") == nil {
+		t.Errorf("meta = %+v, want a nested object carrying code", m)
+	}
+}
+
+// TestNamedTypeBeatsResJsonLiteral locks precedence: a declared Response<T>
+// generic still wins over a literal in the same handler.
+func TestNamedTypeBeatsResJsonLiteral(t *testing.T) {
+	src := `
+		class UserRO { token: string; }
+		app.get('/me', (req: Request, res: Response<UserRO>) => {
+			res.json({ data: 1 });
+		});`
+	r := schemaFor(t, src)["GET /me"].Response
+	if r == nil || r.Type != "UserRO" {
+		t.Errorf("response = %+v, want UserRO (the declared generic wins)", r)
+	}
+}

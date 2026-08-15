@@ -5,6 +5,7 @@ import (
 
 	"github.com/farhadamjady/archerik-extractor/internal/model"
 	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/tsjs"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/tsobj"
 	"github.com/farhadamjady/archerik-extractor/internal/schema"
 )
 
@@ -16,9 +17,12 @@ import (
 //	request  : Request<_, _, ReqBody> generic (3rd arg) > `req.body as Foo` cast
 //	response : Response<Body> generic (1st arg) > Request<_, ResBody, _> (2nd arg)
 //	           > the local type of the `res.json(x)` / `res.send(x)` argument
+//	           > the `res.json({ … })` object literal itself (#67)
 //
-// Only .ts handlers carry types; plain JS yields (nil, nil). The handler is an
-// inline arrow/function expression or a same-file named function.
+// Only .ts handlers carry named types, so the request side still yields nil on
+// plain JS — but the response literal does not need types, and in a .js repo it
+// is the only contract there is. The handler is an inline arrow/function
+// expression or a same-file named function.
 func handlerSchemas(file *tsjs.File, handler tsjs.Node, walker *schema.Walker) (req, resp *model.Schema) {
 	fn := resolveHandler(file, handler)
 	if !fn.Valid() {
@@ -38,10 +42,34 @@ func handlerSchemas(file *tsjs.File, handler tsjs.Node, walker *schema.Walker) (
 	if reqType != "" {
 		req = capLikely(bodyOrNil(walker.Type(normalizeType(reqType))))
 	}
-	if respType != "" {
+	switch {
+	case respType != "":
 		resp = capLikely(bodyOrNil(walker.Type(normalizeType(respType))))
+	default:
+		// No named type anywhere — but the handler may still state its response
+		// outright as `res.json({ … })` (#67). Read the literal: in plain JS that
+		// is the ONLY contract in the file, and its keys are as real as any DTO's.
+		if obj := resSendObject(body); obj.Valid() {
+			resp = capLikely(objectSchema(obj, body, walker))
+		}
 	}
 	return req, resp
+}
+
+// objectSchema reads a `res.json({...})` argument as the response body, through
+// the shared literal reader.
+//
+// Two different depth budgets, deliberately: the literal IS the root of the body,
+// so nested literals get the walker's FULL budget (exactly as a root DTO's own
+// nesting would). A named TYPE reached through one of its keys sits a level down
+// already, so it is walked one level shallower. Both then truncate in the same
+// place as an equivalent declared body at the same --schema-depth.
+func objectSchema(obj, body tsjs.Node, walker *schema.Walker) *model.Schema {
+	fields := walker.Nested()
+	locals := localTypes(body)
+	return tsobj.Schema(obj, walker.Depth(),
+		func(e tsjs.Node) string { return exprType(e, locals) },
+		func(t string) *model.Schema { return bodyOrNil(fields.Type(normalizeType(t))) })
 }
 
 // resolveHandler resolves a route handler argument to its function node: an
@@ -183,18 +211,51 @@ func resSendArgType(body tsjs.Node) string {
 		if found != "" || n.Type() != "call_expression" {
 			return found == ""
 		}
-		fn := n.ChildByFieldName("function")
-		if fn.Type() != "member_expression" {
-			return true
-		}
-		switch fn.ChildByFieldName("property").Text() {
-		case "json", "send":
-		default:
+		if !isResSend(n) {
 			return true
 		}
 		for _, a := range tsjs.NamedChildren(n.ChildByFieldName("arguments")) {
 			if t := exprType(a, locals); t != "" {
 				found = t
+				return false
+			}
+		}
+		return true
+	})
+	return found
+}
+
+// isResSend reports whether a call is a `…json(x)` / `…send(x)` response write.
+// It matches on the method name alone, so the chained form Express handlers
+// actually use — `res.status(200).json(x)`, where the receiver is a call rather
+// than `res` — is recognized too.
+func isResSend(call tsjs.Node) bool {
+	fn := call.ChildByFieldName("function")
+	if !fn.Valid() || fn.Type() != "member_expression" {
+		return false
+	}
+	switch fn.ChildByFieldName("property").Text() {
+	case "json", "send":
+		return true
+	}
+	return false
+}
+
+// resSendObject finds the first `res.json({...})` whose argument is an object
+// literal. Searched only after the named-type path finds nothing, so a handler
+// that has both keeps its declared type — same precedence as NestJS (#67).
+func resSendObject(body tsjs.Node) tsjs.Node {
+	var found tsjs.Node
+	body.Walk(func(n tsjs.Node) bool {
+		if found.Valid() {
+			return false
+		}
+		if n.Type() != "call_expression" || !isResSend(n) {
+			return true
+		}
+		for _, a := range tsjs.NamedChildren(n.ChildByFieldName("arguments")) {
+			if a.Type() == "object" {
+				found = a
 				return false
 			}
 		}

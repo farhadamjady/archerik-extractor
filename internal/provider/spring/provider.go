@@ -29,25 +29,59 @@ func (*Provider) Language() string { return "Java" }
 func (*Provider) Match(root string, fs provider.FileTree) (bool, int) {
 	score := 0
 
+	// A JVM build file scores, but is NOT on its own evidence of Spring: every
+	// Maven/Gradle project has one. Matching on its mere existence claimed any
+	// Java repo at all — a plain library with a pom.xml was "a Spring service",
+	// scanned, and emitted as a service with no endpoints and no dependencies.
+	// Only a declared Spring dependency or Spring in the sources decides.
+	spring := false
 	if fs.Exists("pom.xml") {
 		score++
-		if b, err := fs.Read("pom.xml"); err == nil && bytes.Contains(b, []byte("spring-boot")) {
+		if b, err := fs.Read("pom.xml"); err == nil && isSpringBuild(b) {
+			spring = true
 			score += 2
 		}
 	}
-	if fs.Exists("build.gradle") || fs.Exists("build.gradle.kts") {
-		score++
+	for _, bf := range []string{"build.gradle", "build.gradle.kts"} {
+		if b, err := fs.Read(bf); err == nil {
+			score++
+			if isSpringBuild(b) {
+				spring = true
+				score += 2
+			}
+		}
 	}
 
-	// Strongest signal: the application entrypoint annotation.
+	// Source signals, strongest first: the application entrypoint annotation, then
+	// any Spring import (a module of a multi-module app carries controllers but no
+	// @SpringBootApplication, and inherits its dependencies from a parent POM).
 	for _, f := range fs.Glob("**/*.java") {
-		if b, err := fs.Read(f); err == nil && bytes.Contains(b, []byte("@SpringBootApplication")) {
+		b, err := fs.Read(f)
+		if err != nil {
+			continue
+		}
+		if bytes.Contains(b, []byte("@SpringBootApplication")) {
+			spring = true
 			score += 3
+			break
+		}
+		if bytes.Contains(b, []byte("org.springframework")) {
+			spring = true
+			score += 2
 			break
 		}
 	}
 
-	return score > 0, score
+	if !spring {
+		return false, 0
+	}
+	return true, score
+}
+
+// isSpringBuild reports whether a build file declares Spring — the coordinates,
+// not an incidental mention.
+func isSpringBuild(b []byte) bool {
+	return bytes.Contains(b, []byte("spring-boot")) || bytes.Contains(b, []byte("org.springframework"))
 }
 
 // FileSpec groups what to read by kind: Java sources, Spring config (all

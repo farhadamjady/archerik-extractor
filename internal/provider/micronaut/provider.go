@@ -35,23 +35,31 @@ func (*Provider) Language() string { return "Java" }
 func (*Provider) Match(root string, fs provider.FileTree) (bool, int) {
 	score := 0
 
+	// The `io.micronaut` GROUP ID is a deliberate declaration and counts. A bare
+	// "micronaut" substring does not: it matches a module name, a comment, or a
+	// doc link, and a repo that merely mentions the framework must not be claimed
+	// as one — that produces an empty graph instead of an honest detection failure.
+	micronaut := false
 	for _, bf := range []string{"pom.xml", "build.gradle", "build.gradle.kts"} {
-		if b, err := fs.Read(bf); err == nil {
-			if bytes.Contains(b, []byte("io.micronaut")) || bytes.Contains(b, []byte("micronaut")) {
-				score += 2
-			}
+		if b, err := fs.Read(bf); err == nil && bytes.Contains(b, []byte("io.micronaut")) {
+			micronaut = true
+			score += 2
 		}
 	}
 
 	// Strongest signal: a source importing the Micronaut API.
 	for _, f := range fs.Glob("**/*.java") {
 		if b, err := fs.Read(f); err == nil && bytes.Contains(b, []byte("import io.micronaut")) {
+			micronaut = true
 			score += 3
 			break
 		}
 	}
 
-	return score > 0, score
+	if !micronaut {
+		return false, 0
+	}
+	return true, score
 }
 
 // FileSpec groups what to read by kind. Micronaut uses the same application.*

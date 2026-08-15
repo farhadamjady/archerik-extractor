@@ -133,3 +133,94 @@ func TestActionResponseAndRequestSchema(t *testing.T) {
 		t.Errorf("DELETE response = %+v, want nil (bare Task)", del.Response)
 	}
 }
+
+// field returns a schema's nested field by name, or nil.
+func field(s *model.Schema, name string) *model.Schema {
+	if s == nil {
+		return nil
+	}
+	for i := range s.Nested {
+		if s.Nested[i].Name == name {
+			return &s.Nested[i]
+		}
+	}
+	return nil
+}
+
+// TestResponseFromAnonymousObject proves the ASP.NET half of #67. `IActionResult`
+// is the idiomatic action return precisely BECAUSE it is opaque — it lets one
+// action return several status codes — so the payload exists only inside the
+// method. Reading the declared type alone left every such endpoint with no
+// contract; the anonymous object is now read as the body.
+func TestResponseFromAnonymousObject(t *testing.T) {
+	src := `
+		public class ProductDto { public string Name { get; set; } public int Qty { get; set; } }
+		[Route("api/products")]
+		public class ProductsController : ControllerBase {
+			[HttpGet("{id}")]
+			public IActionResult Get(int id) {
+				ProductDto product = _svc.Find(id);
+				return Ok(new { data = product, total = 1, status = "ok" });
+			}
+		}`
+	r := schemaFor(t, src)["GET /api/products/{id}"].Response
+	if r == nil || r.Type != "object" {
+		t.Fatalf("response = %+v, want the anonymous object as the body", r)
+	}
+	if r.Confidence != model.Confirmed {
+		t.Errorf("member names are written in the source, want %q, got %q", model.Confirmed, r.Confidence)
+	}
+	if len(r.Nested) != 3 {
+		t.Fatalf("fields = %d, want 3 (data, total, status); members are recovered from the separator text", len(r.Nested))
+	}
+	d := field(r, "data")
+	if d == nil || d.Type != "ProductDto" || len(d.Nested) != 2 {
+		t.Fatalf("data = %+v, want ProductDto expanded to 2 fields", d)
+	}
+	if d.Confidence != model.Likely {
+		t.Errorf("data was recovered from the body, want %q, got %q", model.Likely, d.Confidence)
+	}
+	if n := field(r, "total"); n == nil || n.Type != "number" || n.Confidence != model.Confirmed {
+		t.Errorf("total = %+v, want a confirmed number", n)
+	}
+	if s := field(r, "status"); s == nil || s.Type != "string" {
+		t.Errorf("status = %+v, want string", s)
+	}
+}
+
+// TestAnonymousObjectShorthandAndErrorResults locks two rules: a shorthand member
+// (`new { product }`) names itself, and an error result is NEVER the contract —
+// the same rule the Go provider learned in #58, since presenting a 404 envelope
+// as the response is a confident wrong answer, worse than no answer.
+func TestAnonymousObjectShorthandAndErrorResults(t *testing.T) {
+	src := `
+		public class ProductDto { public string Name { get; set; } }
+		[Route("api/products")]
+		public class ProductsController : ControllerBase {
+			[HttpGet("{id}")]
+			public IActionResult Get(int id) {
+				var product = new ProductDto();
+				if (product == null) { return NotFound(new { error = "missing" }); }
+				return Ok(new { product });
+			}
+			[HttpDelete("{id}")]
+			public IActionResult Remove(int id) { return NoContent(); }
+		}`
+	eps := schemaFor(t, src)
+
+	r := eps["GET /api/products/{id}"].Response
+	p := field(r, "product")
+	if p == nil {
+		t.Fatalf("response = %+v, want a shorthand member named product", r)
+	}
+	if p.Type != "ProductDto" {
+		t.Errorf("product = %+v, want ProductDto (var followed to its initializer)", p)
+	}
+	if field(r, "error") != nil {
+		t.Error("the NotFound envelope must never be emitted as the response contract")
+	}
+
+	if r := eps["DELETE /api/products/{id}"].Response; r != nil {
+		t.Errorf("NoContent action = %+v, want no body", r)
+	}
+}
