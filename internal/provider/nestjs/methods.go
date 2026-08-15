@@ -94,7 +94,7 @@ func isParamProperty(p tsjs.Node) bool {
 //   - `return [await] this.<field>.<method>(...)` — the thin controller delegating
 //     to a service. The field's declared type + that type's method return, walked
 //     like a normal response (#62).
-//   - `return { … }` — the controller assembling the wire object inline (#64).
+//   - `return { … }` — the controller assembling the wire object inline (#67).
 //     The literal IS the body, so it is read as the response shape.
 //
 // Delegation is checked first across the whole body: it names a declared type,

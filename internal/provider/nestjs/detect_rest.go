@@ -55,7 +55,7 @@ func (restDetector) onController(mc *provider.MatchContext) {
 		return
 	}
 	walker := schema.NewWalkerDepth(mc.Index.Types, mc.Index.SchemaDepth)
-	// #62/#64: resolve a handler's response from what it RETURNS when it carries no
+	// #62/#67: resolve a handler's response from what it RETURNS when it carries no
 	// return annotation — needs the controller's field types, the repo-wide
 	// method-return index, and the type source itself (property lookups).
 	rc := respCtx{
@@ -159,7 +159,7 @@ func methodResponse(method tsjs.Node, rc respCtx) *model.Schema {
 	rt := method.ChildByFieldName("return_type")
 	if !rt.Valid() {
 		// No declared return type — infer it from what the handler returns:
-		// `return this.svc.method(...)` (#62) or `return { … }` (#64).
+		// `return this.svc.method(...)` (#62) or `return { … }` (#67).
 		return inferResponseFromBody(method, rc)
 	}
 	nt, nullable := normalizeTypeAlias(typeText(rt), rc.aliases)

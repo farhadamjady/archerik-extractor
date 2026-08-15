@@ -13,7 +13,7 @@ const maxExprHops = 6
 
 // objectLiteralSchema types a `return { … }` handler — the envelope pattern,
 // where the controller assembles the wire object inline rather than returning a
-// DTO (#64). The literal IS the response body, which makes its KEYS the contract:
+// DTO (#67). The literal IS the response body, which makes its KEYS the contract:
 // they are read straight off the AST, so the object itself is confirmed even when
 // no value inside it can be typed.
 //
