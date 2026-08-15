@@ -155,3 +155,137 @@ func TestNullableAliasAndUnion(t *testing.T) {
 		}
 	}
 }
+
+// field returns a schema's nested field by name, or nil.
+func field(s *model.Schema, name string) *model.Schema {
+	if s == nil {
+		return nil
+	}
+	for i := range s.Nested {
+		if s.Nested[i].Name == name {
+			return &s.Nested[i]
+		}
+	}
+	return nil
+}
+
+// TestResponseFromReturnedObjectLiteral proves #64: a handler with no return
+// annotation that assembles its response inline (`return { data: profile }` — the
+// envelope pattern, where the wire shape exists only as an object literal) gets
+// that literal as its response. The KEYS come off the AST, so the object is
+// confirmed; each value is chased local -> service method -> declared return type
+// and marked likely, having been reached through indirection rather than declared.
+func TestResponseFromReturnedObjectLiteral(t *testing.T) {
+	src := `
+		export class User { readonly id: string; readonly name: string; }
+		export class UsersService {
+			async getProfile(id: number): Promise<User> { return null; }
+		}
+		@Controller('users')
+		export class UsersController {
+			constructor(private readonly userService: UsersService) {}
+			@Get('me') async getProfile(@Req() req) {
+				const profile = await this.userService.getProfile(req.user.id);
+				return { data: profile, total: 1, label: 'me' };
+			}
+		}`
+	r := schemaFor(t, src)["GET /users/me"].Response
+	if r == nil || r.Type != "object" {
+		t.Fatalf("response = %+v, want an object (the returned literal)", r)
+	}
+	if r.Confidence != model.Confirmed {
+		t.Errorf("literal keys are written in the source, so the object is %q, got %q", model.Confirmed, r.Confidence)
+	}
+	if len(r.Nested) != 3 {
+		t.Fatalf("fields = %d, want 3 (data, total, label)", len(r.Nested))
+	}
+
+	data := field(r, "data")
+	if data == nil || data.Type != "User" {
+		t.Fatalf("data = %+v, want User (chased through the local to UsersService.getProfile)", data)
+	}
+	if data.Confidence != model.Likely {
+		t.Errorf("data resolved through indirection, want %q, got %q", model.Likely, data.Confidence)
+	}
+	if len(data.Nested) != 2 {
+		t.Errorf("User should expand to 2 fields, got %d", len(data.Nested))
+	}
+	if n := field(r, "total"); n == nil || n.Type != "number" || n.Confidence != model.Confirmed {
+		t.Errorf("total = %+v, want a confirmed number", n)
+	}
+	if s := field(r, "label"); s == nil || s.Type != "string" || s.Confidence != model.Confirmed {
+		t.Errorf("label = %+v, want a confirmed string", s)
+	}
+}
+
+// TestObjectLiteralUnresolvableValueStillNamed proves the honesty rule on the
+// envelope path: a value that cannot be typed (an untyped service method, a
+// spread that hides the key set) never deletes the field — the name ships with an
+// uncertain type, and a spread downgrades the object's own confidence because the
+// key list is no longer known to be complete.
+func TestObjectLiteralUnresolvableValueStillNamed(t *testing.T) {
+	src := `
+		export class UsersService {
+			async searchUsers(text) { return null; }
+			async raw(): Promise<any> { return null; }
+		}
+		@Controller('users')
+		export class UsersController {
+			constructor(private readonly userService: UsersService) {}
+			@Get('search') async search(@Query('t') t: string) {
+				const found = await this.userService.searchUsers(t);
+				return { data: found.items, ...extra };
+			}
+			@Get('raw') async rawly() {
+				const r = await this.userService.raw();
+				return { data: r };
+			}
+		}`
+	eps := schemaFor(t, src)
+
+	// `Promise<any>` IS a declared type, but it resolves to an opaque object. Being
+	// chased to a declaration that says nothing must not upgrade the confidence.
+	if d := field(eps["GET /users/raw"].Response, "data"); d == nil || d.Confidence != model.Uncertain {
+		t.Errorf("data from Promise<any> = %+v, want uncertain (an unresolved type is not evidence)", d)
+	}
+
+	r := eps["GET /users/search"].Response
+	if r == nil {
+		t.Fatal("response = nil, want the literal with its named field")
+	}
+	if r.Confidence != model.Uncertain {
+		t.Errorf("a spread hides keys, so the object is %q, got %q", model.Uncertain, r.Confidence)
+	}
+	d := field(r, "data")
+	if d == nil {
+		t.Fatal("data field dropped; an unresolvable value must still ship its name")
+	}
+	if d.Type != "object" || d.Confidence != model.Uncertain {
+		t.Errorf("data = %+v, want an uncertain object (searchUsers declares no return type)", d)
+	}
+}
+
+// TestDeclaredReturnBeatsLiteral locks precedence: a declared return type is
+// still authoritative, and delegation (#62) is still preferred over a literal
+// returned elsewhere in the same handler.
+func TestDeclaredReturnBeatsLiteral(t *testing.T) {
+	src := `
+		export class User { readonly id: string; }
+		export class UsersService { async find(): Promise<User> { return null; } }
+		@Controller('users')
+		export class UsersController {
+			constructor(private readonly svc: UsersService) {}
+			@Get('a') async declared(): Promise<User> { return { data: 1 }; }
+			@Get('b') async delegating(@Query('q') q: string) {
+				if (!q) { return { error: 'missing' }; }
+				return this.svc.find();
+			}
+		}`
+	eps := schemaFor(t, src)
+	if r := eps["GET /users/a"].Response; r == nil || r.Type != "User" {
+		t.Errorf("declared return = %+v, want User (annotation wins over the literal)", r)
+	}
+	if r := eps["GET /users/b"].Response; r == nil || r.Type != "User" {
+		t.Errorf("delegating handler = %+v, want User (#62 wins over the guard-clause literal)", r)
+	}
+}

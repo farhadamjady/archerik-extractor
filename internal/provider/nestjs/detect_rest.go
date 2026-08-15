@@ -55,18 +55,36 @@ func (restDetector) onController(mc *provider.MatchContext) {
 		return
 	}
 	walker := schema.NewWalkerDepth(mc.Index.Types, mc.Index.SchemaDepth)
-	aliases := typeAliases(mc.Index.Types)
-	// #62: resolve a handler's response from `return this.svc.method(...)` when it
-	// has no return annotation — needs the controller's field types and the
-	// repo-wide method-return index.
-	ctrlFields := controllerFieldTypes(class)
-	methodReturns := typeMethods(mc.Index.Types)
+	// #62/#64: resolve a handler's response from what it RETURNS when it carries no
+	// return annotation — needs the controller's field types, the repo-wide
+	// method-return index, and the type source itself (property lookups).
+	rc := respCtx{
+		walker:        walker,
+		fieldWalker:   walker.Nested(),
+		types:         mc.Index.Types,
+		aliases:       typeAliases(mc.Index.Types),
+		ctrlFields:    controllerFieldTypes(class),
+		methodReturns: typeMethods(mc.Index.Types),
+	}
 	for _, m := range tsjs.NamedChildren(body) {
 		if m.Type() != "method_definition" {
 			continue
 		}
-		appendMethodEndpoints(mc.Out, m, base, globals, walker, aliases, ctrlFields, methodReturns)
+		appendMethodEndpoints(mc.Out, m, base, globals, rc)
 	}
+}
+
+// respCtx carries what the schema pass needs beyond the method node: the walker
+// for a declared type, a one-level-shallower walker for types reached THROUGH a
+// returned object literal (the literal occupies a nesting level of its own), the
+// type source for property lookups, the local alias map, and the #62 indexes.
+type respCtx struct {
+	walker        *schema.Walker
+	fieldWalker   *schema.Walker
+	types         schema.TypeSource
+	aliases       map[string]tsAlias
+	ctrlFields    map[string]string
+	methodReturns map[string]map[string]string
 }
 
 // typeAliases returns the local type-alias map when the type source is the
@@ -102,7 +120,7 @@ func controllerBase(ctrl tsjs.Node) string {
 // appendMethodEndpoints emits the endpoint for a method that carries an HTTP-verb
 // decorator, composing global prefix + controller base + method path, and
 // attaching request/response body schemas resolved from the method signature.
-func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string, globals []string, walker *schema.Walker, aliases map[string]tsAlias, ctrlFields map[string]string, methodReturns map[string]map[string]string) {
+func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string, globals []string, rc respCtx) {
 	decs := tsjs.PrecedingDecorators(method)
 	for _, dec := range decs {
 		verb, isVerb := verbDecorator[tsjs.DecoratorName(dec)]
@@ -116,8 +134,8 @@ func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string, gl
 		} else if !literal {
 			conf = model.Uncertain // computed path
 		}
-		req := methodRequest(method, walker, aliases)
-		resp := methodResponse(method, walker, aliases, ctrlFields, methodReturns)
+		req := methodRequest(method, rc)
+		resp := methodResponse(method, rc)
 		for _, g := range globals {
 			out.Endpoints = append(out.Endpoints, model.Endpoint{
 				Method:     verb,
@@ -137,14 +155,15 @@ func appendMethodEndpoints(out *model.Service, method tsjs.Node, base string, gl
 // return type (`: Promise<ArticleRO>` -> ArticleRO), dropping void/absent. Local
 // nullable aliases and `| null` unions resolve to the base type with nullable set
 // (#61): `Promise<NullableType<User>>` / `Promise<User | null>` -> User, nullable.
-func methodResponse(method tsjs.Node, walker *schema.Walker, aliases map[string]tsAlias, ctrlFields map[string]string, methodReturns map[string]map[string]string) *model.Schema {
+func methodResponse(method tsjs.Node, rc respCtx) *model.Schema {
 	rt := method.ChildByFieldName("return_type")
 	if !rt.Valid() {
-		// No declared return type — infer it from `return this.svc.method(...)` (#62).
-		return inferResponseFromBody(method, methodReturns, ctrlFields, aliases, walker)
+		// No declared return type — infer it from what the handler returns:
+		// `return this.svc.method(...)` (#62) or `return { … }` (#64).
+		return inferResponseFromBody(method, rc)
 	}
-	nt, nullable := normalizeTypeAlias(typeText(rt), aliases)
-	s := bodyOrNil(walker.Type(nt))
+	nt, nullable := normalizeTypeAlias(typeText(rt), rc.aliases)
+	s := bodyOrNil(rc.walker.Type(nt))
 	if s != nil && nullable {
 		s.Nullable = true
 	}
@@ -155,7 +174,7 @@ func methodResponse(method tsjs.Node, walker *schema.Walker, aliases map[string]
 // with @Body (`@Body() dto: CreateArticleDto` -> CreateArticleDto). A
 // @Body('field') that picks a sub-property still yields the declared param type,
 // the closest static contract available.
-func methodRequest(method tsjs.Node, walker *schema.Walker, aliases map[string]tsAlias) *model.Schema {
+func methodRequest(method tsjs.Node, rc respCtx) *model.Schema {
 	params := method.ChildByFieldName("parameters")
 	if !params.Valid() {
 		return nil
@@ -164,8 +183,8 @@ func methodRequest(method tsjs.Node, walker *schema.Walker, aliases map[string]t
 		for _, d := range tsjs.NamedChildren(p) {
 			if d.Type() == "decorator" && tsjs.DecoratorName(d) == "Body" {
 				if ta := p.ChildByFieldName("type"); ta.Valid() {
-					nt, nullable := normalizeTypeAlias(typeText(ta), aliases)
-					s := bodyOrNil(walker.Type(nt))
+					nt, nullable := normalizeTypeAlias(typeText(ta), rc.aliases)
+					s := bodyOrNil(rc.walker.Type(nt))
 					if s != nil && nullable {
 						s.Nullable = true
 					}

@@ -38,6 +38,24 @@ func NewWalkerDepth(types TypeSource, depth int) *Walker {
 	return &Walker{types: types, maxDepth: depth}
 }
 
+// Depth reports the walker's nesting budget, for callers that expand a structure
+// of their own (a returned object literal) and need to stop where it would.
+func (w *Walker) Depth() int { return w.maxDepth }
+
+// Nested returns a walker one nesting level shallower, for a type reached
+// THROUGH a structure that already occupies a level — the fields of a returned
+// object literal, say. Without it those types would expand one level deeper
+// than an equivalent declared-DTO body, and truncation would land in a
+// different place for the same --schema-depth. Never drops below 1, so the
+// type itself always resolves.
+func (w *Walker) Nested() *Walker {
+	d := w.maxDepth - 1
+	if d < 1 {
+		d = 1
+	}
+	return &Walker{types: w.types, maxDepth: d}
+}
+
 // Type resolves a type expression (e.g. "ResponseEntity<List<User>>") to a
 // schema, or nil for an empty expression. A void body yields a {type:"void"}
 // schema the caller drops. Requiredness is filled in everywhere (default unknown).
