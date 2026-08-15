@@ -93,6 +93,42 @@ func TestMatchDefersToNest(t *testing.T) {
 	}
 }
 
+// TestMatchNeedsUsageNotJustDependency locks the rule that keeps an unrecognized
+// repo unrecognized: a package.json `"express"` with no express import in any
+// source is NOT an Express service. The shape is real — an AWS SAM app whose
+// routes live in the template as Lambda API events, carrying express only
+// because aws-serverless-express depends on it. Claiming it would emit an empty
+// graph (a service with no endpoints and no dependencies); refusing lets
+// detection fail loudly instead.
+func TestMatchNeedsUsageNotJustDependency(t *testing.T) {
+	sam := t.TempDir()
+	writeFile(t, sam, "package.json",
+		`{"dependencies":{"aws-serverless-express":"3.1.3","express":"4.16.2"}}`)
+	writeFile(t, sam, "app.js", "const fs = require('fs');\nexports.start = async function () {};")
+	writeFile(t, sam, "controllers/profile.js", "exports.getProfile = async (event) => ({});")
+	if m, score := New().Match(sam, scan.NewOSFileTree(sam, nil)); m {
+		t.Errorf("SAM repo matched Express (score %d); the dependency alone must not match", score)
+	}
+
+	// Usage without a declared dependency still matches — vendored/monorepo setups
+	// where the dependency lives in a parent package.json.
+	vendored := t.TempDir()
+	writeFile(t, vendored, "package.json", `{"dependencies":{}}`)
+	writeFile(t, vendored, "index.js", "const express = require('express'); const app = express();")
+	m, score := New().Match(vendored, scan.NewOSFileTree(vendored, nil))
+	if !m || score != 3 {
+		t.Errorf("usage without dependency: matched=%v score=%d, want true/3", m, score)
+	}
+
+	// A look-alike dependency is not express.
+	lookalike := t.TempDir()
+	writeFile(t, lookalike, "package.json", `{"dependencies":{"express-session":"^1"}}`)
+	writeFile(t, lookalike, "index.js", "const s = require('express-session');")
+	if m, _ := New().Match(lookalike, scan.NewOSFileTree(lookalike, nil)); m {
+		t.Error("express-session must not count as express usage")
+	}
+}
+
 func writeFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	p := filepath.Join(root, filepath.FromSlash(rel))

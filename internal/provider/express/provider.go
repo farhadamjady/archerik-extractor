@@ -26,8 +26,16 @@ func (*Provider) Language() string { return "JavaScript" }
 
 // Match scores an Express repo. It DEFERS to NestJS: a repo with a @nestjs
 // dependency is NestJS's (NestJS runs on Express under the hood, so the express
-// dependency alone must not steal it). Otherwise it requires the express
-// dependency plus real usage (an `express()`/`require('express')` in a source).
+// dependency alone must not steal it).
+//
+// Real usage — an `express` import in a source file — is REQUIRED, never just the
+// package.json dependency. A dependency alone proves nothing: it arrives
+// transitively (aws-serverless-express pulls express in) or sits vestigially in a
+// repo that routes through something else entirely, e.g. an AWS SAM template
+// declaring its routes as Lambda API events. Matching such a repo would claim it,
+// find no `app.get(...)` calls, and emit an empty graph — a service that looks
+// like it has no endpoints and no dependencies. Failing to match instead lets
+// detection fail loudly (exit 2), which is the honest answer.
 func (*Provider) Match(root string, fs provider.FileTree) (bool, int) {
 	pkg, _ := fs.Read("package.json")
 	if bytes.Contains(pkg, []byte("@nestjs/")) {
@@ -37,21 +45,31 @@ func (*Provider) Match(root string, fs provider.FileTree) (bool, int) {
 	if len(srcs) == 0 {
 		return false, 0
 	}
-	score := 0
-	if bytes.Contains(pkg, []byte(`"express"`)) {
-		score += 2
-	}
+	used := false
 	for _, f := range srcs {
-		if b, err := fs.Read(f); err == nil &&
-			(bytes.Contains(b, []byte("require('express')")) ||
-				bytes.Contains(b, []byte("require(\"express\")")) ||
-				bytes.Contains(b, []byte("from 'express'")) ||
-				bytes.Contains(b, []byte("from \"express\""))) {
-			score += 3
+		if b, err := fs.Read(f); err == nil && importsExpress(b) {
+			used = true
 			break
 		}
 	}
-	return score > 0, score
+	if !used {
+		return false, 0
+	}
+	score := 3
+	if bytes.Contains(pkg, []byte(`"express"`)) {
+		score += 2 // usage AND a declared dependency: the strongest signal
+	}
+	return true, score
+}
+
+// importsExpress reports whether a source pulls in express itself. Deliberately
+// literal: `express-session`, `aws-serverless-express` and friends are different
+// packages and must not count as express usage.
+func importsExpress(src []byte) bool {
+	return bytes.Contains(src, []byte("require('express')")) ||
+		bytes.Contains(src, []byte("require(\"express\")")) ||
+		bytes.Contains(src, []byte("from 'express'")) ||
+		bytes.Contains(src, []byte("from \"express\""))
 }
 
 // FileSpec collects JS and TS sources; node_modules/dist/tests excluded.
