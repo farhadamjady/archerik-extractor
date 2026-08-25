@@ -14,6 +14,7 @@ func TestDefault(t *testing.T) {
 		"express-node":       false,
 		"aspnet-core-csharp": false,
 		"go-nethttp":         false,
+		"laravel-php":        false,
 	}
 	ps := Default()
 	if len(ps) != len(want) {

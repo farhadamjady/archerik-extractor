@@ -7,6 +7,7 @@ import (
 	"github.com/farhadamjady/archerik-extractor/internal/provider"
 	"github.com/farhadamjady/archerik-extractor/internal/provider/aspnet"
 	"github.com/farhadamjady/archerik-extractor/internal/provider/express"
+	"github.com/farhadamjady/archerik-extractor/internal/provider/laravel"
 	"github.com/farhadamjady/archerik-extractor/internal/provider/micronaut"
 	"github.com/farhadamjady/archerik-extractor/internal/provider/nestjs"
 	"github.com/farhadamjady/archerik-extractor/internal/provider/nethttp"
@@ -27,5 +28,6 @@ func Default() []provider.Provider {
 		express.New(),
 		aspnet.New(),
 		nethttp.New(),
+		laravel.New(),
 	}
 }
