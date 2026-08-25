@@ -98,6 +98,20 @@ func TestRoutes(t *testing.T) {
 			want: []string{"GET /real"},
 		},
 		{
+			// Found on laravel/framework @ 12.x
+			// (src/Illuminate/Auth/Middleware/RedirectIfAuthenticated.php:71).
+			// The facade also exposes methods that return something other than a
+			// registrar: getRoutes() gives a RouteCollection, and ->get('GET')
+			// on it is a LOOKUP by verb. Rooting at `Route::` is not enough to
+			// call something a registration — this emitted `GET /GET`.
+			name: "non-registering facade methods do not register",
+			src: `$routes = Route::getRoutes()->get('GET');
+				$c = Route::getRoutes();
+				Route::current()->parameter('id');
+				Route::get('/real', $h);`,
+			want: []string{"GET /real"},
+		},
+		{
 			name: "interpolated path is skipped, not guessed",
 			src: `Route::get("/tenant/{$tenant}/users", $h);
 				Route::get('/static', $h);`,
@@ -345,6 +359,99 @@ func TestMatch(t *testing.T) {
 	writeFile(t, plain, "composer.json", `{"require":{"symfony/console":"^7.0"}}`)
 	if m, _ := New().Match(plain, scan.NewOSFileTree(plain, nil)); m {
 		t.Error("a non-Laravel PHP repo must not match")
+	}
+}
+
+// TestMatchNeedsUsageNotJustDependency covers docs/CROSS-STACK-CHECKS.md Check 2:
+// a dependency string is not a usage. Modeled on the Express test of the same
+// name.
+func TestMatchNeedsUsageNotJustDependency(t *testing.T) {
+	// A Laravel *package* — the case that motivated the gate. It requires the
+	// framework to build against and registers no routes of its own, so it must
+	// not be claimed as a service.
+	pkg := t.TempDir()
+	writeFile(t, pkg, "composer.json",
+		`{"name":"acme/laravel-widgets","require-dev":{"laravel/framework":"^11.0"}}`)
+	writeFile(t, pkg, "src/WidgetServiceProvider.php",
+		"<?php\nclass WidgetServiceProvider extends ServiceProvider {\n  public function boot() { $this->publishes([]); }\n}")
+	if m, score := New().Match(pkg, scan.NewOSFileTree(pkg, nil)); m {
+		t.Errorf("laravel package matched (score %d); the dependency alone must not match", score)
+	}
+
+	// The same package with the framework INSTALLED. vendor/ carries Laravel's
+	// own route declarations, so a usage scan that reads it would match every
+	// PHP repo that ever ran `composer install`.
+	installed := t.TempDir()
+	writeFile(t, installed, "composer.json",
+		`{"name":"acme/laravel-widgets","require-dev":{"laravel/framework":"^11.0"}}`)
+	writeFile(t, installed, "src/WidgetServiceProvider.php", "<?php\nclass WidgetServiceProvider {}")
+	writeFile(t, installed, "vendor/laravel/framework/src/Illuminate/Foundation/stubs/routes.php",
+		"<?php Route::get('/', function () { return view('welcome'); });")
+	if m, score := New().Match(installed, scan.NewOSFileTree(installed, nil)); m {
+		t.Errorf("vendored framework routes matched (score %d); vendor/ is not this service's usage", score)
+	}
+
+	// Nor is a throwaway route spun up by a package's own test suite.
+	testonly := t.TempDir()
+	writeFile(t, testonly, "composer.json",
+		`{"name":"acme/laravel-widgets","require-dev":{"laravel/framework":"^11.0"}}`)
+	writeFile(t, testonly, "src/Widget.php", "<?php\nclass Widget {}")
+	writeFile(t, testonly, "tests/Feature/WidgetTest.php",
+		"<?php Route::get('/__test', fn () => 'ok');")
+	if m, score := New().Match(testonly, scan.NewOSFileTree(testonly, nil)); m {
+		t.Errorf("test-suite route matched (score %d); tests/ is excluded from extraction", score)
+	}
+
+	// `Route::class` in a stock config/app.php aliases array registers nothing.
+	aliasonly := t.TempDir()
+	writeFile(t, aliasonly, "composer.json", `{"require":{"laravel/framework":"^11.0"}}`)
+	writeFile(t, aliasonly, "artisan", "#!/usr/bin/env php")
+	writeFile(t, aliasonly, "config/app.php",
+		"<?php\nreturn ['aliases' => ['Route' => Illuminate\\Support\\Facades\\Route::class]];")
+	if m, score := New().Match(aliasonly, scan.NewOSFileTree(aliasonly, nil)); m {
+		t.Errorf("Route::class alias matched (score %d); it is a reference, not a registration", score)
+	}
+
+	// A tool that only INSPECTS the route table (a route-lister, a debug bar)
+	// calls the facade without registering anything. It serves no routes.
+	inspector := t.TempDir()
+	writeFile(t, inspector, "composer.json", `{"require":{"laravel/framework":"^11.0"}}`)
+	writeFile(t, inspector, "src/RouteLister.php",
+		"<?php\nclass RouteLister {\n  public function all() { return Route::getRoutes()->get('GET'); }\n  public function known($n) { return Route::has($n); }\n}")
+	if m, score := New().Match(inspector, scan.NewOSFileTree(inspector, nil)); m {
+		t.Errorf("route inspector matched (score %d); reading the route table is not serving routes", score)
+	}
+
+	// laravel-zero is a CLI framework with an artisan-like entry point and no
+	// HTTP router — a look-alike that must not read as Laravel.
+	zero := t.TempDir()
+	writeFile(t, zero, "composer.json", `{"require":{"laravel-zero/framework":"^11.0"}}`)
+	writeFile(t, zero, "artisan", "#!/usr/bin/env php")
+	writeFile(t, zero, "app/Commands/BuildCommand.php", "<?php\nclass BuildCommand extends Command {}")
+	if m, score := New().Match(zero, scan.NewOSFileTree(zero, nil)); m {
+		t.Errorf("laravel-zero matched (score %d); it has no HTTP router", score)
+	}
+
+	// Usage in a real route file still matches, and the chained registration
+	// form counts as usage just as the detector reads it.
+	chained := t.TempDir()
+	writeFile(t, chained, "composer.json", `{"require":{"laravel/framework":"^11.0"}}`)
+	writeFile(t, chained, "artisan", "#!/usr/bin/env php")
+	writeFile(t, chained, "routes/api.php",
+		"<?php Route::prefix('v1')->group(function () { Route::get('/users', $h); });")
+	m, score := New().Match(chained, scan.NewOSFileTree(chained, nil))
+	if !m || score != 8 {
+		t.Errorf("chained registration: matched=%v score=%d, want true/8", m, score)
+	}
+
+	// Usage without a declared dependency: a monorepo service whose composer.json
+	// lives in a parent directory. artisan alone carries it.
+	monorepo := t.TempDir()
+	writeFile(t, monorepo, "artisan", "#!/usr/bin/env php")
+	writeFile(t, monorepo, "routes/web.php", "<?php Route::get('/health', $h);")
+	m, score = New().Match(monorepo, scan.NewOSFileTree(monorepo, nil))
+	if !m || score != 5 { // php(1) + artisan(2) + routes(2)
+		t.Errorf("usage without dependency: matched=%v score=%d, want true/5", m, score)
 	}
 }
 

@@ -88,21 +88,69 @@ func (routeDetector) onCall(mc *provider.MatchContext) {
 	}
 }
 
-// routeFacade reports whether a call's receiver chain roots at the Route facade
-// — `Route::`, `\Route::`, or the fully-qualified
-// `Illuminate\Support\Facades\Route::`. Without this gate any `X::get(...)` or
+// routeFacade reports whether a call is a registration ON the Route facade: its
+// receiver chain must root at `Route::`, `\Route::`, or the fully-qualified
+// `Illuminate\Support\Facades\Route::`, AND every call between the root and this
+// one must be a router method. Without the root check, any `X::get(...)` or
 // `$repo->delete(...)` in the service would register a phantom endpoint.
+//
+// The chain check matters just as much, because the facade also exposes
+// non-registering methods that return something else entirely:
+//
+//	Route::getRoutes()->get('GET')   // a RouteCollection LOOKUP
+//
+// That roots at `Route::` and its outer method is `get` with one string
+// argument, so a root-only check read it as a registration and emitted
+// `GET /GET` — a phantom endpoint, found in laravel/framework's own
+// RedirectIfAuthenticated middleware. `getRoutes` is not a router method, so the
+// chain is rejected and nothing is emitted.
 func routeFacade(call php.Node) bool {
 	for n := call; n.Valid(); {
 		switch n.Type() {
 		case "member_call_expression", "nullsafe_member_call_expression":
-			n = n.ChildByFieldName("object")
+			recv := n.ChildByFieldName("object")
+			// Every call below the outermost one is an intermediate link; the
+			// outermost call's own name is the caller's business.
+			if !n.Equal(call) && !routeChainMethod(php.CallName(n)) {
+				return false
+			}
+			n = recv
 		case "scoped_call_expression":
 			scope := n.ChildByFieldName("scope").Text()
-			return scope == "Route" || strings.HasSuffix(scope, `\Route`)
+			if scope != "Route" && !strings.HasSuffix(scope, `\Route`) {
+				return false
+			}
+			return n.Equal(call) || routeChainMethod(php.CallName(n))
 		default:
 			return false
 		}
+	}
+	return false
+}
+
+// routeChainMethod reports whether a method may appear mid-chain in a route
+// registration. Two kinds qualify: the RouteRegistrar attribute methods, which
+// return a registrar so more links can follow, and the registrations themselves,
+// which return a Route that attributes are commonly chained onto
+// (`Route::get(...)->name('users.index')`).
+//
+// Anything else ends the chain: a Router method that returns a RouteCollection,
+// the current Route, or the facade root is not building a registration.
+func routeChainMethod(name string) bool {
+	if _, ok := routeVerb[name]; ok {
+		return true
+	}
+	switch name {
+	// RouteRegistrar attributes (Illuminate\Routing\RouteRegistrar).
+	case "as", "controller", "domain", "middleware", "missing", "name",
+		"namespace", "prefix", "scopeBindings", "where", "withoutMiddleware",
+		"withoutScopedBindings", "block", "withoutBlocking", "defaults", "can",
+		"group":
+		return true
+	// Registrars, which also return something chainable.
+	case "match", "resource", "apiResource", "resources", "apiResources",
+		"redirect", "permanentRedirect", "view", "fallback":
+		return true
 	}
 	return false
 }
