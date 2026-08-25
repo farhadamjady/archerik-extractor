@@ -11,7 +11,7 @@
 [![CI](https://github.com/farhadamjady/service-discovery/actions/workflows/ci.yml/badge.svg)](https://github.com/farhadamjady/service-discovery/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/go-1.26%2B-00B3CB?logo=go&logoColor=white)](https://go.dev)
 [![License](https://img.shields.io/badge/license-MIT-008598)](LICENSE)
-[![Stacks](https://img.shields.io/badge/stacks-8-005865)](#supported-stacks)
+[![Stacks](https://img.shields.io/badge/stacks-9-005865)](#supported-stacks)
 
 </div>
 
@@ -103,6 +103,7 @@ that quietly omits what it couldn't figure out is worse than one that admits it.
 | JavaScript | Express | ✅ call-based routing | ✅ axios · fetch | — |
 | C# | ASP.NET Core | ✅ attribute routing + Minimal APIs | ✅ `HttpClient` · Refit | ✅ Confluent.Kafka |
 | Go | `net/http` (no framework) | ✅ incl. Go 1.22 method patterns | ✅ std-lib client | ✅ kafka-go · sarama · confluent |
+| PHP | Laravel | ✅ groups, mount prefixes, resource registrars | — | — |
 
 Request/response and message **schemas** are attached wherever the declared
 types resolve — walked from the source DTOs, two levels deep by default
