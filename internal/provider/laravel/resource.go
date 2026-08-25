@@ -44,7 +44,7 @@ var resourceActions = append([]resourceAction{
 
 // emitResource expands one resource registration into its endpoints, honouring
 // the `->only([...])` / `->except([...])` filters on the registration's chain.
-func emitResource(mc *provider.MatchContext, call php.Node, name string, api bool) {
+func emitResource(mc *provider.MatchContext, call php.Node, name string, api bool, controller php.Node) {
 	if name == "" {
 		return // dynamic resource name — nothing to expand
 	}
@@ -59,11 +59,15 @@ func emitResource(mc *provider.MatchContext, call php.Node, name string, api boo
 			continue
 		}
 		suffix := strings.ReplaceAll(a.suffix, "{param}", "{"+param+"}")
+		// Each action is served by the like-named method on the registered
+		// controller, so a resource route's contracts resolve exactly as a
+		// verb route's do.
+		req, resp := resourceActionSchemas(mc, controller, a.action)
 		for _, full := range composePaths(mc, call, base+suffix) {
 			// The resource name reached here as a literal (a dynamic one is
 			// declined above) and the action set is a fixed framework fact, so
 			// every path is confirmed.
-			appendEndpoint(mc, a.verb, full, model.Confirmed)
+			appendEndpoint(mc, a.verb, full, model.Confirmed, req, resp)
 		}
 	}
 }
@@ -158,4 +162,22 @@ func singular(name string) string {
 	default:
 		return s[:len(s)-1]
 	}
+}
+
+// resourceActionSchemas resolves the contracts of one resource action by
+// following the registered controller class to its like-named method.
+func resourceActionSchemas(mc *provider.MatchContext, controller php.Node, action string) (*model.Schema, *model.Schema) {
+	if !controller.Valid() {
+		return nil, nil
+	}
+	cls, ok := lookupClass(mc.Index, controller, controller.Text())
+	if !ok {
+		return nil, nil
+	}
+	method, ok := cls.method(action)
+	if !ok {
+		return nil, nil
+	}
+	res := newResolver(mc.Index)
+	return requestSchema(method, res), responseSchema(method, res)
 }

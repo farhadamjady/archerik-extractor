@@ -64,26 +64,26 @@ func (routeDetector) onCall(mc *provider.MatchContext) {
 	}
 	switch name := php.CallName(call); name {
 	case "match":
-		emitRoutes(mc, call, matchVerbs(php.PositionalArg(call, 0)), php.PositionalArg(call, 1))
+		emitRoutes(mc, call, matchVerbs(php.PositionalArg(call, 0)), php.PositionalArg(call, 1), php.PositionalArg(call, 2))
 	case "redirect", "permanentRedirect":
 		// Router::redirect() registers the URI for ANY verb, serving a redirect
 		// from a framework controller. It is still an endpoint this service
 		// answers on.
-		emitRoutes(mc, call, []string{"*"}, php.PositionalArg(call, 0))
+		emitRoutes(mc, call, []string{"*"}, php.PositionalArg(call, 0), php.Node{})
 	case "view":
 		// Router::view() binds GET (and HEAD) to a framework controller that
 		// renders a template — emitted as GET, like every other read route.
-		emitRoutes(mc, call, []string{"GET"}, php.PositionalArg(call, 0))
+		emitRoutes(mc, call, []string{"GET"}, php.PositionalArg(call, 0), php.Node{})
 	case "resource", "apiResource":
 		res, _ := php.StringLit(php.PositionalArg(call, 0))
-		emitResource(mc, call, res, name == "apiResource")
+		emitResource(mc, call, res, name == "apiResource", php.PositionalArg(call, 1))
 	case "resources", "apiResources":
 		for _, e := range php.ArrayEntries(php.PositionalArg(call, 0)) {
-			emitResource(mc, call, e.Key, name == "apiResources")
+			emitResource(mc, call, e.Key, name == "apiResources", e.Value)
 		}
 	default:
 		if verb, ok := routeVerb[name]; ok {
-			emitRoutes(mc, call, []string{verb}, php.PositionalArg(call, 0))
+			emitRoutes(mc, call, []string{verb}, php.PositionalArg(call, 0), php.PositionalArg(call, 1))
 		}
 	}
 }
@@ -187,13 +187,18 @@ func matchVerbs(arg php.Node) []string {
 	return out
 }
 
-// emitRoutes appends one endpoint per verb per resolved path per mount.
-func emitRoutes(mc *provider.MatchContext, call php.Node, verbs []string, pathArg php.Node) {
+// emitRoutes appends one endpoint per verb per resolved path per mount, with the
+// request/response contracts of the handler the registration names.
+func emitRoutes(mc *provider.MatchContext, call php.Node, verbs []string, pathArg, handlerArg php.Node) {
 	raws, conf := resolvePath(mc, call, pathArg)
+	if len(raws) == 0 {
+		return
+	}
+	req, resp := handlerSchemas(mc, handlerArg)
 	for _, verb := range verbs {
 		for _, raw := range raws {
 			for _, full := range composePaths(mc, call, raw) {
-				appendEndpoint(mc, verb, full, conf)
+				appendEndpoint(mc, verb, full, conf, req, resp)
 			}
 		}
 	}
@@ -257,10 +262,12 @@ func composePaths(mc *provider.MatchContext, call php.Node, raw string) []string
 	return out
 }
 
-func appendEndpoint(mc *provider.MatchContext, verb, path string, conf model.Confidence) {
+func appendEndpoint(mc *provider.MatchContext, verb, path string, conf model.Confidence, req, resp *model.Schema) {
 	mc.Out.Endpoints = append(mc.Out.Endpoints, model.Endpoint{
 		Method:     verb,
 		Path:       path,
+		Request:    req,
+		Response:   resp,
 		Protocol:   model.ProtoREST,
 		Detection:  model.DetectRouter,
 		Confidence: conf,

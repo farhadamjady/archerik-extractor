@@ -1,5 +1,7 @@
 package php
 
+import "strings"
+
 // Scope supplies the non-syntactic half of evaluation. Eval walks the expression
 // tree; everything that depends on what the surrounding program DOES — what a
 // variable holds, what a config accessor returns — comes from here, so the
@@ -139,4 +141,93 @@ func (f *File) TopLevelVars() map[string]Node {
 		f.vars = vars
 	})
 	return f.vars
+}
+
+// Namespace returns the file's declared namespace, or "" for the global one.
+func (f *File) Namespace() string {
+	f.nsOnce.Do(func() {
+		for _, n := range NamedChildren(f.Root()) {
+			if n.Type() == "namespace_definition" {
+				f.ns = ChildByType(n, "namespace_name").Text()
+				return
+			}
+		}
+	})
+	return f.ns
+}
+
+// Imports returns the file's `use` statements as alias -> fully-qualified name.
+//
+// This is what makes a bare class name resolvable. A repo the size of a real
+// Laravel app has several classes per simple name — laravel-blog declares THREE
+// `PostController`s (web, admin, API v1) — and the `use` line at the top of the
+// route file is what says which one a registration means. Resolving on the
+// simple name alone picks one of the three and reads the wrong contract.
+//
+// Both spellings are handled: `use A\B\C;` and `use A\B\C as D;`, including the
+// grouped `use A\B\{C, D};` form.
+func (f *File) Imports() map[string]string {
+	f.impOnce.Do(func() {
+		imports := map[string]string{}
+		for _, n := range NamedChildren(f.Root()) {
+			if n.Type() != "namespace_use_declaration" {
+				continue
+			}
+			collectUses(n, "", imports)
+		}
+		f.imports = imports
+	})
+	return f.imports
+}
+
+// collectUses walks one `use` declaration, which may hold several clauses and a
+// group prefix.
+func collectUses(n Node, prefix string, out map[string]string) {
+	for _, c := range NamedChildren(n) {
+		switch c.Type() {
+		case "namespace_name":
+			prefix = c.Text() // the group prefix of `use A\B\{...}`
+		case "namespace_use_group":
+			for _, g := range NamedChildren(c) {
+				collectUses(g, prefix, out)
+			}
+		case "namespace_use_clause", "namespace_use_group_clause":
+			addUseClause(c, prefix, out)
+		}
+	}
+}
+
+func addUseClause(c Node, prefix string, out map[string]string) {
+	var fqn, alias string
+	for _, k := range NamedChildren(c) {
+		switch k.Type() {
+		case "qualified_name", "namespace_name":
+			fqn = strings.TrimPrefix(k.Text(), `\`)
+		case "name":
+			if fqn == "" {
+				fqn = k.Text()
+			}
+		case "namespace_aliasing_clause":
+			// `use A\B\Post as PostResource` — the alias is what the rest of the
+			// file writes, and it is routinely NOT the class's own name.
+			// laravel-blog imports `App\Http\Resources\Post as PostResource`,
+			// where `Post` alone would collide with the Eloquent model.
+			alias = ChildByType(k, "name").Text()
+		}
+	}
+	if fqn == "" {
+		return
+	}
+	if prefix != "" {
+		fqn = strings.TrimSuffix(prefix, `\`) + `\` + fqn
+	}
+	if alias == "" {
+		alias = fqn
+		if i := strings.LastIndexByte(alias, '\\'); i >= 0 {
+			alias = alias[i+1:]
+		}
+	}
+	if _, taken := out[alias]; !taken {
+		out[alias] = fqn
+	}
 }

@@ -43,6 +43,12 @@ type File struct {
 	// Lazily-built file-scope variable bindings; see TopLevelVars.
 	varsOnce sync.Once
 	vars     map[string]Node
+
+	// Lazily-built name-resolution context; see Namespace and Imports.
+	nsOnce  sync.Once
+	ns      string
+	impOnce sync.Once
+	imports map[string]string
 }
 
 func (f *File) Path() string            { return f.path }
@@ -118,6 +124,11 @@ func (n Node) StartByte() uint32 {
 
 // Equal reports whether two nodes are the same parse-tree node.
 func (n Node) Equal(o Node) bool { return n.inner == o.inner }
+
+// File returns the parsed file a node belongs to. Name resolution needs it: what
+// `PostController` refers to depends on the `use` imports and namespace of the
+// file the name was written in.
+func (n Node) File() *File { return n.file }
 
 func (n Node) Walk(fn func(Node) bool) {
 	if n.inner == nil || !fn(n) {
