@@ -182,6 +182,10 @@ func (*Provider) FileSpec() provider.FileSpec {
 	return provider.FileSpec{
 		Groups: []provider.FileGroup{
 			{Kind: provider.KindJava, Include: []string{"**/*.php"}},
+			// The environment layer behind `env('X')` in config/*.php.
+			{Kind: provider.KindDeployConfig, Include: []string{
+				"**/.env", "**/.env.example", "**/*.env",
+			}},
 		},
 		Exclude: []string{
 			"**/vendor/**",
@@ -196,16 +200,18 @@ func (*Provider) FileSpec() provider.FileSpec {
 
 func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 	return map[provider.FileKind]provider.Parser{
-		provider.KindJava: php.NewParser(),
+		provider.KindJava:         php.NewParser(),
+		provider.KindDeployConfig: rawParser{kind: provider.KindDeployConfig},
 	}
 }
 
 // Indexers: the prefix indexer resolves which URL prefix each route FILE is
 // mounted under (`routes/api.php` under `api`), which is declared outside the
-// route file itself. Config resolution (`config()`/`env()`), outbound clients
-// and schemas are next rounds.
+// route file itself; the config indexer builds the `config()`/`env()` view that
+// detectors resolve values through. Outbound clients and schemas are next
+// rounds.
 func (*Provider) Indexers() []provider.Indexer {
-	return []provider.Indexer{prefixIndexer{}}
+	return []provider.Indexer{prefixIndexer{}, configIndexer{}}
 }
 
 // Detectors: REST endpoints from Route facade registrations, including group

@@ -39,6 +39,10 @@ type File struct {
 	path string
 	src  []byte
 	tree *sitter.Tree
+
+	// Lazily-built file-scope variable bindings; see TopLevelVars.
+	varsOnce sync.Once
+	vars     map[string]Node
 }
 
 func (f *File) Path() string            { return f.path }

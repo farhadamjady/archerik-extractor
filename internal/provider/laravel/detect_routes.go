@@ -167,17 +167,58 @@ func matchVerbs(arg php.Node) []string {
 	return out
 }
 
-// emitRoutes appends one endpoint per verb per composed path.
+// emitRoutes appends one endpoint per verb per resolved path per mount.
 func emitRoutes(mc *provider.MatchContext, call php.Node, verbs []string, pathArg php.Node) {
-	raw, ok := php.StringLit(pathArg)
-	if !ok {
-		return // dynamic path — no stable endpoint identity to emit
-	}
+	raws, conf := resolvePath(mc, call, pathArg)
 	for _, verb := range verbs {
-		for _, full := range composePaths(mc, call, raw) {
-			appendEndpoint(mc, verb, full)
+		for _, raw := range raws {
+			for _, full := range composePaths(mc, call, raw) {
+				appendEndpoint(mc, verb, full, conf)
+			}
 		}
 	}
+}
+
+// resolvePath resolves a registration's path argument to the set of paths it
+// declares, with the confidence that resolution earns.
+//
+// A literal is the path, `confirmed`. Otherwise it is evaluated in the
+// registration's scope — enclosing `foreach` bindings, the file's top-level
+// variables, `config()`/`env()` — and what comes back is `likely`: every input
+// was a literal in the source, but reading them as the iteration set assumes the
+// array is not mutated between its declaration and the loop, which is one
+// inference more than a declared path needs.
+//
+// An unresolved path yields nothing. An endpoint's identity IS verb + path, so
+// there is no honest way to emit one whose path is unknown — unlike an outbound
+// dependency, which can be emitted as an unknown target. This is the same choice
+// the Express and net/http providers make.
+func resolvePath(mc *provider.MatchContext, call, pathArg php.Node) ([]string, model.Confidence) {
+	if raw, ok := php.StringLit(pathArg); ok {
+		return []string{raw}, model.Confirmed
+	}
+	f, ok := mc.File.(*php.File)
+	if !ok {
+		return nil, model.Uncertain
+	}
+	vals, ok := php.Eval(pathArg, newRouteScope(f, call, mc.Index))
+	if !ok {
+		return nil, model.Uncertain
+	}
+	return dedupe(vals), model.Likely
+}
+
+// dedupe removes repeats while preserving order, so output stays byte-stable.
+func dedupe(vals []string) []string {
+	seen := make(map[string]bool, len(vals))
+	out := vals[:0:0]
+	for _, v := range vals {
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // composePaths joins the file's mount prefix(es), the enclosing group prefixes,
@@ -196,13 +237,13 @@ func composePaths(mc *provider.MatchContext, call php.Node, raw string) []string
 	return out
 }
 
-func appendEndpoint(mc *provider.MatchContext, verb, path string) {
+func appendEndpoint(mc *provider.MatchContext, verb, path string, conf model.Confidence) {
 	mc.Out.Endpoints = append(mc.Out.Endpoints, model.Endpoint{
 		Method:     verb,
 		Path:       path,
 		Protocol:   model.ProtoREST,
 		Detection:  model.DetectRouter,
-		Confidence: model.Confirmed,
+		Confidence: conf,
 	})
 }
 
@@ -301,12 +342,30 @@ func joinPath(parts ...string) string {
 	return "/" + strings.Join(segs, "/")
 }
 
-// normalizeSegment canonicalizes an optional path parameter (`{id?}` -> `{id}`).
+// normalizeSegment canonicalizes optional path parameters (`{id?}` -> `{id}`).
 // Optionality is a routing detail; the graph keys an endpoint on verb + path, and
 // a caller's `/users/{id}` must match this service's declaration.
+//
+// A parameter need not be the whole segment. Laravel appends a format parameter
+// directly to a literal (`getLicense{format?}`, koel's Subsonic API), so every
+// `{...}` in the segment is normalized, not just a segment that is one.
 func normalizeSegment(s string) string {
-	if strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}") {
-		return "{" + strings.TrimSpace(strings.TrimSuffix(s[1:len(s)-1], "?")) + "}"
+	var b strings.Builder
+	for {
+		open := strings.Index(s, "{")
+		if open < 0 {
+			break
+		}
+		close := strings.Index(s[open:], "}")
+		if close < 0 {
+			break
+		}
+		close += open
+		b.WriteString(s[:open])
+		name := strings.TrimSpace(strings.TrimSuffix(s[open+1:close], "?"))
+		b.WriteString("{" + name + "}")
+		s = s[close+1:]
 	}
-	return s
+	b.WriteString(s)
+	return b.String()
 }

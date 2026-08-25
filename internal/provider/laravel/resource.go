@@ -3,6 +3,7 @@ package laravel
 import (
 	"strings"
 
+	"github.com/farhadamjady/archerik-extractor/internal/model"
 	"github.com/farhadamjady/archerik-extractor/internal/provider"
 	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/php"
 )
@@ -59,7 +60,10 @@ func emitResource(mc *provider.MatchContext, call php.Node, name string, api boo
 		}
 		suffix := strings.ReplaceAll(a.suffix, "{param}", "{"+param+"}")
 		for _, full := range composePaths(mc, call, base+suffix) {
-			appendEndpoint(mc, a.verb, full)
+			// The resource name reached here as a literal (a dynamic one is
+			// declined above) and the action set is a fixed framework fact, so
+			// every path is confirmed.
+			appendEndpoint(mc, a.verb, full, model.Confirmed)
 		}
 	}
 }
