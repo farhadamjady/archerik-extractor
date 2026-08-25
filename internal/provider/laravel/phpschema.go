@@ -1,6 +1,8 @@
 package laravel
 
 import (
+	"strings"
+
 	"github.com/farhadamjady/archerik-extractor/internal/model"
 	"github.com/farhadamjady/archerik-extractor/internal/provider"
 	"github.com/farhadamjady/archerik-extractor/internal/provider/lang/php"
@@ -94,6 +96,33 @@ func valueSchema(v php.Node, depth int, res *resolver) *model.Schema {
 			return s
 		}
 		return unknown
+	case "cast_expression":
+		// `(bool) $this->is_nsfw` — a PHP cast is the type, stated outright and
+		// independent of anything the model declares. The strongest evidence a
+		// payload value can carry.
+		if t, ok := castedType(php.ChildByType(v, "cast_type").Text()); ok {
+			return &model.Schema{Type: t, Required: model.ReqUnknown, Confidence: model.Confirmed}
+		}
+		return unknown
+	case "conditional_expression":
+		// `$x === null ? true : (bool) $x` — when both branches agree on a type,
+		// so does the field, whichever way the condition goes.
+		return branchAgreement(v, depth, res, unknown)
+	case "binary_expression":
+		// `$this->count ?? 0` — the null-coalescing default types the field when
+		// the left side does not.
+		if v.ChildByFieldName("operator").Text() == "??" {
+			if s := valueSchema(v.ChildByFieldName("left"), depth, res); s.Confidence != model.Uncertain {
+				return s
+			}
+			return valueSchema(v.ChildByFieldName("right"), depth, res)
+		}
+		return unknown
+	case "member_access_expression":
+		if s := res.attrSchema(v); s != nil {
+			return s
+		}
+		return unknown
 	}
 	if php.IsCall(v) {
 		if s := res.callSchema(v, depth); s != nil {
@@ -101,6 +130,57 @@ func valueSchema(v php.Node, depth int, res *resolver) *model.Schema {
 		}
 	}
 	return unknown
+}
+
+// attrSchema types a model-attribute access inside a resource payload —
+// `$this->resource->slug`, or the `$this->slug` shorthand JsonResource proxies.
+// Without this every field of every resource is a named object of unknown shape,
+// which is honest but nearly contentless.
+func (r *resolver) attrSchema(access php.Node) *model.Schema {
+	if r.model == nil {
+		return nil
+	}
+	name := php.ChildByType(access, "name").Text()
+	if name == "" {
+		return nil
+	}
+	t, ok := r.model[name]
+	if !ok {
+		return nil
+	}
+	// One indirection from the payload to the model's declaration.
+	return &model.Schema{Type: t, Required: model.ReqUnknown, Confidence: model.Likely}
+}
+
+// modelFor joins a resource class to the Eloquent model behind it, by Laravel's
+// naming convention: UserResource / UsersCollection -> User. The convention is
+// near-universal in Laravel apps and needs no annotation; a resource that does
+// not follow it simply types nothing, which is the previous behavior.
+func (r *resolver) modelFor(cls phpClass) map[string]string {
+	if r.idx == nil || r.idx.PHPModelAttrs == nil {
+		return nil
+	}
+	base := cls.name()
+	for _, suffix := range []string{"Resource", "Collection", "Data"} {
+		base = strings.TrimSuffix(base, suffix)
+	}
+	if base == "" {
+		return nil
+	}
+	if attrs, ok := r.idx.PHPModelAttrs[base]; ok {
+		return attrs
+	}
+	return r.idx.PHPModelAttrs[singularStudly(base)]
+}
+
+// singularStudly singularizes a StudlyCase name (Articles -> Article), for a
+// collection resource named after the plural.
+func singularStudly(s string) string {
+	low := singular(strings.ToLower(s))
+	if low == strings.ToLower(s) {
+		return s
+	}
+	return strings.ToUpper(low[:1]) + low[1:]
 }
 
 // resolver carries what array reading needs from the rest of the index: the
@@ -112,6 +192,12 @@ type resolver struct {
 	// seen guards against a resource cycle (A embeds B embeds A), which is legal
 	// to write because the recursion is broken at runtime by the data.
 	seen map[string]bool
+
+	// model is the attribute-type map of the Eloquent model backing the resource
+	// currently being expanded, so `$this->resource->slug` can be typed. Set for
+	// the duration of one resource's toArray() and restored after, since a nested
+	// resource is backed by a different model.
+	model map[string]string
 }
 
 func newResolver(idx *provider.Index) *resolver {
@@ -154,6 +240,10 @@ func (r *resolver) byClassName(ctx php.Node, name string, depth int) *model.Sche
 	if declared == "" {
 		declared = simpleClassName(name)
 	}
+	prevModel := r.model
+	r.model = r.modelFor(cls)
+	defer func() { r.model = prevModel }()
+
 	if m, ok := cls.method("toArray"); ok {
 		if s := r.methodPayload(m, depth); s != nil {
 			s.Type = declared
@@ -332,4 +422,57 @@ func enclosingClassName(n php.Node) string {
 		}
 	}
 	return ""
+}
+
+// castedType maps a PHP cast to a wire type.
+func castedType(cast string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(cast)) {
+	case "int", "integer":
+		return "int", true
+	case "float", "double", "real":
+		return "float", true
+	case "string", "binary":
+		return "string", true
+	case "bool", "boolean":
+		return "bool", true
+	case "array":
+		return "array", true
+	case "object":
+		return "object", true
+	}
+	return "", false
+}
+
+// branchAgreement types a ternary when both arms agree. They frequently do —
+// `$x === null ? true : (bool) $x` is one type written twice — and when they do
+// not, the field's type genuinely depends on runtime state.
+func branchAgreement(cond php.Node, depth int, res *resolver, unknown *model.Schema) *model.Schema {
+	kids := php.NamedChildren(cond)
+	if len(kids) < 2 {
+		return unknown
+	}
+	// The condition is the first child; the arms are the rest. A short ternary
+	// (`$a ?: $b`) has two children, so both are arms.
+	arms := kids[1:]
+	if len(kids) == 2 {
+		arms = kids
+	}
+	var first *model.Schema
+	for _, a := range arms {
+		s := valueSchema(a, depth, res)
+		if s.Confidence == model.Uncertain {
+			return unknown
+		}
+		if first == nil {
+			first = s
+			continue
+		}
+		if s.Type != first.Type {
+			return unknown
+		}
+	}
+	if first == nil {
+		return unknown
+	}
+	return first
 }

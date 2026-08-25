@@ -521,3 +521,120 @@ func TestResourceRegistrarSchemas(t *testing.T) {
 		t.Errorf("got  %v\nwant %v", got, want)
 	}
 }
+
+// TestModelAttributeTypes covers #73: a resource states `'slug' => $this->slug`,
+// and every type behind those literal keys lives in the model — which declares
+// no properties, because Eloquent builds them from the database at runtime. The
+// three static sources are merged, strongest last.
+func TestModelAttributeTypes(t *testing.T) {
+	files := map[string]string{
+		"app/Models/Article.php": `<?php
+			namespace App\Models;
+			use Illuminate\Database\Eloquent\Model;
+			/**
+			 * @property int $id
+			 * @property string $title
+			 * @property \Illuminate\Support\Carbon|null $created_at
+			 */
+			class Article extends Model {
+				protected $casts = ['published' => 'boolean', 'score' => 'float'];
+			}`,
+		"database/migrations/2024_01_01_create_articles_table.php": `<?php
+			return new class extends Migration {
+				public function up() {
+					Schema::create('articles', function (Blueprint $table) {
+						$table->id();
+						$table->string('slug');
+						$table->text('body');
+						$table->boolean('published');
+						$table->integer('score');
+						$table->timestamps();
+					});
+				}
+			};`,
+		"app/Http/Resources/ArticleResource.php": `<?php
+			namespace App\Http\Resources;
+			use Illuminate\Http\Resources\Json\JsonResource;
+			class ArticleResource extends JsonResource {
+				public function toArray($r) {
+					return [
+						'id' => $this->id,
+						'slug' => $this->slug,
+						'body' => $this->resource->body,
+						'title' => $this->title,
+						'published' => $this->published,
+						'score' => $this->score,
+						'created_at' => $this->created_at,
+						'mystery' => $this->not_a_column,
+					];
+				}
+			}`,
+		"app/Http/Controllers/UserController.php": `<?php
+			namespace App\Http\Controllers;
+			use App\Http\Resources\ArticleResource;
+			class UserController {
+				public function show($id) { return new ArticleResource($a); }
+			}`,
+	}
+	parsed := map[string]provider.ParsedFile{}
+	for p, src := range files {
+		f, err := php.NewParser().Parse(p, []byte(src))
+		if err != nil {
+			t.Fatalf("parse %s: %v", p, err)
+		}
+		parsed[p] = f
+	}
+	rf, err := php.NewParser().Parse("routes/api.php", []byte(routeToShow))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed["routes/api.php"] = rf
+
+	idx := &provider.Index{}
+	for _, ix := range []provider.Indexer{classIndexer{}, modelIndexer{}} {
+		if err := ix.Index(&provider.IndexContext{Parsed: parsed}, idx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := model.NewService("s", "s", "")
+	if err := query.New().Run(rf, []provider.Detector{routeDetector{}}, idx, nil, svc); err != nil {
+		t.Fatal(err)
+	}
+	model.Sort(svc)
+	got := render(svc.Endpoints[0].Response)
+	// score: the migration says integer, $casts says float — the cast wins,
+	// because it is what json_encode actually sees.
+	// created_at: only the docblock has it (Carbon -> string).
+	// mystery: no source has it; the NAME survives, the type does not.
+	want := "ArticleResource{body:string created_at:string id:int mystery:object published:bool score:float slug:string title:string}"
+	if got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
+
+// TestValueTypingWithoutAModel covers the sources that need no model at all: a
+// PHP cast states the type outright, and a null-coalescing default or an
+// agreeing ternary carries it too. pixelfed's resources are written this way and
+// do not follow the <Model>Resource naming convention.
+func TestValueTypingWithoutAModel(t *testing.T) {
+	_, resp := schemaFor(t, routeToShow, map[string]string{
+		"app/Http/Controllers/UserController.php": `<?php
+			namespace App\Http\Controllers;
+			class UserController {
+				public function show($id) {
+					return [
+						'is_nsfw' => (bool) $this->is_nsfw,
+						'count' => $this->cached_count ?? 0,
+						'ratio' => (float) $x,
+						'can_trend' => $this->can_trend === null ? true : (bool) $this->can_trend,
+						'mixed' => $flag ? 'yes' : 3,
+						'plain' => $this->whatever,
+					];
+				}
+			}`,
+	})
+	want := "object{can_trend:bool count:int is_nsfw:bool mixed:object plain:object ratio:float}"
+	if resp != want {
+		t.Errorf("got  %s\nwant %s", resp, want)
+	}
+}
