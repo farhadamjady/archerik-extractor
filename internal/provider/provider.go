@@ -191,6 +191,18 @@ type Index struct {
 	// Values are lang/php.Node kept opaque here (like HTTPContracts).
 	PHPClasses map[string]ASTNode
 
+	// PHPModelAttrs maps an Eloquent model's SIMPLE name to its attribute types
+	// (attribute -> "string"/"int"/"bool"/"float"/"object"/"array").
+	//
+	// A Laravel API Resource states its payload as `'slug' => $this->resource->slug`,
+	// so the field NAMES are literal but every type sits in the model — and a
+	// model declares no properties at all, because Eloquent resolves them at
+	// runtime from the database. The types are still statically knowable, just
+	// somewhere else: the `$casts` array, the `@property` docblock, and the
+	// migration that creates the column. Resolved values rather than nodes,
+	// because the three sources are merged before any detector sees them.
+	PHPModelAttrs map[string]map[string]string
+
 	// MethodReturns maps a type's SIMPLE name to each of its methods' declared
 	// return-type text: MethodReturns["OrderService"]["findAll"] = "Page<OrderDTO>".
 	// Built across parsed+shared files so a detector can resolve the payload of a

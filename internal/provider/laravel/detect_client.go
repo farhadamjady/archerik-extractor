@@ -1,6 +1,7 @@
 package laravel
 
 import (
+	"bytes"
 	"strings"
 
 	"github.com/farhadamjady/archerik-extractor/internal/model"
@@ -78,12 +79,11 @@ func (clientDetector) onCall(mc *provider.MatchContext) {
 // firefly-iii uses throughout, and without it a service whose only outbound
 // calls go through Guzzle reports no dependencies at all.
 //
-// The receiver must be a variable PROVED to hold a Guzzle client by an
-// assignment in scope. `->get(...)` is far too common to claim on the method name
-// — it is a collection, a cache, and a query builder more often than it is an
-// HTTP client — so an unproven receiver is left alone. Known gap: a client held
-// in a PROPERTY and assigned in the constructor (`$this->client->get(...)`) is
-// not resolved; that needs a property-type index.
+// The receiver must be PROVED to hold a Guzzle client — by an assignment in
+// scope for a local variable, or by a declared type for a property. `->get(...)`
+// is far too common to claim on the method name alone: it is a collection, a
+// cache, and a query builder more often than it is an HTTP client, so an
+// unproven receiver is left alone.
 func guzzleCall(mc *provider.MatchContext, call php.Node, name string) {
 	urlArg := php.PositionalArg(call, 0)
 	switch {
@@ -93,15 +93,132 @@ func guzzleCall(mc *provider.MatchContext, call php.Node, name string) {
 	default:
 		return
 	}
-	recv := php.CallReceiver(call)
-	if recv.Type() != "variable_name" {
+	f, ok := mc.File.(*php.File)
+	if !ok {
 		return
 	}
-	f, ok := mc.File.(*php.File)
-	if !ok || !holdsGuzzleClient(f, call, php.VarName(recv)) {
+	recv := php.CallReceiver(call)
+	switch recv.Type() {
+	case "variable_name":
+		if !holdsGuzzleClient(f, call, php.VarName(recv)) {
+			return
+		}
+	case "member_access_expression":
+		// `$this->client->get(...)`, where the client is injected. This is the
+		// form that actually occurs: across five benchmark repos there is not one
+		// `$this->client = new Client()` assignment, but koel injects a
+		// `private readonly Client $client` and calls GitHub through it.
+		if accessObject(recv).Text() != "$this" {
+			return
+		}
+		if !guzzleProperty(mc.Index, f, call, php.ChildByType(recv, "name").Text()) {
+			return
+		}
+	default:
 		return
 	}
 	emitHTTPDep(mc, call, urlArg, model.DetectGuzzle)
+}
+
+// guzzleProperty reports whether a property of the class enclosing a call holds
+// a Guzzle client, by its DECLARED TYPE — a promoted constructor property
+// (`__construct(private readonly Client $client)`), a typed property
+// (`private Client $client;`), or an assignment from `new Client(...)`.
+//
+// The type is what makes this safe: `$this->client->get(...)` is claimed only
+// when something in the class says that property is a Guzzle client, so a
+// `$this->cache->get(...)` on the next line is untouched.
+func guzzleProperty(idx *provider.Index, f *php.File, call php.Node, name string) bool {
+	if name == "" {
+		return false
+	}
+	class := enclosingClass(call)
+	if !class.Valid() {
+		return false
+	}
+	found := false
+	class.Walk(func(n php.Node) bool {
+		if found {
+			return false
+		}
+		switch n.Type() {
+		case "property_promotion_parameter", "property_declaration":
+			if php.VarName(propertyVariable(n)) != name {
+				return true
+			}
+			t := php.ChildByType(n, "named_type")
+			if t.Valid() && isGuzzleClientType(idx, t, f.Src()) {
+				found = true
+			}
+		case "assignment_expression":
+			left := n.ChildByFieldName("left")
+			if left.Type() != "member_access_expression" ||
+				accessObject(left).Text() != "$this" ||
+				php.ChildByType(left, "name").Text() != name {
+				return true
+			}
+			right := n.ChildByFieldName("right")
+			if right.Type() == "object_creation_expression" && guzzleClient(right, f.Src()) {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// propertyVariable returns the variable_name a property declaration binds,
+// wherever the grammar puts it.
+func propertyVariable(n php.Node) php.Node {
+	if v := php.ChildByType(n, "variable_name"); v.Valid() {
+		return v
+	}
+	if el := php.ChildByType(n, "property_element"); el.Valid() {
+		return php.ChildByType(el, "variable_name")
+	}
+	return php.Node{}
+}
+
+// isGuzzleClientType reports whether a type annotation names Guzzle's Client,
+// resolved through the file's imports so a same-named class from elsewhere does
+// not qualify.
+func isGuzzleClientType(idx *provider.Index, t php.Node, src []byte) bool {
+	name := strings.TrimPrefix(t.Text(), `\`)
+	if strings.HasSuffix(name, `GuzzleHttp\Client`) {
+		return true
+	}
+	if simpleClassName(name) != "Client" {
+		return false
+	}
+	if f := t.File(); f != nil {
+		if fqn, ok := f.Imports()["Client"]; ok {
+			return fqn == `GuzzleHttp\Client`
+		}
+	}
+	return bytes.Contains(src, []byte(`use GuzzleHttp\Client`))
+}
+
+// accessObject returns the object of a property access (`$this` in
+// `$this->client`). php.CallReceiver does not apply — a member ACCESS is not a
+// call, and asking it for a receiver yields nothing.
+func accessObject(n php.Node) php.Node {
+	if o := n.ChildByFieldName("object"); o.Valid() {
+		return o
+	}
+	if n.NamedChildCount() > 0 {
+		return n.NamedChild(0)
+	}
+	return php.Node{}
+}
+
+// enclosingClass returns the class declaration a node sits in.
+func enclosingClass(n php.Node) php.Node {
+	for p := n.Parent(); p.Valid(); p = p.Parent() {
+		if p.Type() == "class_declaration" {
+			return p
+		}
+	}
+	return php.Node{}
 }
 
 // holdsGuzzleClient reports whether a variable was assigned a Guzzle client in

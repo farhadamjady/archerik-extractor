@@ -231,6 +231,43 @@ func TestGuzzleClient(t *testing.T) {
 			want: nil,
 		},
 		{
+			// koel app/Services/ApplicationInformationService.php: the client is
+			// INJECTED, not constructed. Across five benchmark repos there is not
+			// one `$this->client = new Client()`, so the declared type is the only
+			// evidence there is.
+			name: "promoted constructor property typed as a Guzzle client",
+			src: `use GuzzleHttp\Client;
+				class S {
+					public function __construct(private readonly Client $client) {}
+					public function go() { return $this->client->get('https://api.github.com/repos/x/y/tags'); }
+				}`,
+			want: []string{"api.github.com https://api.github.com/repos/x/y/tags [confirmed]"},
+		},
+		{
+			name: "typed property declaration",
+			src: `use GuzzleHttp\Client;
+				class S {
+					private Client $http;
+					public function go() { return $this->http->get('https://api.example.com/x'); }
+				}`,
+			want: []string{"api.example.com https://api.example.com/x [confirmed]"},
+		},
+		{
+			// The type is what makes the property form safe: without it every
+			// `$this->cache->get(...)` in the app becomes an HTTP edge.
+			name: "an untyped or non-Guzzle property is not a client",
+			src: `use GuzzleHttp\Client;
+				class S {
+					private $cache;
+					private CacheRepository $store;
+					public function go() {
+						$this->cache->get('https://api.example.com/x');
+						$this->store->get('https://api.example.com/y');
+					}
+				}`,
+			want: nil,
+		},
+		{
 			// A client proved in one method must not vouch for a same-named
 			// variable in another.
 			name: "proof does not leak across methods",

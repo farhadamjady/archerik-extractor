@@ -211,7 +211,7 @@ func (*Provider) Parsers() map[provider.FileKind]provider.Parser {
 // detectors resolve values through. Outbound clients and schemas are next
 // rounds.
 func (*Provider) Indexers() []provider.Indexer {
-	return []provider.Indexer{prefixIndexer{}, configIndexer{}, classIndexer{}}
+	return []provider.Indexer{prefixIndexer{}, configIndexer{}, classIndexer{}, modelIndexer{}}
 }
 
 // Detectors: REST endpoints from Route facade registrations (including group
