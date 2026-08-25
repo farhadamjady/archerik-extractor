@@ -117,9 +117,10 @@ is worse than one that admits it.
 | PHP | Laravel |
 
 PHP/Laravel covers the REST surface (route files, groups, mount prefixes,
-resource registrars) and outbound HTTP (the `Http` facade and Guzzle). Messaging
-for it is the next round — Laravel's dominant async idiom is Queue/Bus over
-Redis/SQS, which this output model has no protocol for yet.
+resource registrars), outbound HTTP (the `Http` facade and Guzzle), and schemas
+(FormRequest validation rules, API Resources, inline `response()->json`).
+Messaging for it is the next round — Laravel's dominant async idiom is Queue/Bus
+over Redis/SQS, which this output model has no protocol for yet.
 
 Each language has its own tree-sitter parsing layer, and each framework is a
 provider on top of it — so adding a framework to a language that already has a
