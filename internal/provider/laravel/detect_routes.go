@@ -105,22 +105,42 @@ func (routeDetector) onCall(mc *provider.MatchContext) {
 // RedirectIfAuthenticated middleware. `getRoutes` is not a router method, so the
 // chain is rejected and nothing is emitted.
 func routeFacade(call php.Node) bool {
+	return facadeChain(call, "Route", routeChainMethod)
+}
+
+// facadeRoot reports whether a call's receiver chain roots at the named facade,
+// without constraining the methods in between.
+//
+// The Http facade uses this looser check while Route uses facadeChain, and the
+// asymmetry is deliberate. A Route registration is identified by the chain
+// (`get` alone means nothing — Route::getRoutes()->get() is a lookup), whereas an
+// Http request is identified by its OUTERMOST method being a verb, which is
+// already conclusive. Http's builder surface is also large and grows with each
+// framework release, so an allowlist there would silently drop real outbound
+// calls — and a missing edge is the error this project cares most about.
+func facadeRoot(call php.Node, facade string) bool {
+	return facadeChain(call, facade, func(string) bool { return true })
+}
+
+// facadeChain walks a call's receivers to the facade at its root, requiring
+// every intermediate call to satisfy chainOK.
+func facadeChain(call php.Node, facade string, chainOK func(string) bool) bool {
 	for n := call; n.Valid(); {
 		switch n.Type() {
 		case "member_call_expression", "nullsafe_member_call_expression":
 			recv := n.ChildByFieldName("object")
 			// Every call below the outermost one is an intermediate link; the
 			// outermost call's own name is the caller's business.
-			if !n.Equal(call) && !routeChainMethod(php.CallName(n)) {
+			if !n.Equal(call) && !chainOK(php.CallName(n)) {
 				return false
 			}
 			n = recv
 		case "scoped_call_expression":
 			scope := n.ChildByFieldName("scope").Text()
-			if scope != "Route" && !strings.HasSuffix(scope, `\Route`) {
+			if scope != facade && !strings.HasSuffix(scope, `\`+facade) {
 				return false
 			}
-			return n.Equal(call) || routeChainMethod(php.CallName(n))
+			return n.Equal(call) || chainOK(php.CallName(n))
 		default:
 			return false
 		}

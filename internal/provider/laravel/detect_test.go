@@ -309,7 +309,8 @@ func TestMountPrefix(t *testing.T) {
 
 func TestDetectors(t *testing.T) {
 	want := map[string]model.Protocol{
-		"laravel.route": model.ProtoREST,
+		"laravel.route":  model.ProtoREST,
+		"laravel.client": model.ProtoREST,
 	}
 	dets := New().Detectors()
 	if len(dets) != len(want) {

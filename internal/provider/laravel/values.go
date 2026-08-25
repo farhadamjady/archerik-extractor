@@ -25,6 +25,28 @@ type routeScope struct {
 	// (`$a = $b . 'x'; $b = $a;`), which are legal to write and would
 	// otherwise recurse forever.
 	visiting map[string]bool
+
+	// sources records every config file consulted while evaluating one
+	// expression, so a caller can report provenance. A value assembled from
+	// more than one source has no single file to name honestly, and the
+	// Dependency contract says to leave the field blank in that case.
+	sources []string
+}
+
+// sourceUsed returns the single config source this scope consulted, or "" when
+// it consulted none or several.
+func (s *routeScope) sourceUsed() string {
+	seen := ""
+	for _, src := range s.sources {
+		if src == "" {
+			continue
+		}
+		if seen != "" && seen != src {
+			return ""
+		}
+		seen = src
+	}
+	return seen
 }
 
 func newRouteScope(f *php.File, call php.Node, idx *provider.Index) *routeScope {
@@ -68,7 +90,8 @@ func (s *routeScope) Call(call php.Node) ([]string, bool) {
 		return nil, false
 	}
 	if s.cfg != nil {
-		if v, _, _, ok := s.cfg.Resolve(key); ok {
+		if v, _, src, ok := s.cfg.Resolve(key); ok {
+			s.sources = append(s.sources, src)
 			return []string{v}, true
 		}
 	}

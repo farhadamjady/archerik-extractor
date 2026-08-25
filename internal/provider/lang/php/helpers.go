@@ -70,6 +70,12 @@ type Arg struct {
 func CallArgs(call Node) []Arg {
 	args := call.ChildByFieldName("arguments")
 	if !args.Valid() {
+		// object_creation_expression carries its arguments as a plain named
+		// child rather than a labelled field, so `new C([...])` reaches the
+		// same accessors as a call.
+		args = ChildByType(call, "arguments")
+	}
+	if !args.Valid() {
 		return nil
 	}
 	var out []Arg

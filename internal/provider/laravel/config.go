@@ -39,11 +39,12 @@ func (configIndexer) Name() string { return "laravel.config" }
 func (configIndexer) Index(ic *provider.IndexContext, idx *provider.Index) error {
 	cfg := &laravelConfig{
 		values: map[string]string{},
-		env:    map[string]string{},
+		origin: map[string]string{},
+		env:    map[string]envValue{},
 	}
 	for _, p := range envFilesByPrecedence(ic.Parsed) {
 		rf := ic.Parsed[p].(*rawFile)
-		parseDotenv(rf.Src(), cfg.env)
+		parseDotenv(rf.Src(), p, cfg.env)
 	}
 	for _, p := range sortedPHPPaths(ic.Parsed) {
 		name, ok := configFileKey(p)
@@ -52,7 +53,7 @@ func (configIndexer) Index(ic *provider.IndexContext, idx *provider.Index) error
 		}
 		f := ic.Parsed[p].(*php.File)
 		if ret := returnedArray(f); ret.Valid() {
-			cfg.flatten(name, ret)
+			cfg.flatten(name, p, ret)
 		}
 	}
 	if len(cfg.values) > 0 || len(cfg.env) > 0 {
@@ -94,26 +95,52 @@ func returnedArray(f *php.File) php.Node {
 
 // laravelConfig is the merged config view, implementing provider.ConfigResolver.
 type laravelConfig struct {
-	values map[string]string // dotted config key -> resolved value
-	env    map[string]string // .env variable -> value
+	values map[string]string   // dotted config key -> resolved value
+	origin map[string]string   // dotted config key -> the file the value came from
+	env    map[string]envValue // .env variable -> value + which file it came from
 }
 
-// flatten walks a config array into dotted keys under prefix. Nested arrays
-// recurse; a leaf is resolved through the env layer.
-func (c *laravelConfig) flatten(prefix string, arr php.Node) {
+// envValue is an environment value and its provenance. The file matters to the
+// reader: a value from `.env.example` is a placeholder describing how to fill
+// the variable in, and naming the file is the difference between "the service
+// calls localhost:8000" and "the example env file says localhost:8000".
+type envValue struct {
+	value  string
+	source string
+}
+
+// flatten walks a config array into dotted keys under prefix, recording for each
+// leaf which file the value actually came from. Nested arrays recurse; a leaf is
+// resolved through the env layer.
+func (c *laravelConfig) flatten(prefix, file string, arr php.Node) {
 	for _, e := range php.ArrayEntries(arr) {
 		if e.Key == "" {
 			continue // a positional entry has no key to address it by
 		}
 		key := prefix + "." + e.Key
 		if e.Value.Type() == "array_creation_expression" {
-			c.flatten(key, e.Value)
+			c.flatten(key, file, e.Value)
 			continue
 		}
 		if v, ok := php.Eval(e.Value, envScope{c}); ok {
 			c.values[key] = v[0]
+			c.origin[key] = c.leafOrigin(e.Value, file)
 		}
 	}
+}
+
+// leafOrigin names the file a config leaf's value came from. `env('X')` backed by
+// an env file is that file; an `env('X', 'default')` that fell back, or a plain
+// literal, came from the config file itself.
+func (c *laravelConfig) leafOrigin(leaf php.Node, file string) string {
+	if php.IsCall(leaf) && php.CallName(leaf) == "env" {
+		if name, ok := php.StringLit(php.PositionalArg(leaf, 0)); ok {
+			if v, ok := c.env[name]; ok {
+				return v.source
+			}
+		}
+	}
+	return file
 }
 
 // envScope evaluates a config file's leaf expressions. It resolves `env(...)`
@@ -132,7 +159,7 @@ func (s envScope) Call(call php.Node) ([]string, bool) {
 		return nil, false
 	}
 	if v, ok := s.c.env[name]; ok {
-		return []string{v}, true
+		return []string{v.value}, true
 	}
 	if def, ok := php.StringLit(php.PositionalArg(call, 1)); ok {
 		return []string{def}, true
@@ -144,10 +171,10 @@ func (s envScope) Call(call php.Node) ([]string, bool) {
 // variable name (`PAYMENT_URL`) — Laravel code reaches for both.
 func (c *laravelConfig) Resolve(key string) (string, model.Confidence, string, bool) {
 	if v, ok := c.values[key]; ok {
-		return v, model.Likely, "config/" + configFileOf(key) + ".php", true
+		return v, model.Likely, c.origin[key], true
 	}
 	if v, ok := c.env[key]; ok {
-		return v, model.Likely, ".env", true
+		return v.value, model.Likely, v.source, true
 	}
 	return "", model.Uncertain, "", false
 }
@@ -174,7 +201,7 @@ func configFileOf(key string) string {
 // parseDotenv reads KEY=value lines. Quotes are stripped, `export` prefixes and
 // comments ignored. A key already present is NOT overwritten, so the first file
 // in sorted order wins deterministically.
-func parseDotenv(src []byte, out map[string]string) {
+func parseDotenv(src []byte, from string, out map[string]envValue) {
 	for _, line := range strings.Split(string(src), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -194,7 +221,7 @@ func parseDotenv(src []byte, out map[string]string) {
 			continue
 		}
 		if _, taken := out[k]; !taken {
-			out[k] = v
+			out[k] = envValue{value: v, source: from}
 		}
 	}
 }

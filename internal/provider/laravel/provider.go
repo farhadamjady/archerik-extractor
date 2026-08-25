@@ -214,11 +214,13 @@ func (*Provider) Indexers() []provider.Indexer {
 	return []provider.Indexer{prefixIndexer{}, configIndexer{}}
 }
 
-// Detectors: REST endpoints from Route facade registrations, including group
-// prefix composition and resource-registrar expansion.
+// Detectors: REST endpoints from Route facade registrations (including group
+// prefix composition and resource-registrar expansion), and outbound HTTP from
+// the Http facade + Guzzle client construction.
 func (*Provider) Detectors() []provider.Detector {
 	return []provider.Detector{
 		routeDetector{},
+		clientDetector{},
 	}
 }
 
