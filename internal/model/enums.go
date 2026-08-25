@@ -44,6 +44,8 @@ const (
 	DetectFetch             DetectionMethod = "fetch"              // WHATWG fetch() call (Node/browser)
 	DetectDotNetHTTPClient  DetectionMethod = "dotnet-httpclient"  // .NET HttpClient call (GetAsync/PostAsJsonAsync/SendAsync)
 	DetectRefit             DetectionMethod = "refit"              // Refit declarative HTTP client interface (.NET)
+	DetectLaravelHTTP       DetectionMethod = "laravel-http"       // Laravel Http facade (Illuminate\Support\Facades\Http)
+	DetectGuzzle            DetectionMethod = "guzzle"             // GuzzleHttp\Client (PHP)
 )
 
 // Protocol is the communication protocol of an edge — a FIRST-CLASS field, kept

@@ -12,7 +12,7 @@ every endpoint, dependency, Kafka topic, and schema, on every commit.**
 [![CI](https://github.com/farhadamjady/archerik-extractor/actions/workflows/ci.yml/badge.svg)](https://github.com/farhadamjady/archerik-extractor/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/go-1.26%2B-00B3CB?logo=go&logoColor=white)](https://go.dev)
 [![License](https://img.shields.io/badge/license-MIT-008598)](LICENSE)
-[![Stacks](https://img.shields.io/badge/stacks-8-005865)](#supported-stacks)
+[![Stacks](https://img.shields.io/badge/stacks-9-005865)](#supported-stacks)
 
 </div>
 
@@ -114,6 +114,13 @@ is worse than one that admits it.
 | JavaScript | Express |
 | C# | ASP.NET Core |
 | Go | `net/http` (no framework) |
+| PHP | Laravel |
+
+PHP/Laravel covers the REST surface (route files, groups, mount prefixes,
+resource registrars), outbound HTTP (the `Http` facade and Guzzle), and schemas
+(FormRequest validation rules, API Resources, inline `response()->json`).
+Messaging for it is the next round — Laravel's dominant async idiom is Queue/Bus
+over Redis/SQS, which this output model has no protocol for yet.
 
 Each language has its own tree-sitter parsing layer, and each framework is a
 provider on top of it — so adding a framework to a language that already has a

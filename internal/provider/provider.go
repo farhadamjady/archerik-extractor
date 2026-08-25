@@ -177,6 +177,20 @@ type Index struct {
 	// (like HTTPContracts).
 	GoFuncBodies map[string]ASTNode
 
+	// PHPClasses maps a PHP class SIMPLE name to its declaration node, indexed
+	// across all scanned files. Laravel reaches every contract it has through a
+	// class name found somewhere else: a route names its handler
+	// (`[UserController::class, 'show']`), a handler's parameter names a
+	// FormRequest whose `rules()` IS the request contract, and a return names a
+	// JsonResource whose `toArray()` IS the response contract — none of which are
+	// in the file being read. PHP handlers rarely declare types, so these bodies
+	// are the only source, exactly as GoFuncBodies is for Go.
+	//
+	// Simple names can collide across namespaces; the first declaration in
+	// path-sorted order wins, so resolution stays deterministic and best-effort.
+	// Values are lang/php.Node kept opaque here (like HTTPContracts).
+	PHPClasses map[string]ASTNode
+
 	// MethodReturns maps a type's SIMPLE name to each of its methods' declared
 	// return-type text: MethodReturns["OrderService"]["findAll"] = "Page<OrderDTO>".
 	// Built across parsed+shared files so a detector can resolve the payload of a
