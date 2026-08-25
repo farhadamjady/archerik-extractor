@@ -116,9 +116,10 @@ is worse than one that admits it.
 | Go | `net/http` (no framework) |
 | PHP | Laravel |
 
-PHP/Laravel currently covers the REST surface — route files, groups, mount
-prefixes, and resource registrars. Its outbound HTTP and messaging detection is
-the next round.
+PHP/Laravel covers the REST surface (route files, groups, mount prefixes,
+resource registrars) and outbound HTTP (the `Http` facade and Guzzle). Messaging
+for it is the next round — Laravel's dominant async idiom is Queue/Bus over
+Redis/SQS, which this output model has no protocol for yet.
 
 Each language has its own tree-sitter parsing layer, and each framework is a
 provider on top of it — so adding a framework to a language that already has a
