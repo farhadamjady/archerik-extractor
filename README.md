@@ -148,6 +148,16 @@ The result is a single binary named `extractor`. No JVM, no Node, no runtime
 dependencies — and it never builds or installs the dependencies of the code it
 scans.
 
+`go install` writes it to `$(go env GOPATH)/bin` — `~/go/bin` unless you have
+set `GOPATH` or `GOBIN`. If a successful install is still followed by
+`extractor: command not found`, that directory is not on your `PATH`:
+
+```sh
+export PATH="$HOME/go/bin:$PATH"
+```
+
+Add that line to `~/.zshrc` (or `~/.bashrc`) to make it persist.
+
 ## Usage
 
 ```sh
